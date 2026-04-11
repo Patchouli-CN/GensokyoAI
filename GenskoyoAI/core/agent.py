@@ -1,10 +1,12 @@
 """Agent 主类 - 异步优化版"""
 
-from typing import AsyncIterator
+from typing import AsyncIterator, Optional
 from pathlib import Path
 import asyncio
 import signal
 import sys
+from contextvars import ContextVar
+from uuid import uuid4
 
 import ollama
 from ollama import Message, ChatResponse
@@ -29,6 +31,18 @@ from ..background import (
     PersistenceWorker,
     TaskPriority,
 )
+
+# 请求上下文
+request_id_var: ContextVar[str] = ContextVar('request_id', default='')
+
+
+def get_request_id() -> str:
+    """获取当前请求ID"""
+    rid = request_id_var.get()
+    if not rid:
+        rid = str(uuid4())[:8]
+        request_id_var.set(rid)
+    return rid
 
 
 class StreamChunk(Struct):
@@ -101,6 +115,11 @@ class Agent:
         # 关闭状态
         self._shutting_down = False
         self._shutdown_event = asyncio.Event()
+        
+        # 请求管理
+        self._active_request_lock = asyncio.Lock()
+        self._current_task: asyncio.Task | None = None
+        self._request_semaphore = asyncio.Semaphore(1)  # 限制并发请求
         
         self._setup()
         self._setup_signal_handlers()
@@ -180,17 +199,14 @@ class Agent:
         """设置信号处理器"""
         try:
             loop = asyncio.get_running_loop()
-            loop.add_signal_handler(
-                signal.SIGINT,
-                lambda: asyncio.create_task(self._handle_signal(signal.SIGINT))
-            )
-            loop.add_signal_handler(
-                signal.SIGTERM,
-                lambda: asyncio.create_task(self._handle_signal(signal.SIGTERM))
-            )
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(
+                    sig,
+                    lambda s=sig: asyncio.create_task(self._handle_signal(s))
+                )
             logger.debug("信号处理器已设置")
         except NotImplementedError:
-            # Windows 不支持 add_signal_handler，使用其他方式
+            # Windows 不支持 add_signal_handler
             logger.debug("当前平台不支持 add_signal_handler")
             self._setup_windows_signal_handler()
 
@@ -217,6 +233,10 @@ class Agent:
         signal_name = signal.Signals(signum).name
         
         logger.info(f"收到 {signal_name} 信号，正在优雅关闭...")
+        
+        # 取消当前请求
+        if self._current_task and not self._current_task.done():
+            self._current_task.cancel()
         
         # 等待当前操作完成（最多 3 秒）
         try:
@@ -323,7 +343,7 @@ class Agent:
     async def _call_model(
         self, messages: list[dict[str, str]], tools: list[dict] | None = None
     ) -> ChatResponse:
-        """调用模型（异步）"""
+        """调用模型（异步）- 带超时控制"""
         kwargs: dict = {
             "model": self.config.model.name,
             "messages": messages,
@@ -343,7 +363,12 @@ class Agent:
             logger.debug(f"传递了 {len(tools)} 个工具到模型")
 
         try:
-            return await self._ollama_chat_async(**kwargs)
+            return await asyncio.wait_for(
+                self._ollama_chat_async(**kwargs),
+                timeout=self.config.model.timeout
+            )
+        except asyncio.TimeoutError:
+            raise ModelError(f"模型调用超时 ({self.config.model.timeout}s)")
         except Exception as e:
             raise ModelError(f"模型调用失败: {e}") from e
 
@@ -393,7 +418,11 @@ class Agent:
             executor.submit(producer)
 
             while True:
-                item = await queue.get()
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=self.config.model.timeout)
+                except asyncio.TimeoutError:
+                    raise ModelError(f"流式模型调用超时 ({self.config.model.timeout}s)")
+                
                 if item is None:
                     break
                 if isinstance(item, Exception):
@@ -624,6 +653,23 @@ class Agent:
         if self._shutting_down:
             return ""
         
+        # 使用信号量限制并发
+        async with self._request_semaphore:
+            request_id = get_request_id()
+            logger.debug(f"[{request_id}] 开始处理请求")
+            
+            try:
+                self._current_task = asyncio.current_task()
+                return await self._do_send(user_input)
+            except asyncio.CancelledError:
+                logger.info(f"[{request_id}] 请求被取消")
+                raise
+            finally:
+                self._current_task = None
+                logger.debug(f"[{request_id}] 请求处理完成")
+
+    async def _do_send(self, user_input: str) -> str:
+        """实际执行发送逻辑"""
         self._record_user_message(user_input)
 
         tools = self.tool_registry.get_schemas() if self.config.tool.enabled else None
@@ -646,6 +692,23 @@ class Agent:
         if self._shutting_down:
             return
         
+        async with self._request_semaphore:
+            request_id = get_request_id()
+            logger.debug(f"[{request_id}] 开始处理流式请求")
+            
+            try:
+                self._current_task = asyncio.current_task()
+                async for chunk in self._do_send_stream(user_input):
+                    yield chunk
+            except asyncio.CancelledError:
+                logger.info(f"[{request_id}] 流式请求被取消")
+                raise
+            finally:
+                self._current_task = None
+                logger.debug(f"[{request_id}] 流式请求处理完成")
+
+    async def _do_send_stream(self, user_input: str) -> AsyncIterator[StreamChunk]:
+        """实际执行流式发送逻辑"""
         self._record_user_message(user_input)
 
         tools = self.tool_registry.get_schemas() if self.config.tool.enabled else None
@@ -681,10 +744,8 @@ class Agent:
 
         if full_content and not self._shutting_down:
             self._record_assistant_message(full_content)
-            # 后台处理记忆，不阻塞
             await self._auto_memory_async(user_input, full_content)
 
-        # 异步保存，不阻塞
         await self._save_async_if_needed()
 
     # ==================== 会话管理 ====================

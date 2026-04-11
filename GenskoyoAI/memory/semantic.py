@@ -21,6 +21,7 @@ class SemanticMode(Enum):
     EMBEDDING = "embedding"
     MODEL_EXTRACT = "model_extract"
     DISABLED = "disabled"
+    UNKNOWN = "unknown"  # 新增：未检测状态
 
 
 class SimpleVectorStore:
@@ -126,47 +127,52 @@ class SemanticMemoryManager:
         self.config = config
         self.character_id = character_id
         self._store = SimpleVectorStore(base_path / f"{character_id}_semantic.json")
-        self._mode = SemanticMode.DISABLED
-        self._embedding_checked = False
-        self._embedding_available = False
+        self._mode = SemanticMode.UNKNOWN  # 延迟检测
+        self._mode_lock = asyncio.Lock()
+        self._embedding_error_logged = False
 
         # 创建异步版本的 ollama 调用
         self._ollama_embeddings_async = sync_to_async(ollama.embeddings)
         self._ollama_chat_async = sync_to_async(ollama.chat)
 
-        if config.semantic_enabled:
-            self._init_mode()
+    async def _ensure_mode_async(self) -> SemanticMode:
+        """确保模式已检测（异步延迟检测）"""
+        if self._mode != SemanticMode.UNKNOWN:
+            return self._mode
+        
+        async with self._mode_lock:
+            if self._mode != SemanticMode.UNKNOWN:
+                return self._mode
+            
+            if not self.config.semantic_enabled:
+                self._mode = SemanticMode.DISABLED
+                return self._mode
+            
+            if await self._check_embedding_available_async():
+                self._mode = SemanticMode.EMBEDDING
+                logger.info(
+                    f"语义记忆使用向量检索模式: {self.config.semantic_embedding_model}"
+                )
+            else:
+                self._mode = SemanticMode.MODEL_EXTRACT
+                logger.info("语义记忆降级为模型提取模式")
+            
+            return self._mode
 
-    def _init_mode(self) -> None:
-        """初始化语义记忆模式（同步检测）"""
-        if self._check_embedding_available():
-            self._mode = SemanticMode.EMBEDDING
-            logger.info(
-                f"语义记忆使用向量检索模式: {self.config.semantic_embedding_model}"
-            )
-        else:
-            self._mode = SemanticMode.MODEL_EXTRACT
-            logger.info("语义记忆降级为模型提取模式")
-
-    def _check_embedding_available(self) -> bool:
-        """检测 embedding 模型是否可用"""
-        if self._embedding_checked:
-            return self._embedding_available
-
+    async def _check_embedding_available_async(self) -> bool:
+        """检测 embedding 模型是否可用（异步）"""
         try:
-            response = ollama.embeddings(
+            response = await self._ollama_embeddings_async(
                 model=self.config.semantic_embedding_model, prompt="test"
             )
-            self._embedding_available = response is not None
+            return response is not None
         except Exception:
-            self._embedding_available = False
-
-        self._embedding_checked = True
-        return self._embedding_available
+            return False
 
     async def _get_embedding_async(self, text: str) -> list[float] | None:
         """获取文本向量（异步）"""
-        if self._mode != SemanticMode.EMBEDDING:
+        mode = await self._ensure_mode_async()
+        if mode != SemanticMode.EMBEDDING:
             return None
 
         try:
@@ -175,7 +181,7 @@ class SemanticMemoryManager:
             )
             return response.embedding  # type: ignore
         except Exception as e:
-            if not hasattr(self, "_embedding_error_logged"):
+            if not self._embedding_error_logged:
                 logger.debug(f"Embedding 不可用，将使用模型提取模式: {e}")
                 self._embedding_error_logged = True
             self._mode = SemanticMode.MODEL_EXTRACT
@@ -220,21 +226,22 @@ class SemanticMemoryManager:
         self, content: str, importance: float = 0.0, tags: list[str] | None = None
     ) -> str | None:
         """添加语义记忆（异步）"""
-        if self._mode == SemanticMode.DISABLED:
+        mode = await self._ensure_mode_async()
+        if mode == SemanticMode.DISABLED:
             return None
 
         memory = SemanticMemory(
             content=content, embedding=None, importance=importance, tags=tags or []
         )
 
-        if self._mode == SemanticMode.EMBEDDING:
+        if mode == SemanticMode.EMBEDDING:
             embedding = await self._get_embedding_async(content)
             if embedding:
                 memory.embedding = embedding
 
         memory_dict = _memory_to_dict(memory)
 
-        if self._mode == SemanticMode.MODEL_EXTRACT or memory.embedding is None:
+        if mode == SemanticMode.MODEL_EXTRACT or memory.embedding is None:
             summary, keywords = await self._extract_key_info_with_model_async(content)
             memory_dict["extracted_summary"] = summary
             memory_dict["extracted_keywords"] = keywords
@@ -292,10 +299,23 @@ class SemanticMemoryManager:
         return memories
 
     def get_relevant_context(self, query: str, top_k: int = 3) -> list[str]:
-        """获取相关上下文"""
-        # 同步版本，简单返回空或使用关键词匹配
+        """获取相关上下文（同步版本）"""
+        if self._mode == SemanticMode.UNKNOWN:
+            # 同步检测模式
+            if self.config.semantic_enabled:
+                try:
+                    response = ollama.embeddings(
+                        model=self.config.semantic_embedding_model, prompt="test"
+                    )
+                    self._mode = SemanticMode.EMBEDDING if response else SemanticMode.MODEL_EXTRACT
+                except Exception:
+                    self._mode = SemanticMode.MODEL_EXTRACT
+            else:
+                self._mode = SemanticMode.DISABLED
+        
         if self._mode == SemanticMode.DISABLED:
             return []
+        
         memories = self._search_by_keywords(query, top_k)
         return [m.content for m in memories if m.importance > 0.3]
 
@@ -303,10 +323,11 @@ class SemanticMemoryManager:
         self, query: str, top_k: int = 3
     ) -> list[str]:
         """获取相关上下文（异步）"""
-        if self._mode == SemanticMode.DISABLED:
+        mode = await self._ensure_mode_async()
+        if mode == SemanticMode.DISABLED:
             return []
 
-        if self._mode == SemanticMode.EMBEDDING:
+        if mode == SemanticMode.EMBEDDING:
             embedding = await self._get_embedding_async(query)
             if embedding:
                 results = self._store.search(embedding, top_k)
