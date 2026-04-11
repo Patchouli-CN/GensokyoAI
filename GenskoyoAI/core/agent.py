@@ -5,6 +5,7 @@ from pathlib import Path
 import asyncio
 import signal
 import sys
+import signal as sig
 from contextvars import ContextVar
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
@@ -213,7 +214,6 @@ class Agent:
 
     def _setup_windows_signal_handler(self) -> None:
         """Windows 平台的信号处理"""
-        import signal as sig
 
         def windows_handler(signum, frame):
             if not self._shutting_down:
