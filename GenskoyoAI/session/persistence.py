@@ -4,7 +4,7 @@ import json
 import asyncio
 from pathlib import Path
 
-import ayafileio 
+import ayafileio
 
 from .context import SessionContext
 from ..utils.logging import logger
@@ -13,13 +13,9 @@ from ..utils.logging import logger
 class SessionPersistence:
     """会话持久化 - 基于 ayafileio 的真异步 I/O"""
 
-    def __init__(self, base_path: Path | str):
-        # 确保 base_path 是 Path 对象
-        if isinstance(base_path, str):
-            self.base_path = Path(base_path)
-        else:
-            self.base_path = base_path
-            
+    def __init__(self, base_path: Path):
+        self.base_path = base_path
+
         logger.debug(
             f"value the base_path is: {self.base_path}, type: {type(self.base_path).__name__}"
         )
@@ -86,27 +82,41 @@ class SessionPersistence:
             logger.warning(f"未找到会话文件: {session_id}")
 
     async def save_messages_async(self, session_id: str, messages: list[dict]) -> None:
-        """保存消息（异步 - 使用 ayafileio）"""
+        """保存消息（异步）"""
         async with self._lock:
+            # 方案1：直接从 session_id 反查 character_id
+            # 需要遍历所有角色的目录
             saved = False
+
+            # 先尝试从已有的会话中查找
             for char_dir in self.base_path.iterdir():
                 if char_dir.is_dir():
                     session_file = char_dir / f"{session_id}.json"
                     if session_file.exists():
-                        async with ayafileio.open(session_file, "r", encoding="utf-8") as f:
-                            content = await f.read()
-                            data = json.loads(content)
-                        data["messages"] = messages
-                        if "session" in data:
-                            data["session"]["total_turns"] = len(messages) // 2
-                        async with ayafileio.open(session_file, "w", encoding="utf-8") as f:
-                            await f.write(json.dumps(data, ensure_ascii=False, indent=2))
+                        file_path = session_file.resolve()
+
+                        def _save():
+                            with open(file_path, "r", encoding="utf-8") as f:
+                                data = json.load(f)
+                            data["messages"] = messages
+                            if "session" in data:
+                                data["session"]["total_turns"] = len(messages) // 2
+                            with open(file_path, "w", encoding="utf-8") as f:
+                                json.dump(data, f, ensure_ascii=False, indent=2)
+
+                        await asyncio.to_thread(_save)
                         saved = True
-                        logger.debug(f"消息已异步保存: {session_id}, {len(messages)} 条")
+                        logger.debug(
+                            f"消息已异步保存: {session_id}, {len(messages)} 条"
+                        )
                         break
 
-        if not saved:
-            logger.warning(f"未找到会话文件: {session_id}")
+            if not saved:
+                # 如果找不到，说明可能是新会话，需要从 session 对象中获取 character_id
+                # 但这里我们没有 session 对象...
+                logger.warning(f"未找到会话文件: {session_id}，将使用同步保存创建")
+                # 降级到同步保存，它会尝试创建
+                self.save_messages(session_id, messages)
 
     def load_messages(self, session_id: str) -> list[dict]:
         """加载消息（同步）"""

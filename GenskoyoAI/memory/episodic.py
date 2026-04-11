@@ -22,7 +22,7 @@ class EpisodicMemoryManager:
         self._episodes: list[EpisodicMemory] = []
         self._current_episode_messages: list[MemoryRecord] = []
         self._compress_lock = asyncio.Lock()  # 防止并发压缩
-        
+
         # 创建异步版本的 ollama.chat
         self._ollama_chat_async = sync_to_async(ollama.chat)
 

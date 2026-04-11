@@ -35,7 +35,6 @@ tool:
   builtin_tools:
     - time
     - moon
-    - memory
     - system
   custom_tools_path: null
 

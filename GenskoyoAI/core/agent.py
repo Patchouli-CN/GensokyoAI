@@ -1,6 +1,6 @@
 """Agent 主类 - 异步优化版"""
 
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator
 from pathlib import Path
 import asyncio
 import signal
@@ -27,13 +27,14 @@ from ..utils.logging import logger
 from ..utils.helpers import safe_get, sync_to_async
 from ..background import (
     BackgroundManager,
+    TaskResult,
     MemoryWorker,
     PersistenceWorker,
     TaskPriority,
 )
 
 # 请求上下文
-request_id_var: ContextVar[str] = ContextVar('request_id', default='')
+request_id_var: ContextVar[str] = ContextVar("request_id", default="")
 
 
 def get_request_id() -> str:
@@ -86,7 +87,7 @@ class Agent:
 
         # 初始化记忆系统
         base_path = self.config.session.save_path / "memory"
-        
+
         self.episodic_memory = EpisodicMemoryManager(
             self.config.memory,
             character_name,
@@ -107,20 +108,20 @@ class Agent:
         # 初始化后台管理器
         self._background_manager: BackgroundManager | None = None
         self._bg_task: asyncio.Task | None = None
-        
+
         # 去重标记：避免重复保存
         self._save_pending = False
         self._last_saved_turn = 0
-        
+
         # 关闭状态
         self._shutting_down = False
         self._shutdown_event = asyncio.Event()
-        
+
         # 请求管理
         self._active_request_lock = asyncio.Lock()
         self._current_task: asyncio.Task | None = None
         self._request_semaphore = asyncio.Semaphore(1)  # 限制并发请求
-        
+
         self._setup()
         self._setup_signal_handlers()
 
@@ -179,20 +180,20 @@ class Agent:
     def _create_background_manager(self) -> BackgroundManager:
         """创建后台管理器"""
         manager = BackgroundManager(max_workers=2, max_queue_size=50)
-        
+
         # 注册记忆工作器
         manager.register_memory_worker(
             MemoryWorker(self.semantic_memory, self.config.memory)
         )
-        
+
         # 注册持久化工作器
         manager.register_persistence_worker(
             PersistenceWorker(self.session_manager._persistence)
         )
-        
+
         # 注册完成回调
         manager.on_complete(self._on_background_task_complete)
-        
+
         return manager
 
     def _setup_signal_handlers(self) -> None:
@@ -201,8 +202,7 @@ class Agent:
             loop = asyncio.get_running_loop()
             for sig in (signal.SIGINT, signal.SIGTERM):
                 loop.add_signal_handler(
-                    sig,
-                    lambda s=sig: asyncio.create_task(self._handle_signal(s))
+                    sig, lambda s=sig: asyncio.create_task(self._handle_signal(s))
                 )
             logger.debug("信号处理器已设置")
         except NotImplementedError:
@@ -213,6 +213,7 @@ class Agent:
     def _setup_windows_signal_handler(self) -> None:
         """Windows 平台的信号处理"""
         import signal as sig
+
         def windows_handler(signum, frame):
             if not self._shutting_down:
                 self._shutting_down = True
@@ -220,7 +221,7 @@ class Agent:
                 self._sync_save()
                 logger.info("数据已保存，正在退出...")
                 sys.exit(0)
-        
+
         sig.signal(signal.SIGINT, windows_handler)
         sig.signal(signal.SIGTERM, windows_handler)
 
@@ -228,25 +229,25 @@ class Agent:
         """异步处理信号"""
         if self._shutting_down:
             return
-        
+
         self._shutting_down = True
         signal_name = signal.Signals(signum).name
-        
+
         logger.info(f"收到 {signal_name} 信号，正在优雅关闭...")
-        
+
         # 取消当前请求
         if self._current_task and not self._current_task.done():
             self._current_task.cancel()
-        
+
         # 等待当前操作完成（最多 3 秒）
         try:
             await asyncio.wait_for(self._graceful_shutdown(), timeout=3.0)
         except asyncio.TimeoutError:
             logger.warning("优雅关闭超时，强制保存并退出")
-        
+
         # 同步保存
         self._sync_save()
-        
+
         logger.info("数据已保存，正在退出...")
         self._shutdown_event.set()
         sys.exit(0)
@@ -260,7 +261,7 @@ class Agent:
                 await self._bg_task
             except asyncio.CancelledError:
                 pass
-        
+
         # 停止后台管理器
         if self._background_manager:
             await self._background_manager.stop(wait=True)
@@ -273,7 +274,9 @@ class Agent:
                 if current:  # 添加检查
                     self.session_manager.save_working_memory()
                     self.session_manager.save_current()
-                    logger.info(f"已保存会话数据 (轮数: {len(self.working_memory) // 2})")
+                    logger.info(
+                        f"已保存会话数据 (轮数: {len(self.working_memory) // 2})"
+                    )
         except Exception as e:
             logger.error(f"保存数据时出错: {e}")
 
@@ -283,11 +286,13 @@ class Agent:
             self._bg_task = asyncio.create_task(self.background_manager.start())
             logger.debug("后台管理器已启动")
 
-    async def _on_background_task_complete(self, result) -> None:
+    async def _on_background_task_complete(self, result: TaskResult) -> None:
         """后台任务完成回调"""
         if not result.success:
-            logger.debug(f"后台任务失败 [{result.task_id}]: {result.error}")
-        
+            logger.warning(f"后台任务失败 [{result.task_id}]: {result.error}")
+            if result.result and result.result.get("operation") == "save_messages":
+                self._save_pending = False
+
         # 如果是持久化任务完成，重置 pending 标记
         if result.result and result.result.get("operation") == "save_messages":
             self._save_pending = False
@@ -366,8 +371,7 @@ class Agent:
 
         try:
             return await asyncio.wait_for(
-                self._ollama_chat_async(**kwargs),
-                timeout=self.config.model.timeout
+                self._ollama_chat_async(**kwargs), timeout=self.config.model.timeout
             )
         except asyncio.TimeoutError:
             raise ModelError(f"模型调用超时 ({self.config.model.timeout}s)")
@@ -421,10 +425,12 @@ class Agent:
 
             while True:
                 try:
-                    item = await asyncio.wait_for(queue.get(), timeout=self.config.model.timeout)
+                    item = await asyncio.wait_for(
+                        queue.get(), timeout=self.config.model.timeout
+                    )
                 except asyncio.TimeoutError:
                     raise ModelError(f"流式模型调用超时 ({self.config.model.timeout}s)")
-                
+
                 if item is None:
                     break
                 if isinstance(item, Exception):
@@ -569,18 +575,18 @@ class Agent:
         """判断是否应该保存（去重）"""
         if self._shutting_down:
             return True  # 关闭时强制保存
-        
+
         current_turn = len(self.working_memory) // 2
-        
+
         # 如果没有新消息，不保存
         if current_turn <= self._last_saved_turn:
             return False
-        
+
         # 如果已有保存任务在队列中，不重复提交
         if self._save_pending:
             logger.debug("保存任务已在队列中，跳过")
             return False
-        
+
         return True
 
     def _mark_save_pending(self) -> None:
@@ -592,18 +598,18 @@ class Agent:
         """异步保存（提交到后台管理器）"""
         if not self.config.session.auto_save:
             return
-        
+
         if not self._should_save():
             return
-        
+
         self._mark_save_pending()
-        
+
         current_session = self.session_manager.get_current_session()
         if current_session is None:
             return
-        
+
         messages = self.working_memory.get_context()
-        
+
         # 提交到后台管理器
         await self._start_background_manager()
         self.background_manager.submit_persistence_task(
@@ -615,7 +621,7 @@ class Agent:
             priority=TaskPriority.LOW,
             timeout=10.0,
         )
-        
+
         logger.debug(f"已提交异步保存任务 (轮数: {len(messages) // 2})")
 
     # ==================== 自动记忆 ====================
@@ -624,22 +630,24 @@ class Agent:
         """判断是否需要自动记忆"""
         if not self.config.memory.auto_memory_enabled:
             return False
-        
+
         # 关闭时不提交新任务
         if self._shutting_down:
             return False
-        
+
         # 快速预判，避免无意义的任务提交
         if len(user_input) < 20 and len(assistant_response) < 50:
             return False
-        
+
         return True
 
-    async def _auto_memory_async(self, user_input: str, assistant_response: str) -> None:
+    async def _auto_memory_async(
+        self, user_input: str, assistant_response: str
+    ) -> None:
         """异步自动记忆（提交到后台）"""
         if not self._should_auto_memory(user_input, assistant_response):
             return
-        
+
         await self._start_background_manager()
         self.background_manager.submit_memory_task(
             user_input=user_input,
@@ -654,12 +662,12 @@ class Agent:
         """发送消息并获取完整回复（非流式）"""
         if self._shutting_down:
             return ""
-        
+
         # 使用信号量限制并发
         async with self._request_semaphore:
             request_id = get_request_id()
             logger.debug(f"[{request_id}] 开始处理请求")
-            
+
             try:
                 self._current_task = asyncio.current_task()
                 return await self._do_send(user_input)
@@ -693,11 +701,11 @@ class Agent:
         """发送消息并获取流式回复迭代器"""
         if self._shutting_down:
             return
-        
+
         async with self._request_semaphore:
             request_id = get_request_id()
             logger.debug(f"[{request_id}] 开始处理流式请求")
-            
+
             try:
                 self._current_task = asyncio.current_task()
                 async for chunk in self._do_send_stream(user_input):
@@ -764,7 +772,7 @@ class Agent:
         # 先保存当前会话
         if self.config.session.auto_save:
             self._sync_save()
-        
+
         session = self.session_manager.create_session()
         self.working_memory.clear()
         self._last_saved_turn = 0
@@ -776,7 +784,7 @@ class Agent:
         # 先保存当前会话
         if self.config.session.auto_save:
             self._sync_save()
-        
+
         if self.session_manager.set_current_session(session_id):
             self.working_memory = self.session_manager.get_working_memory(session_id)
             self._last_saved_turn = len(self.working_memory) // 2
@@ -787,14 +795,14 @@ class Agent:
     def shutdown(self) -> None:
         """关闭 Agent"""
         self._shutting_down = True
-        
+
         # 停止后台管理器
         if self._bg_task and not self._bg_task.done():
             self._bg_task.cancel()
-        
+
         # 同步保存最终状态
         self._sync_save()
-        
+
         logger.info("Agent 已关闭")
 
     async def wait_for_shutdown(self, timeout: float = 5.0) -> None:

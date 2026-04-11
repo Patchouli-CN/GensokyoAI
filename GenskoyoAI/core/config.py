@@ -49,7 +49,9 @@ class ToolConfig(Struct):
     """工具配置"""
 
     enabled: bool = True
-    builtin_tools: list[str] = field(default_factory=lambda: ["time", "moon", "memory", "system"])
+    builtin_tools: list[str] = field(
+        default_factory=lambda: ["time", "moon", "memory", "system"]
+    )
     custom_tools_path: Path | None = None
 
 
@@ -59,11 +61,11 @@ class SessionConfig(Struct):
     auto_save: bool = True
     save_path: Path = field(default_factory=lambda: Path("./sessions"))
     max_sessions: int = 100
-    
+
     def __post_init__(self):
         # 强制转换为 Path 对象
         if not isinstance(self.save_path, Path):
-            object.__setattr__(self, 'save_path', Path(self.save_path))
+            object.__setattr__(self, "save_path", Path(self.save_path))
 
 
 class CharacterConfig(Struct):
@@ -173,15 +175,21 @@ class ConfigLoader:
         result = AppConfig()
 
         # 日志配置 - override 优先
-        result.log_level = override.log_level if override.log_level != LogLevel.INFO else base.log_level
+        result.log_level = (
+            override.log_level
+            if override.log_level != LogLevel.INFO
+            else base.log_level
+        )
         # 修复：正确的覆盖逻辑
-        result.log_console = override.log_console if not base.log_console else base.log_console
+        result.log_console = (
+            override.log_console if not base.log_console else base.log_console
+        )
         # 更好的写法：
-        if hasattr(override, 'log_console') and override.log_console is not None:
+        if hasattr(override, "log_console") and override.log_console is not None:
             result.log_console = override.log_console
         else:
             result.log_console = base.log_console
-            
+
         result.log_file = override.log_file or base.log_file
 
         # 其他配置 - override 优先
@@ -201,41 +209,73 @@ class ConfigLoader:
             base_url=override.base_url or base.base_url,
             stream=override.stream if not override.stream else base.stream,
             think=override.think if override.think else base.think,
-            temperature=override.temperature if override.temperature != 0.7 else base.temperature,
+            temperature=override.temperature
+            if override.temperature != 0.7
+            else base.temperature,
             top_p=override.top_p if override.top_p != 0.9 else base.top_p,
-            max_tokens=override.max_tokens if override.max_tokens != 2048 else base.max_tokens,
+            max_tokens=override.max_tokens
+            if override.max_tokens != 2048
+            else base.max_tokens,
             timeout=override.timeout if override.timeout != 60 else base.timeout,
         )
 
     def _merge_memory(self, base: MemoryConfig, override: MemoryConfig) -> MemoryConfig:
         """合并记忆配置"""
         return MemoryConfig(
-            working_max_turns=override.working_max_turns if override.working_max_turns != 20 else base.working_max_turns,
-            episodic_threshold=override.episodic_threshold if override.episodic_threshold != 50 else base.episodic_threshold,
-            episodic_summary_model=override.episodic_summary_model if override.episodic_summary_model != "qwen3:14b" else base.episodic_summary_model,
-            episodic_keep_recent=override.episodic_keep_recent if override.episodic_keep_recent != 10 else base.episodic_keep_recent,
-            semantic_enabled=override.semantic_enabled if not override.semantic_enabled else base.semantic_enabled,
-            semantic_embedding_model=override.semantic_embedding_model if override.semantic_embedding_model != "nomic-embed-text" else base.semantic_embedding_model,
-            semantic_top_k=override.semantic_top_k if override.semantic_top_k != 5 else base.semantic_top_k,
-            semantic_similarity_threshold=override.semantic_similarity_threshold if override.semantic_similarity_threshold != 0.7 else base.semantic_similarity_threshold,
-            auto_memory_enabled=override.auto_memory_enabled if not override.auto_memory_enabled else base.auto_memory_enabled,
-            auto_memory_model=override.auto_memory_model if override.auto_memory_model != "qwen3:14b" else base.auto_memory_model,
+            working_max_turns=override.working_max_turns
+            if override.working_max_turns != 20
+            else base.working_max_turns,
+            episodic_threshold=override.episodic_threshold
+            if override.episodic_threshold != 50
+            else base.episodic_threshold,
+            episodic_summary_model=override.episodic_summary_model
+            if override.episodic_summary_model != "qwen3:14b"
+            else base.episodic_summary_model,
+            episodic_keep_recent=override.episodic_keep_recent
+            if override.episodic_keep_recent != 10
+            else base.episodic_keep_recent,
+            semantic_enabled=override.semantic_enabled
+            if not override.semantic_enabled
+            else base.semantic_enabled,
+            semantic_embedding_model=override.semantic_embedding_model
+            if override.semantic_embedding_model != "nomic-embed-text"
+            else base.semantic_embedding_model,
+            semantic_top_k=override.semantic_top_k
+            if override.semantic_top_k != 5
+            else base.semantic_top_k,
+            semantic_similarity_threshold=override.semantic_similarity_threshold
+            if override.semantic_similarity_threshold != 0.7
+            else base.semantic_similarity_threshold,
+            auto_memory_enabled=override.auto_memory_enabled
+            if not override.auto_memory_enabled
+            else base.auto_memory_enabled,
+            auto_memory_model=override.auto_memory_model
+            if override.auto_memory_model != "qwen3:14b"
+            else base.auto_memory_model,
         )
 
     def _merge_tool(self, base: ToolConfig, override: ToolConfig) -> ToolConfig:
         """合并工具配置"""
         return ToolConfig(
             enabled=override.enabled if not override.enabled else base.enabled,
-            builtin_tools=override.builtin_tools if override.builtin_tools else base.builtin_tools,
+            builtin_tools=override.builtin_tools
+            if override.builtin_tools
+            else base.builtin_tools,
             custom_tools_path=override.custom_tools_path or base.custom_tools_path,
         )
 
-    def _merge_session(self, base: SessionConfig, override: SessionConfig) -> SessionConfig:
+    def _merge_session(
+        self, base: SessionConfig, override: SessionConfig
+    ) -> SessionConfig:
         """合并会话配置"""
         return SessionConfig(
             auto_save=override.auto_save if not override.auto_save else base.auto_save,
-            save_path=override.save_path if override.save_path != Path("./sessions") else base.save_path,
-            max_sessions=override.max_sessions if override.max_sessions != 100 else base.max_sessions,
+            save_path=override.save_path
+            if override.save_path != Path("./sessions")
+            else base.save_path,
+            max_sessions=override.max_sessions
+            if override.max_sessions != 100
+            else base.max_sessions,
         )
 
     def _apply_env(self, config: AppConfig) -> AppConfig:

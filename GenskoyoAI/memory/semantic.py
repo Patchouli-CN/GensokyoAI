@@ -139,15 +139,15 @@ class SemanticMemoryManager:
         """确保模式已检测（异步延迟检测）"""
         if self._mode != SemanticMode.UNKNOWN:
             return self._mode
-        
+
         async with self._mode_lock:
             if self._mode != SemanticMode.UNKNOWN:
                 return self._mode
-            
+
             if not self.config.semantic_enabled:
                 self._mode = SemanticMode.DISABLED
                 return self._mode
-            
+
             if await self._check_embedding_available_async():
                 self._mode = SemanticMode.EMBEDDING
                 logger.info(
@@ -156,7 +156,7 @@ class SemanticMemoryManager:
             else:
                 self._mode = SemanticMode.MODEL_EXTRACT
                 logger.info("语义记忆降级为模型提取模式")
-            
+
             return self._mode
 
     async def _check_embedding_available_async(self) -> bool:
@@ -307,21 +307,23 @@ class SemanticMemoryManager:
                     response = ollama.embeddings(
                         model=self.config.semantic_embedding_model, prompt="test"
                     )
-                    self._mode = SemanticMode.EMBEDDING if response else SemanticMode.MODEL_EXTRACT
+                    self._mode = (
+                        SemanticMode.EMBEDDING
+                        if response
+                        else SemanticMode.MODEL_EXTRACT
+                    )
                 except Exception:
                     self._mode = SemanticMode.MODEL_EXTRACT
             else:
                 self._mode = SemanticMode.DISABLED
-        
+
         if self._mode == SemanticMode.DISABLED:
             return []
-        
+
         memories = self._search_by_keywords(query, top_k)
         return [m.content for m in memories if m.importance > 0.3]
 
-    async def get_relevant_context_async(
-        self, query: str, top_k: int = 3
-    ) -> list[str]:
+    async def get_relevant_context_async(self, query: str, top_k: int = 3) -> list[str]:
         """获取相关上下文（异步）"""
         mode = await self._ensure_mode_async()
         if mode == SemanticMode.DISABLED:

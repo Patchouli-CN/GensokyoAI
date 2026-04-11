@@ -471,9 +471,7 @@ class ConsoleBackend(BaseBackend):
         self.console.print(
             "[dim]💡 输入 [/][bold cyan]<cmd>help</cmd>[/] [dim]查看所有命令[/]"
         )
-        self.console.print(
-            "[dim]💡 按 Ctrl+C 安全退出（会自动保存）[/]\n"
-        )
+        self.console.print("[dim]💡 按 Ctrl+C 安全退出（会自动保存）[/]\n")
 
         try:
             while self._running and not self.agent.is_shutting_down:
