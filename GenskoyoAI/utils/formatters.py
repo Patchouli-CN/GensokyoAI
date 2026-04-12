@@ -1,5 +1,7 @@
 """格式化工具"""
 
+# GenskoyoAI\utils\formatters.py
+
 from datetime import datetime
 from typing import Any
 

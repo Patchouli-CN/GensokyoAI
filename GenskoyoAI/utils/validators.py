@@ -1,5 +1,7 @@
 """验证工具"""
 
+# GenskoyoAI\utils\validators.py
+
 from pathlib import Path
 from typing import Any
 

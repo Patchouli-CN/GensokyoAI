@@ -1,5 +1,7 @@
 """Agent 主类 - 异步优化版"""
 
+#GenskoyoAI\core\agent.py
+
 from typing import AsyncIterator
 from pathlib import Path
 import asyncio

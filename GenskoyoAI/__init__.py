@@ -73,45 +73,6 @@ GenskoyoAI - 幻想乡 AI 角色扮演引擎
 --no-stream        禁用流式输出
 
 
-模块结构
---------
-GenskoyoAI/
-├── core/           # 核心模块
-│   ├── agent.py    # Agent 主类
-│   ├── config.py   # 配置管理
-│   ├── events.py   # 事件总线
-│   └── exceptions.py
-├── memory/         # 记忆系统
-│   ├── working.py  # 工作记忆
-│   ├── episodic.py # 情景记忆
-│   ├── semantic.py # 语义记忆
-│   └── types.py
-├── session/        # 会话管理
-│   ├── manager.py
-│   ├── persistence.py
-│   └── context.py
-├── tools/          # 工具系统
-│   ├── registry.py
-│   ├── executor.py
-│   └── builtin/    # 内置工具
-├── backends/       # 后端抽象
-│   ├── base.py
-│   └── console.py
-├── background/     # 后台任务
-│   ├── manager.py
-│   └── workers/
-├── utils/          # 工具函数
-│   ├── logging.py
-│   ├── cmd_parser.py
-│   └── helpers.py
-├── config/         # 配置文件
-│   └── default.yaml
-└── characters/     # 角色配置
-    ├── example.yaml
-    ├── marisa.yaml
-    └── yuyuko.yaml
-
-
 环境变量
 --------
 GENSKOYAI_MODEL                覆盖模型名称

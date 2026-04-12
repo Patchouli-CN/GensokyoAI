@@ -1,6 +1,5 @@
-"""后台工作任务"""
-
 """工作器模块"""
+# GenskoyoAI\background\workers\__init__.py
 
 from .memory_worker import MemoryWorker
 from .persistence_worker import PersistenceWorker

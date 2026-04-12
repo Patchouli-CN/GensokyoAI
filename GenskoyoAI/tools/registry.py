@@ -1,5 +1,7 @@
 """工具注册中心"""
 
+# GenskoyoAI\tools\registry.py
+
 import importlib
 import importlib.util
 import pkgutil

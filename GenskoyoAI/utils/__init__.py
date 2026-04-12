@@ -1,5 +1,7 @@
 """工具模块"""
 
+# GenskoyoAI\utils\__init__.py
+
 from .logging import logger, setup_logging
 from .exec_hook import set_exechook
 from .formatters import (

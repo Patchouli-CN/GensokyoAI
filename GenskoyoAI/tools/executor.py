@@ -1,5 +1,7 @@
 """工具执行器"""
 
+# GenskoyoAI\tools\executor.py
+
 import json
 import asyncio
 

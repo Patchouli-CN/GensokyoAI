@@ -1,5 +1,7 @@
 """记忆处理工作器"""
 
+# GenskoyoAI\background\workers\memory_worker.py
+
 import asyncio
 import time
 from typing import TYPE_CHECKING

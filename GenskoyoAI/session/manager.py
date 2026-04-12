@@ -1,5 +1,7 @@
 """会话管理器"""
 
+#GenskoyoAI\session\manager.py
+
 from .context import SessionContext
 from .persistence import SessionPersistence
 from ..memory.working import WorkingMemoryManager

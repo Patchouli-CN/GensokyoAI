@@ -1,5 +1,7 @@
 """持久化工作器"""
 
+# GenskoyoAI\background\workers\persistence_worker.py
+
 import asyncio
 from typing import TYPE_CHECKING
 

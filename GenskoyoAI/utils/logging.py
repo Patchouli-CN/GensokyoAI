@@ -1,7 +1,8 @@
 """日志实现 - 支持动态配置"""
 
+# GenskoyoAI\utils\logging.py
+
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 

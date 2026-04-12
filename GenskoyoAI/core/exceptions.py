@@ -1,5 +1,5 @@
 """自定义异常"""
-
+#GenskoyoAI\core\exceptions.py
 
 class GenskoyoError(Exception):
     """基础异常类"""

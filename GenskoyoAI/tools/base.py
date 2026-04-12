@@ -1,5 +1,7 @@
 """工具基类和装饰器"""
 
+# GenskoyoAI\tools\base.py
+
 import inspect
 from typing import Callable, Any, Optional, get_type_hints
 from msgspec import Struct

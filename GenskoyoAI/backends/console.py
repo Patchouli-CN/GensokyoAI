@@ -1,5 +1,7 @@
 """控制台后端 - 集成 Rich 美化"""
 
+# GenskoyoAI/backends/console.py
+
 from typing import Callable
 import asyncio
 
@@ -161,7 +163,7 @@ class ConsoleBackend(BaseBackend):
 
     def _cmd_save(self, cmd: ParsedCommand) -> str:
         """保存命令"""
-        self.agent._sync_save()
+        self.agent.session_handler.sync_save_current()
         self._print_success_message("会话已保存")
         return ""
 
@@ -392,7 +394,7 @@ class ConsoleBackend(BaseBackend):
 
     async def _send_non_stream(self, message: str) -> str:
         """非流式发送并显示"""
-        character_name = safe_get(self.agent.config, "character.name", "Assistant")
+        character_name = safe_get(self.agent.config.character, "name", "Assistant")
 
         self.console.print(
             f"\n[{self.colors['assistant']}]{character_name}: [/]", end=""
@@ -407,7 +409,10 @@ class ConsoleBackend(BaseBackend):
         if self._stream_handler:
             self._stream_handler(response)
 
-        return response
+        if response:
+            return response.content or ""
+        
+        return ""
 
     def _print_assistant_message(self, message: str) -> None:
         """打印助手消息"""

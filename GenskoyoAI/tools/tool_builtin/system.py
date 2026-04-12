@@ -1,5 +1,7 @@
 """系统工具"""
 
+# GenskoyoAI\tools\tool_builtin\system.py
+
 import platform
 from ..base import tool
 

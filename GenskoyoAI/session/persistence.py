@@ -1,5 +1,7 @@
 """会话持久化"""
 
+#GenskoyoAI\session\persistence.py
+
 import json
 import asyncio
 from pathlib import Path

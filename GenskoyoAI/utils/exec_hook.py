@@ -1,4 +1,6 @@
-"""exception hook"""
+"""美化异常堆栈模块"""
+
+# GenskoyoAI\utils\exec_hook.py
 
 import traceback
 import multiprocessing

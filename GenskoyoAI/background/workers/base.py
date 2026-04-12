@@ -1,4 +1,5 @@
 """工作器基类"""
+# GenskoyoAI\background\workers\base.py
 
 from abc import ABC, abstractmethod
 from ..types import BackgroundTask, TaskResult

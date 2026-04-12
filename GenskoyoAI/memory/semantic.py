@@ -1,5 +1,7 @@
 """语义记忆 - 支持模型提取和向量检索双模式 - 异步优化版"""
 
+#GenskoyoAI\memory\semantic.py
+
 import json
 import asyncio
 from pathlib import Path

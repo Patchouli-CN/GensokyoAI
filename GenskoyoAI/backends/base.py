@@ -1,5 +1,7 @@
 """后端抽象基类"""
 
+# GenskoyoAI/backends/base.py
+
 from abc import ABC, abstractmethod
 from typing import Callable, Optional
 

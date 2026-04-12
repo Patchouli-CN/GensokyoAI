@@ -1,5 +1,7 @@
 """智能命令解析器 - 支持可扩展标签"""
 
+# GenskoyoAI\utils\cmd_parser.py
+
 import re
 from typing import Callable, Awaitable
 from enum import Enum, auto

@@ -1,5 +1,7 @@
 """工作记忆"""
 
+#GenskoyoAI\memory\working.py
+
 from typing import Any
 from .types import WorkingMemory
 

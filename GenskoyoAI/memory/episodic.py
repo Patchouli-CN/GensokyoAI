@@ -1,4 +1,5 @@
 """情景记忆 - 异步优化版"""
+#GenskoyoAI\memory\episodic.py
 
 from typing import Optional
 from datetime import datetime

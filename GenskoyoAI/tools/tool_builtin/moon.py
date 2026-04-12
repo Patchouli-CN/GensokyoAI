@@ -1,5 +1,7 @@
 """月相工具"""
 
+# GenskoyoAI\tools\tool_builtin\moon.py
+
 from datetime import datetime, timedelta
 from ..base import tool
 

@@ -1,1 +1,3 @@
-""" 模型内置工具 """
+""" 模型内置标准工具 """
+
+# GenskoyoAI\tools\tool_builtin\__init__.py

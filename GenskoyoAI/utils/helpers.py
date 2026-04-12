@@ -1,5 +1,7 @@
 """通用辅助函数"""
 
+# GenskoyoAI\utils\helpers.py
+
 import asyncio
 from typing import Any, Callable, Awaitable
 from functools import wraps
