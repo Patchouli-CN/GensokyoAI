@@ -278,7 +278,7 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 - [Rich](https://github.com/Textualize/rich) - 终端美化
 - [Loguru](https://github.com/Delgan/loguru) - 优雅的日志
 - [msgspec](https://github.com/jcrist/msgspec) - 高性能序列化
-- 上海爱丽丝幻乐团 - 创造了幻想乡
+- [上海爱丽丝幻乐团](http://www16.big.or.jp/~zun/) - 创造了幻想乡
 
 ## 🌟 Star History
 
