@@ -115,9 +115,7 @@ class CoreListeners:
     async def on_error(self, event: Event) -> None:
         error = event.data.get("error")
         original_event = event.data.get("original_event", {})
-        logger.error(
-            f"事件处理错误 [{original_event.get('type', 'unknown')}]: {error}"
-        )
+        logger.error(f"事件处理错误 [{original_event.get('type', 'unknown')}]: {error}")
 
 
 class MemoryServiceListeners:
@@ -199,7 +197,7 @@ class MemoryServiceListeners:
                 total_pages = (total + page_size - 1) // page_size
                 page = max(1, min(page, total_pages))
                 start = (page - 1) * page_size
-                page_data = results[start:start + page_size]
+                page_data = results[start : start + page_size]
 
                 lines = [f"「关于 '{keyword}' 的记忆：」"]
                 for i, item in enumerate(page_data, start=start + 1):
@@ -219,6 +217,7 @@ class MemoryServiceListeners:
 
         self.event_bus.respond(event, None)
 
+
 class MetricsListeners:
     """指标收集监听器"""
 
@@ -234,25 +233,26 @@ class MetricsListeners:
         self._register()
 
     def _register(self) -> None:
-        self.event_bus.subscribe(SystemEvent.MESSAGE_RECEIVED, self._inc_received)
-        self.event_bus.subscribe(SystemEvent.MESSAGE_SENT, self._inc_sent)
-        self.event_bus.subscribe(SystemEvent.TOOL_CALL_COMPLETED, self._inc_tool)
-        self.event_bus.subscribe(SystemEvent.MEMORY_SEMANTIC_ADDED, self._inc_memory)
-        self.event_bus.subscribe(SystemEvent.ERROR_OCCURRED, self._inc_error)
+        # 使用同步订阅，立即更新指标
+        self.event_bus.subscribe_sync(SystemEvent.MESSAGE_RECEIVED, self._sync_inc_received)
+        self.event_bus.subscribe_sync(SystemEvent.MESSAGE_SENT, self._sync_inc_sent)
+        self.event_bus.subscribe_sync(SystemEvent.TOOL_CALL_COMPLETED, self._sync_inc_tool)
+        self.event_bus.subscribe_sync(SystemEvent.MEMORY_SEMANTIC_ADDED, self._sync_inc_memory)
+        self.event_bus.subscribe_sync(SystemEvent.ERROR_OCCURRED, self._sync_inc_error)
 
-    async def _inc_received(self, event: Event) -> None:
+    def _sync_inc_received(self, event: Event) -> None:
         self._metrics["messages_received"] += 1
 
-    async def _inc_sent(self, event: Event) -> None:
+    def _sync_inc_sent(self, event: Event) -> None:
         self._metrics["messages_sent"] += 1
 
-    async def _inc_tool(self, event: Event) -> None:
+    def _sync_inc_tool(self, event: Event) -> None:
         self._metrics["tool_calls"] += 1
 
-    async def _inc_memory(self, event: Event) -> None:
+    def _sync_inc_memory(self, event: Event) -> None:
         self._metrics["memories_added"] += 1
 
-    async def _inc_error(self, event: Event) -> None:
+    def _sync_inc_error(self, event: Event) -> None:
         self._metrics["errors"] += 1
 
     @property
@@ -261,7 +261,7 @@ class MetricsListeners:
 
 
 class ErrorListeners:
-    """错误事件监听器"""
+    """错误事件监听器 - 使用同步订阅立即更新统计"""
 
     def __init__(self, event_bus: EventBus):
         self.event_bus = event_bus
@@ -270,58 +270,107 @@ class ErrorListeners:
         self._register()
 
     def _register(self) -> None:
-        self.event_bus.subscribe(SystemEvent.MODEL_ERROR, self.on_model_error)
-        self.event_bus.subscribe(SystemEvent.TOOL_ERROR, self.on_tool_error)
-        self.event_bus.subscribe(SystemEvent.ERROR_OCCURRED, self.on_general_error)
+        # 🆕 使用同步订阅，立即更新统计
+        self.event_bus.subscribe_sync(SystemEvent.MODEL_ERROR, self._sync_update_model_error)
+        self.event_bus.subscribe_sync(SystemEvent.TOOL_ERROR, self._sync_update_tool_error)
+        self.event_bus.subscribe_sync(SystemEvent.ERROR_OCCURRED, self._sync_update_general_error)
 
-    async def on_model_error(self, event: Event) -> None:
+        # 同时保留异步订阅用于日志记录
+        self.event_bus.subscribe(SystemEvent.MODEL_ERROR, self._async_log_model_error)
+        self.event_bus.subscribe(SystemEvent.TOOL_ERROR, self._async_log_tool_error)
+        self.event_bus.subscribe(SystemEvent.ERROR_OCCURRED, self._async_log_general_error)
+
+    # ==================== 同步统计更新（立即执行） ====================
+
+    def _sync_update_model_error(self, event: Event) -> None:
+        """立即同步更新模型错误统计"""
         data = event.data
-        error_msg = data.get("error", "未知错误")
         context = data.get("context", "unknown")
-        status_code = data.get("status_code")
-        model = data.get("model", "unknown")
-
         key = f"model:{context}"
         self._error_counts[key] = self._error_counts.get(key, 0) + 1
 
-        self._last_errors.append({
+        error_entry = {
             "timestamp": event.timestamp,
             "type": "model_error",
-            "model": model,
+            "model": data.get("model", "unknown"),
             "context": context,
-            "error": error_msg,
-            "status_code": status_code,
-        })
+            "error": data.get("error", "未知错误"),
+            "status_code": data.get("status_code"),
+        }
+        self._last_errors.append(error_entry)
         if len(self._last_errors) > 10:
             self._last_errors.pop(0)
+
+    def _sync_update_tool_error(self, event: Event) -> None:
+        """立即同步更新工具错误统计"""
+        data = event.data
+        tool_name = data.get("tool_name", "unknown")
+        key = f"tool:{tool_name}"
+        self._error_counts[key] = self._error_counts.get(key, 0) + 1
+
+        error_entry = {
+            "timestamp": event.timestamp,
+            "type": "tool_error",
+            "tool": tool_name,
+            "error": data.get("error", "未知错误"),
+        }
+        self._last_errors.append(error_entry)
+        if len(self._last_errors) > 10:
+            self._last_errors.pop(0)
+
+    def _sync_update_general_error(self, event: Event) -> None:
+        """立即同步更新通用错误统计"""
+        key = "general"
+        self._error_counts[key] = self._error_counts.get(key, 0) + 1
+
+        error_entry = {
+            "timestamp": event.timestamp,
+            "type": "general_error",
+            "error": event.data.get("error", "未知错误"),
+        }
+        self._last_errors.append(error_entry)
+        if len(self._last_errors) > 10:
+            self._last_errors.pop(0)
+
+    # ==================== 异步日志记录（延迟执行） ====================
+
+    async def _async_log_model_error(self, event: Event) -> None:
+        """异步记录模型错误日志"""
+        data = event.data
+        context = data.get("context", "unknown")
+        status_code = data.get("status_code")
+        model = data.get("model", "unknown")
+        error_msg = data.get("error", "未知错误")
 
         if status_code == "502":
             logger.warning(
                 f"🔌 [ErrorListener] 502 连接错误 (模型: {model}, 上下文: {context})\n"
                 f"   建议检查: 1) Ollama 是否运行 2) 代理设置 3) 防火墙"
             )
+        else:
+            logger.error(f"🤖 [ErrorListener] 模型错误: {model} - {error_msg}")
 
-    async def on_tool_error(self, event: Event) -> None:
+    async def _async_log_tool_error(self, event: Event) -> None:
+        """异步记录工具错误日志"""
         data = event.data
         tool_name = data.get("tool_name", "unknown")
         error_msg = data.get("error", "未知错误")
-
-        key = f"tool:{tool_name}"
-        self._error_counts[key] = self._error_counts.get(key, 0) + 1
-
         logger.error(f"🔧 [ErrorListener] 工具错误: {tool_name} - {error_msg}")
 
-    async def on_general_error(self, event: Event) -> None:
+    async def _async_log_general_error(self, event: Event) -> None:
+        """异步记录通用错误日志"""
         data = event.data
         error_msg = data.get("error", "未知错误")
         original_event = data.get("original_event", {})
-
         logger.error(
             f"❌ [ErrorListener] 通用错误: {error_msg}\n"
             f"   原始事件: {original_event.get('type', 'unknown')}"
         )
 
+    # ==================== 查询接口 ====================
+
     def get_error_stats(self) -> dict:
+        """获取错误统计（同步，可随时调用）"""
         return {
             "counts": self._error_counts.copy(),
             "recent": self._last_errors.copy(),
@@ -329,6 +378,7 @@ class ErrorListeners:
         }
 
     def has_recent_502(self, within_seconds: int = 60) -> bool:
+        """检查最近是否有 502 错误"""
         cutoff = datetime.now() - timedelta(seconds=within_seconds)
         for err in self._last_errors:
             if err.get("status_code") == "502" and err["timestamp"] > cutoff:

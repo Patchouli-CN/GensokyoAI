@@ -51,41 +51,41 @@ class Agent:
         character_file: Path | None = None,
     ) -> None:
         """初始化 Agent，所有组件在 __init__ 中完成创建和注册"""
-        
+
         # ---------- 1. 加载配置 ----------
         self._init_config(config, config_file, character_file)
-        
+
         # ---------- 2. 初始化基础设施 ----------
         self._init_infrastructure()
-        
+
         # ---------- 3. 初始化核心组件 ----------
         self._init_core_components()
-        
+
         # ---------- 4. 初始化记忆系统 ----------
         self._init_memory_system()
-        
+
         # ---------- 5. 初始化工具系统 ----------
         self._init_tool_system()
-        
+
         # ---------- 6. 初始化会话管理 ----------
         self._init_session_system()
-        
+
         # ---------- 7. 初始化消息处理组件 ----------
         self._init_message_components()
-        
+
         # ---------- 8. 注册事件监听器 ----------
         self._init_event_listeners()
-        
+
         # ---------- 9. 注入依赖 ----------
         self._inject_dependencies()
-        
+
         # ---------- 10. 初始化生命周期管理器 ----------
         self._init_lifecycle()
-        
+
         # ---------- 11. 发布启动事件 ----------
         self._publish_started_event()
-        
-        logger.info(f"Agent 初始化完成，角色: {self.config.character.name}") # type: ignore
+
+        logger.info(f"Agent 初始化完成，角色: {self.config.character.name}")  # type: ignore
 
     # ==================== 初始化子方法 ====================
 
@@ -125,16 +125,13 @@ class Agent:
         character_name = self.character_name
         # 🆕 记忆路径改为懒加载，等有会话时再初始化
         self._memory_base_path = self.config.session.save_path
-        
+
         # 模型客户端（记忆系统也需要）
         self._ollama_client = ModelClient(self.config.model, event_bus=self.event_bus)
 
         # 情景记忆（不依赖路径）
         self.episodic_memory = EpisodicMemoryManager(
-            self.config.memory,
-            character_name,
-            None,
-            self._ollama_client
+            self.config.memory, character_name, None, self._ollama_client
         )
 
         # 🆕 语义记忆延迟初始化
@@ -166,7 +163,7 @@ class Agent:
         self.memory_service_listeners = MemoryServiceListeners(self, self.event_bus)
         self.metrics_listeners = MetricsListeners(self.event_bus)
         self.error_listeners = ErrorListeners(self.event_bus)
-        
+
         logger.debug("所有事件监听器已注册")
 
     def _inject_dependencies(self) -> None:
@@ -181,11 +178,13 @@ class Agent:
 
     def _publish_started_event(self) -> None:
         """发布 Agent 启动事件"""
-        self.event_bus.publish(Event(
-            type=SystemEvent.AGENT_STARTED,
-            source="agent",
-            data={"character": self.config.character.name} # type: ignore
-        ))
+        self.event_bus.publish(
+            Event(
+                type=SystemEvent.AGENT_STARTED,
+                source="agent",
+                data={"character": self.config.character.name},  # type: ignore
+            )
+        )
 
     def _build_system_prompt(self) -> str:
         """构建系统提示词"""
@@ -194,7 +193,7 @@ class Agent:
         return self.config.character.system_prompt
 
     # ==================== 属性（懒加载） ====================
-    
+
     @property
     def semantic_memory(self) -> SemanticMemoryManager:
         """获取语义记忆（懒加载，依赖当前会话）"""
@@ -202,19 +201,16 @@ class Agent:
             current_session = self.session_manager.get_current_session()
             if not current_session:
                 raise AgentError("No active session for semantic memory")
-            
+
             session_id = current_session.session_id
             memory_path = self._memory_base_path / self.character_name / "memory" / session_id
             memory_path.mkdir(parents=True, exist_ok=True)
-            
+
             self._semantic_memory = SemanticMemoryManager(
-                self.config.memory,
-                self.character_name,
-                memory_path,
-                self._ollama_client
+                self.config.memory, self.character_name, memory_path, self._ollama_client
             )
             logger.debug(f"语义记忆已初始化: {memory_path}")
-        
+
         return self._semantic_memory
 
     @property
@@ -286,37 +282,41 @@ class Agent:
         if self.is_shutting_down:
             return None
 
-        self.event_bus.publish(Event(
-            type=SystemEvent.MESSAGE_RECEIVED,
-            source="agent",
-            data={"content": user_input}
-        ))
+        self.event_bus.publish(
+            Event(type=SystemEvent.MESSAGE_RECEIVED, source="agent", data={"content": user_input})
+        )
 
         async with self._request_semaphore:
             try:
-                self.event_bus.publish(Event(
-                    type=SystemEvent.MESSAGE_PROCESSING,
-                    source="agent",
-                    data={"content": user_input[:50]}
-                ))
+                self.event_bus.publish(
+                    Event(
+                        type=SystemEvent.MESSAGE_PROCESSING,
+                        source="agent",
+                        data={"content": user_input[:50]},
+                    )
+                )
 
                 response = await self._do_send(user_input)
 
                 if response and response.content:
-                    self.event_bus.publish(Event(
-                        type=SystemEvent.MESSAGE_SENT,
-                        source="agent",
-                        data={"content": response.content}
-                    ))
+                    self.event_bus.publish(
+                        Event(
+                            type=SystemEvent.MESSAGE_SENT,
+                            source="agent",
+                            data={"content": response.content},
+                        )
+                    )
 
                 return response
 
             except Exception as e:
-                self.event_bus.publish(Event(
-                    type=SystemEvent.ERROR_OCCURRED,
-                    source="agent",
-                    data={"error": str(e), "context": "send"}
-                ))
+                self.event_bus.publish(
+                    Event(
+                        type=SystemEvent.ERROR_OCCURRED,
+                        source="agent",
+                        data={"error": str(e), "context": "send"},
+                    )
+                )
                 raise
 
     async def _do_send(self, user_input: str) -> Message:
@@ -333,11 +333,9 @@ class Agent:
         if self.is_shutting_down:
             return
 
-        self.event_bus.publish(Event(
-            type=SystemEvent.MESSAGE_RECEIVED,
-            source="agent",
-            data={"content": user_input}
-        ))
+        self.event_bus.publish(
+            Event(type=SystemEvent.MESSAGE_RECEIVED, source="agent", data={"content": user_input})
+        )
 
         async with self._request_semaphore:
             full_response = ""
@@ -349,11 +347,13 @@ class Agent:
 
             finally:
                 if full_response:
-                    self.event_bus.publish(Event(
-                        type=SystemEvent.MESSAGE_SENT,
-                        source="agent",
-                        data={"content": full_response}
-                    ))
+                    self.event_bus.publish(
+                        Event(
+                            type=SystemEvent.MESSAGE_SENT,
+                            source="agent",
+                            data={"content": full_response},
+                        )
+                    )
 
     async def _do_send_stream(self, user_input: str) -> AsyncIterator[StreamChunk]:
         """实际执行流式发送逻辑"""
@@ -375,14 +375,11 @@ class Agent:
         self._working_memory = None
         self._semantic_memory = None  # 🆕 重置语义记忆
 
-        self.event_bus.publish(Event(
-            type=SystemEvent.SESSION_CREATED,
-            source="agent",
-            data={"session": session}
-        ))
+        self.event_bus.publish(
+            Event(type=SystemEvent.SESSION_CREATED, source="agent", data={"session": session})
+        )
 
         return session
-
 
     def resume_session(self, session_id: str) -> bool:
         """恢复会话"""
@@ -391,11 +388,9 @@ class Agent:
             self._semantic_memory = None  # 🆕 重置语义记忆
             session = self.session_manager.get_current_session()
 
-            self.event_bus.publish(Event(
-                type=SystemEvent.SESSION_RESUMED,
-                source="agent",
-                data={"session": session}
-            ))
+            self.event_bus.publish(
+                Event(type=SystemEvent.SESSION_RESUMED, source="agent", data={"session": session})
+            )
 
             return True
         return False
@@ -404,7 +399,7 @@ class Agent:
         """异步保存会话"""
         await self.save_coordinator.save_async(self.working_memory)
 
-    def rollback(self, num: int = 1, mode: Literal['turns', 'messages'] = 'turns') -> None:
+    def rollback(self, num: int = 1, mode: Literal["turns", "messages"] = "turns") -> None:
         """回滚对话"""
         wm = self.working_memory
         roll_num = num * 2 if mode == "turns" else num
@@ -422,10 +417,7 @@ class Agent:
 
     async def _on_shutdown(self) -> None:
         """关闭回调"""
-        self.event_bus.publish(Event(
-            type=SystemEvent.AGENT_SHUTDOWN,
-            source="agent"
-        ))
+        self.event_bus.publish(Event(type=SystemEvent.AGENT_SHUTDOWN, source="agent"))
 
         if self._save_coordinator:
             self.save_coordinator.sync_save(self.working_memory)
@@ -444,7 +436,7 @@ class Agent:
         if self._background_manager is None:
             self._background_manager = self._create_background_manager()
             await self._background_manager.start()
-            
+
             # 注入到已创建的组件
             if self._save_coordinator:
                 self._save_coordinator.set_background_manager(self._background_manager)
@@ -454,9 +446,7 @@ class Agent:
     def _create_background_manager(self) -> BackgroundManager:
         """创建后台管理器"""
         manager = BackgroundManager(max_workers=2, max_queue_size=50)
-        manager.register_persistence_worker(
-            PersistenceWorker(self.session_manager._persistence)
-        )
+        manager.register_persistence_worker(PersistenceWorker(self.session_manager._persistence))
         return manager
 
     # ==================== 查询接口 ====================
@@ -466,5 +456,5 @@ class Agent:
         """获取运行指标"""
         return {
             "event_bus": self.event_bus.stats,
-            "app": self.metrics_listeners.metrics if hasattr(self, 'metrics_listeners') else {},
+            "app": self.metrics_listeners.metrics if hasattr(self, "metrics_listeners") else {},
         }

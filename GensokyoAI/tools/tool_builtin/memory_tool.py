@@ -53,7 +53,7 @@ async def remember(
             "content": content,
             "importance": normalized_importance,
             "tags": [category],
-        }
+        },
     )
 
     result = await event_bus.request(request_event, timeout=10.0)
@@ -90,7 +90,7 @@ async def recall(
             "keyword": keyword,
             "category": category,
             "page": page,
-        }
+        },
     )
 
     result = await event_bus.request(request_event, timeout=10.0)

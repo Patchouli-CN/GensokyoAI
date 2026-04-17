@@ -26,9 +26,9 @@ class StreamChunk(Struct):
 class ModelClient:
     """模型客户端 - 纯粹封装 Ollama 调用"""
 
-    def __init__(self, config: ModelConfig, event_bus: Optional["EventBus"] = None):  # 🆕 接收 EventBus
+    def __init__(self, config: ModelConfig, event_bus: Optional["EventBus"] = None):
         self.config = config
-        self._event_bus = event_bus  # 🆕
+        self._event_bus = event_bus
         self._client = self._build_client()
         logger.debug(f"ModelClient 初始化完成，模型: {config.name}")
 
@@ -45,18 +45,24 @@ class ModelClient:
         }
 
     def _publish_error(self, error: Exception, context: dict) -> None:
-        """🆕 发布错误事件"""
+        """发布错误事件 - 立即通知监听器"""
         if self._event_bus:
-            self._event_bus.publish(Event(
-                type=SystemEvent.MODEL_ERROR,
-                source="model_client",
-                data={
-                    "model": self.config.name,
-                    "error": str(error),
-                    "error_type": type(error).__name__,
-                    **context,
-                }
-            ))
+            error_str = str(error)
+            status_code = "502" if "502" in error_str else None
+
+            self._event_bus.publish(
+                Event(
+                    type=SystemEvent.MODEL_ERROR,
+                    source="model_client",
+                    data={
+                        "model": self.config.name,
+                        "error": error_str,
+                        "error_type": type(error).__name__,
+                        "status_code": status_code,
+                        **context,
+                    },
+                )
+            )
 
     async def chat(
         self,
@@ -86,26 +92,24 @@ class ModelClient:
         except asyncio.TimeoutError:
             error_msg = f"模型调用超时 ({self.config.timeout}s)"
             logger.error(error_msg)
-            
-            # 🆕 发布超时错误事件
+
             self._publish_error(
                 ModelError(error_msg),
-                {"context": "chat", "timeout": self.config.timeout, "message_count": len(messages)}
+                {"context": "chat", "timeout": self.config.timeout, "message_count": len(messages)},
             )
             raise ModelError(error_msg)
 
         except Exception as e:
             error_msg = f"模型调用失败: {e}"
             logger.error(error_msg)
-            
-            # 🆕 检查是否是 502 错误
+
             error_str = str(e)
             if "502" in error_str:
                 logger.warning("检测到 502 错误，可能是代理或连接问题")
-            
+
             self._publish_error(
                 e if isinstance(e, ModelError) else ModelError(error_msg),
-                {"context": "chat", "message_count": len(messages), "status_code": "502" if "502" in error_str else None}
+                {"context": "chat", "message_count": len(messages)},
             )
             raise ModelError(error_msg) from e
 
@@ -144,23 +148,21 @@ class ModelClient:
             error_msg = f"流式调用超时 ({self.config.timeout}s)"
             logger.error(error_msg)
             self._publish_error(
-                ModelError(error_msg),
-                {"context": "chat_stream", "timeout": self.config.timeout}
+                ModelError(error_msg), {"context": "chat_stream", "timeout": self.config.timeout}
             )
             raise ModelError(error_msg)
 
         except Exception as e:
             error_msg = f"流式模型调用失败: {e}"
             logger.error(error_msg)
-            
+
             error_str = str(e)
             self._publish_error(
                 e if isinstance(e, ModelError) else ModelError(error_msg),
                 {
-                    "context": "chat_stream", 
+                    "context": "chat_stream",
                     "message_count": len(messages),
-                    "status_code": "502" if "502" in error_str else None
-                }
+                },
             )
             raise ModelError(error_msg) from e
 

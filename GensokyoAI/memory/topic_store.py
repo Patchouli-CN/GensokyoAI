@@ -50,10 +50,7 @@ class TopicAwareStore:
                     t_data["last_updated"] = datetime.fromisoformat(t_data["last_updated"])
 
                 # 使用关键字参数创建，确保 name 在前面
-                topic = Topic(
-                    name=t_data.pop("name", "未命名"),
-                    **t_data
-                )
+                topic = Topic(name=t_data.pop("name", "未命名"), **t_data)
                 self._topics[topic.id] = topic
                 self._topic_name_index[topic.name.lower()] = topic.id
                 self._index_topic(topic)
@@ -61,10 +58,7 @@ class TopicAwareStore:
             for m_data in data.get("memories", []):
                 if "timestamp" in m_data:
                     m_data["timestamp"] = datetime.fromisoformat(m_data["timestamp"])
-                memory = TopicMemory(
-                    content=m_data.pop("content", ""),
-                    **m_data
-                )
+                memory = TopicMemory(content=m_data.pop("content", ""), **m_data)
                 self._memories[memory.id] = memory
 
             logger.debug(f"加载话题存储: {len(self._topics)} 个话题, {len(self._memories)} 条记忆")

@@ -30,6 +30,7 @@ async def cmd_back(ctx: CommandContext) -> CommandResult:
     ctx.agent_inst.rollback(1)
     return CommandResult.success("back", "已回滚上一轮对话")
 
+
 @command(name="new", cmd_type=CommandType.SYSTEM, description="创建新会话")
 async def cmd_new(ctx: CommandContext) -> CommandResult:
     """创建新会话"""
@@ -88,41 +89,46 @@ async def cmd_clear(ctx: CommandContext) -> CommandResult:
     backend._prompt_context.clear()
     return CommandResult.success("clear", f"已清空 {count} 条提示词上下文")
 
+
 @command(name="errors", cmd_type=CommandType.SYSTEM, description="查看最近错误")
 async def cmd_errors(ctx: CommandContext) -> CommandResult:
     """查看系统错误状态"""
     backend: "ConsoleBackend" = ctx.backend_inst
     agent = ctx.agent_inst
-    
+
     backend.console.print("[bold red]📊 错误统计[/]")
-    
-    if hasattr(agent, 'error_listeners'):
+
+    if hasattr(agent, "error_listeners"):
         stats = agent.error_listeners.get_error_stats()
         backend.console.print(f"总错误数: {stats['total']}")
-        
-        if stats['counts']:
+
+        if stats["counts"]:
             backend.console.print("\n[bold]按类型:[/]")
-            for key, count in stats['counts'].items():
+            for key, count in stats["counts"].items():
                 backend.console.print(f"  • {key}: {count}")
         else:
             backend.console.print("  [dim]暂无错误记录[/]")
-        
-        if stats['recent']:
+
+        if stats["recent"]:
             backend.console.print("\n[bold]最近错误:[/]")
-            for err in stats['recent'][-5:]:
-                ts = err['timestamp'].strftime("%H:%M:%S")
-                status = f"[{err.get('status_code', 'N/A')}]" if err.get('status_code') else ""
-                error_preview = err['error'][:50] + "..." if len(err['error']) > 50 else err['error']
+            for err in stats["recent"][-5:]:
+                ts = err["timestamp"].strftime("%H:%M:%S")
+                status = f"[{err.get('status_code', 'N/A')}]" if err.get("status_code") else ""
+                error_preview = (
+                    err["error"][:50] + "..." if len(err["error"]) > 50 else err["error"]
+                )
                 backend.console.print(f"  • {ts} {status} {error_preview}")
     else:
         backend.console.print("[dim]错误监听器未初始化[/]")
-    
+
     # 🆕 显示 EventBus 状态
-    if hasattr(agent, 'event_bus'):
+    if hasattr(agent, "event_bus"):
         stats = agent.event_bus.stats
         backend.console.print(f"\n[bold]EventBus 状态:[/]")
-        backend.console.print(f"  已发布: {stats['published']}, 已投递: {stats['delivered']}, 错误: {stats['errors']}")
-    
+        backend.console.print(
+            f"  已发布: {stats['published']}, 已投递: {stats['delivered']}, 错误: {stats['errors']}"
+        )
+
     return CommandResult.success("errors", "错误已显示")
 
 
