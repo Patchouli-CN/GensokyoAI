@@ -4,7 +4,6 @@ ollama           # 本地模型调用
 msgspec          # 高性能序列化
 loguru           # 日志系统
 rich             # 终端美化
-numpy            # 向量计算
 pyyaml           # YAML 解析
 
 # ===== 自研高性能库（需要特定版本修复构建问题）=====
