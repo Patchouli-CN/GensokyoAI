@@ -74,11 +74,9 @@ class ModelClient:
             "model": self.config.name,
             "messages": messages,
             "tools": tools,
+            "think": self.config.think,
             "options": self._build_options(),
         }
-
-        if hasattr(self.config, "think"):
-            kwargs["think"] = self.config.think
 
         try:
             logger.debug(f"非流式调用模型，消息数: {len(messages)}")
@@ -123,11 +121,9 @@ class ModelClient:
             "model": self.config.name,
             "messages": messages,
             "tools": tools,
+            "think": self.config.think,
             "options": self._build_options(),
         }
-
-        if hasattr(self.config, "think"):
-            kwargs["think"] = self.config.think
 
         try:
             logger.debug(f"流式调用模型，消息数: {len(messages)}")
