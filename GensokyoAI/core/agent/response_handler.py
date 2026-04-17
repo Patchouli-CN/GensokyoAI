@@ -2,7 +2,6 @@
 
 # GensokyoAI/core/agent/response_handler.py
 
-import asyncio
 from typing import AsyncIterator, TYPE_CHECKING
 
 from ollama import Message, ChatResponse
@@ -29,7 +28,7 @@ class ResponseHandler:
 
     职责：
     - 处理工具调用
-    - 记录用户/助手/工具消息
+    - 记录用户/工具消息（助手消息由事件监听器记录）
     - 触发自动记忆
     - 协调流式和非流式响应
     """
@@ -97,7 +96,7 @@ class ResponseHandler:
         )
 
     def record_assistant_message(self, msg: str) -> None:
-        """记录助手消息（带去重保护）"""
+        """记录助手消息（带去重保护）- 注意：此方法已废弃，助手消息由事件监听器记录"""
         if not msg:
             return
 
@@ -262,9 +261,8 @@ class ResponseHandler:
         if tool_results := await self.handle_tool_calls_from_message(message):
             message = await self.handle_tool_chain(message, tool_results)
 
-        # 记录和保存
+        # 触发自动记忆（助手消息由事件监听器记录）
         if message.content:
-            self.record_assistant_message(message.content)
             await self.trigger_auto_memory(user_input, message.content)
 
         await self._save_coordinator.save_async(self._working_memory)
@@ -316,9 +314,8 @@ class ResponseHandler:
                     full_content += chunk.content
                     yield chunk
 
-        # 记录和保存
+        # 触发自动记忆（助手消息由事件监听器记录）
         if full_content and not self._shutting_down:
-            self.record_assistant_message(full_content)
             await self.trigger_auto_memory(user_input, full_content)
 
         await self._save_coordinator.save_async(self._working_memory)

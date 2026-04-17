@@ -70,7 +70,8 @@ class CoreListeners:
         response = event.data.get("content", "")
         logger.debug(f"发送响应: {response[:50]}...")
 
-        if hasattr(self.agent, "working_memory"):
+        # 记录助手消息到工作记忆
+        if hasattr(self.agent, "working_memory") and response:
             self.agent.working_memory.add_message("assistant", response)
 
     # ==================== 记忆事件 ====================
@@ -270,7 +271,7 @@ class ErrorListeners:
         self._register()
 
     def _register(self) -> None:
-        # 🆕 使用同步订阅，立即更新统计
+        # 使用同步订阅，立即更新统计
         self.event_bus.subscribe_sync(SystemEvent.MODEL_ERROR, self._sync_update_model_error)
         self.event_bus.subscribe_sync(SystemEvent.TOOL_ERROR, self._sync_update_tool_error)
         self.event_bus.subscribe_sync(SystemEvent.ERROR_OCCURRED, self._sync_update_general_error)

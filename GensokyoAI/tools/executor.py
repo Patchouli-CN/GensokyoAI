@@ -18,7 +18,9 @@ if TYPE_CHECKING:
 class ToolExecutor:
     """工具执行器"""
 
-    def __init__(self, registry: ToolRegistry | None = None, event_bus: Optional["EventBus"] = None):
+    def __init__(
+        self, registry: ToolRegistry | None = None, event_bus: Optional["EventBus"] = None
+    ):
         self._registry = registry or ToolRegistry()
         self._event_bus = event_bus
 
