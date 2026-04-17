@@ -6,23 +6,32 @@ import asyncio
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 
+import msgspec
 import ayafileio
 
 from .types import Topic, TopicMemory
 from ..utils.logging import logger
 
-if TYPE_CHECKING:
-    from ..core.agent.model_client import ModelClient
+from ..core.config import TopicGenerationConfig
+from ..core.agent.model_client import ModelClient
+
+
+# msgspec 的 JSON 编码器，处理 datetime
+def _json_encoder(obj):
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 
 class TopicAwareStore:
     """话题感知存储"""
 
-    def __init__(self, path: Path, max_topics: int = 50):
+    def __init__(self, path: Path, max_topics: int = 50, topic_config: Optional[TopicGenerationConfig] = None):
         self.path = Path(path)
         self.max_topics = max_topics
+        self.topic_config = topic_config or TopicGenerationConfig()
 
         self._topics: dict[str, Topic] = {}
         self._memories: dict[str, TopicMemory] = {}
@@ -36,27 +45,29 @@ class TopicAwareStore:
     # ==================== 持久化 ====================
 
     def _load_sync(self) -> None:
+        """同步加载（使用 msgspec）"""
         if not self.path.exists():
             return
 
         try:
-            with open(self.path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            with open(self.path, "rb") as f:
+                data = msgspec.json.decode(f.read())
 
+            # 恢复 Topic 对象
             for t_data in data.get("topics", []):
-                if "created_at" in t_data:
+                if "created_at" in t_data and isinstance(t_data["created_at"], str):
                     t_data["created_at"] = datetime.fromisoformat(t_data["created_at"])
-                if "last_updated" in t_data:
+                if "last_updated" in t_data and isinstance(t_data["last_updated"], str):
                     t_data["last_updated"] = datetime.fromisoformat(t_data["last_updated"])
 
-                # 使用关键字参数创建，确保 name 在前面
                 topic = Topic(name=t_data.pop("name", "未命名"), **t_data)
                 self._topics[topic.id] = topic
                 self._topic_name_index[topic.name.lower()] = topic.id
                 self._index_topic(topic)
 
+            # 恢复 TopicMemory 对象
             for m_data in data.get("memories", []):
-                if "timestamp" in m_data:
+                if "timestamp" in m_data and isinstance(m_data["timestamp"], str):
                     m_data["timestamp"] = datetime.fromisoformat(m_data["timestamp"])
                 memory = TopicMemory(content=m_data.pop("content", ""), **m_data)
                 self._memories[memory.id] = memory
@@ -67,25 +78,26 @@ class TopicAwareStore:
             logger.warning(f"加载话题存储失败: {e}")
 
     async def _save_async(self) -> None:
+        """异步保存（使用 msgspec）"""
         async with self._lock:
             self.path.parent.mkdir(parents=True, exist_ok=True)
 
-            def to_dict(obj):
-                if isinstance(obj, datetime):
-                    return obj.isoformat()
-                if hasattr(obj, "__dict__"):
-                    return {k: to_dict(v) for k, v in obj.__dict__.items() if not k.startswith("_")}
-                return obj
-
             data = {
-                "topics": [to_dict(t) for t in self._topics.values()],
-                "memories": [to_dict(m) for m in self._memories.values()],
+                "topics": list(self._topics.values()),
+                "memories": list(self._memories.values()),
             }
 
-            async with ayafileio.open(self.path, "w", encoding="utf-8") as f:
-                await f.write(json.dumps(data, ensure_ascii=False, indent=2))
+            # 用 msgspec 序列化，加上 indent 参数格式化
+            json_bytes = msgspec.json.format(
+                msgspec.json.encode(data, enc_hook=_json_encoder),
+                indent=2
+            )
+
+            async with ayafileio.open(self.path, "wb") as f:
+                await f.write(json_bytes)
 
     def _index_topic(self, topic: Topic) -> None:
+        """构建关键词索引"""
         text = f"{topic.name} {topic.summary}".lower()
         words = re.split(r"[\s,，。、；;！!？?·]+", text)
 
@@ -93,7 +105,10 @@ class TopicAwareStore:
             if 2 <= len(word) <= 20:
                 self._keyword_index[word].add(topic.id)
 
+    # ==================== 话题候选 ====================
+
     def _get_candidates(self, query: str, max_candidates: int = 5) -> list[Topic]:
+        """获取候选话题"""
         if not self._topics:
             return []
 
@@ -123,12 +138,15 @@ class TopicAwareStore:
 
         return candidates[:max_candidates]
 
+    # ==================== LLM 评分 ====================
+
     async def _score_topics(
         self,
         content: str,
         candidates: list[Topic],
-        model_client: "ModelClient",
+        model_client: ModelClient,
     ) -> dict[str, float]:
+        """让 LLM 为候选话题打分"""
         if not candidates:
             return {}
 
@@ -158,6 +176,8 @@ class TopicAwareStore:
             json_match = re.search(r"\{[^}]+\}", result_text)
 
             if json_match:
+                import json
+
                 scores = json.loads(json_match.group())
                 return {
                     candidates[i].id: float(scores.get(str(i + 1), 0))
@@ -170,6 +190,7 @@ class TopicAwareStore:
         return self._fallback_score(content, candidates)
 
     def _fallback_score(self, content: str, candidates: list[Topic]) -> dict[str, float]:
+        """降级方案：基于关键词匹配打分"""
         content_lower = content.lower()
         scores = {}
 
@@ -189,13 +210,25 @@ class TopicAwareStore:
 
         return scores
 
+    # ==================== 生成话题信息 ====================
+
     async def _generate_topic_info(
         self,
         content: str,
-        model_client: "ModelClient",
+        model_client: ModelClient
     ) -> tuple[str, str]:
-        prompt = f"""为以下对话生成话题名（≤10字）和摘要（≤50字）。
-
+        """让 LLM 生成话题名和摘要"""
+        cfg = self.topic_config
+        
+        # 构建示例部分
+        examples_text = ""
+        if cfg.examples:
+            examples_text = "\n话题名示例：\n"
+            for ex in cfg.examples:
+                examples_text += f"- 如果{ex['input']}：\"{ex['name']}\"\n"
+        
+        prompt = f"""为以下对话生成一个有意义的话题名（≤{cfg.name_max_length}字）和摘要（≤{cfg.summary_max_length}字）。
+{examples_text}
 内容：
 {content}
 
@@ -213,20 +246,24 @@ class TopicAwareStore:
             json_match = re.search(r"\{[^}]+\}", result_text)
 
             if json_match:
+
                 data = json.loads(json_match.group())
-                return data.get("name", "未命名"), data.get("summary", content[:50])
+                return data.get("name", "未命名"), data.get("summary", content[:cfg.summary_max_length])
 
         except Exception as e:
             logger.debug(f"生成话题信息失败: {e}")
 
-        return f"话题{len(self._topics) + 1}", content[:50]
+        return f"话题{len(self._topics) + 1}", content[:cfg.summary_max_length]
+
+    # ==================== 添加记忆 ====================
 
     async def add_async(
         self,
         content: str,
         importance: float = 0.0,
-        model_client: Optional["ModelClient"] = None,
+        model_client: Optional[ModelClient] = None,
     ) -> Optional[Topic]:
+        """添加语义记忆"""
         if not content:
             return None
 
@@ -238,6 +275,7 @@ class TopicAwareStore:
         )
         self._memories[memory.id] = memory
 
+        # 尝试匹配现有话题
         if model_client and candidates:
             scores = await self._score_topics(content, candidates, model_client)
 
@@ -249,8 +287,10 @@ class TopicAwareStore:
                     self._update_topic(topic, memory, importance, best_score)
                     self._update_edges(topic.id, scores)
                     await self._save_async()
+                    logger.debug(f"更新话题: {topic.name} (相关性: {best_score:.1f})")
                     return topic
 
+        # 创建新话题
         if model_client:
             name, summary = await self._generate_topic_info(content, model_client)
         else:
@@ -272,6 +312,7 @@ class TopicAwareStore:
         self._topic_name_index[name.lower()] = topic.id
         self._index_topic(topic)
 
+        # 建立与候选话题的关联
         if candidates and model_client:
             scores = await self._score_topics(content, candidates, model_client)
             for cand_id, score in scores.items():
@@ -289,6 +330,7 @@ class TopicAwareStore:
         importance: float,
         score: float,
     ) -> None:
+        """更新已有话题"""
         topic.last_updated = datetime.now()
         topic.message_count += 1
         topic.importance += importance * (score / 10.0)
@@ -298,6 +340,7 @@ class TopicAwareStore:
         memory.tags = [topic.name]
 
     def _update_edges(self, topic_id: str, scores: dict[str, float]) -> None:
+        """更新话题关联边"""
         topic = self._topics.get(topic_id)
         if not topic:
             return
@@ -314,11 +357,14 @@ class TopicAwareStore:
                 old = other.related_topics.get(topic_id, score)
                 other.related_topics[topic_id] = old * 0.7 + score * 0.3
 
+    # ==================== 检索 ====================
+
     def search(
         self,
         top_k: int = 5,
         query_text: Optional[str] = None,
     ) -> list[dict]:
+        """搜索记忆"""
         if not query_text or not self._topics:
             return []
 
@@ -346,6 +392,7 @@ class TopicAwareStore:
         return results
 
     def get_all(self) -> list[dict]:
+        """获取所有记忆"""
         return [
             {
                 "id": m.id,
@@ -359,6 +406,7 @@ class TopicAwareStore:
         ]
 
     def get_topic_graph(self) -> dict:
+        """获取话题关联图"""
         nodes = [
             {
                 "id": t.id,
@@ -385,7 +433,10 @@ class TopicAwareStore:
         return {"nodes": nodes, "edges": edges}
 
     def clear_cache(self) -> None:
+        """清空关键词索引缓存"""
         self._keyword_index.clear()
+
+    # ==================== 属性 ====================
 
     @property
     def topic_count(self) -> int:

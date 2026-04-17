@@ -24,19 +24,23 @@ def get_event_bus() -> Optional["EventBus"]:
     return _event_bus
 
 
-@tool(description="记住重要的信息。当你了解到新的事实时主动调用")
+@tool()
 async def remember(
     content: str,
     category: str = "general",
     importance: int = 5,
 ) -> str:
-    """将重要信息存入长期记忆"""
+    """
+    记住重要的信息。当你了解到新的事实时主动调用。
+    分类主要是这些：
+        character, event, location, preference, knowledge, general
+    """
     event_bus = get_event_bus()
     if event_bus is None:
         logger.warning("事件总线未初始化")
         return "「唔…记忆功能好像还没准备好…」"
 
-    if not content or len(content) < 5:
+    if not content or len(content) <= 1:
         return "「这个…好像没什么值得记的…」"
 
     valid_categories = ["character", "event", "location", "preference", "knowledge", "general"]

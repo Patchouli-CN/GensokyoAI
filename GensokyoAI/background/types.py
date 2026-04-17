@@ -21,7 +21,6 @@ class TaskPriority(Enum):
 class TaskType(Enum):
     """任务类型"""
 
-    MEMORY = auto()  # 记忆处理
     PERSISTENCE = auto()  # 持久化
     EVENT = auto()  # 事件处理
     CUSTOM = auto()  # 自定义
@@ -51,14 +50,6 @@ class TaskResult(Struct):
     duration_ms: float = 0.0
 
 
-class MemoryTaskData(Struct):
-    """记忆任务数据"""
-
-    user_input: str
-    assistant_response: str
-    session_id: str | None = None
-
-
 class PersistenceTaskData(Struct):
     """持久化任务数据"""
 
@@ -73,3 +64,4 @@ class EventTaskData(Struct):
     event_name: str
     event_data: Any = None
     source: str | None = None
+    

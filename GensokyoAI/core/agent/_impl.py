@@ -263,8 +263,6 @@ class Agent:
                 message_builder=self.message_builder,
                 save_coordinator=self.save_coordinator,
             )
-            if self._background_manager:
-                self._response_handler.set_background_manager(self._background_manager)
         return self._response_handler
 
     @property
@@ -440,8 +438,6 @@ class Agent:
 
             if self._save_coordinator:
                 self._save_coordinator.set_background_manager(self._background_manager)
-            if self._response_handler:
-                self._response_handler.set_background_manager(self._background_manager)
 
     def _create_background_manager(self) -> BackgroundManager:
         """创建后台管理器"""

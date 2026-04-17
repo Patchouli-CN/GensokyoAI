@@ -9,7 +9,6 @@ from .types import (
     TaskResult,
     TaskType,
     TaskPriority,
-    MemoryTaskData,
     PersistenceTaskData,
 )
 from .workers import PersistenceWorker
@@ -21,7 +20,6 @@ __all__ = [
     "TaskResult",
     "TaskType",
     "TaskPriority",
-    "MemoryTaskData",
     "PersistenceTaskData",
     "PersistenceWorker",
 ]

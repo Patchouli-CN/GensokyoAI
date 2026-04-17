@@ -10,7 +10,6 @@ from .types import (
     TaskResult,
     TaskType,
     TaskPriority,
-    MemoryTaskData,
     PersistenceTaskData,
 )
 from .workers import PersistenceWorker
@@ -106,26 +105,6 @@ class BackgroundManager:
             asyncio.create_task(_update_dropped())
             logger.warning(f"任务队列已满 ({self.max_queue_size})，丢弃任务: {task.name}")
             return False
-
-    def submit_memory_task(
-        self,
-        user_input: str,
-        assistant_response: str,
-        priority: TaskPriority = TaskPriority.LOW,
-        timeout: float = 5.0,
-    ) -> bool:
-        """提交记忆任务"""
-        task = BackgroundTask(
-            type=TaskType.MEMORY,
-            priority=priority,
-            name=f"memory_{len(user_input)}",
-            data=MemoryTaskData(
-                user_input=user_input,
-                assistant_response=assistant_response,
-            ),
-            timeout=timeout,
-        )
-        return self.submit(task)
 
     def submit_persistence_task(
         self,
