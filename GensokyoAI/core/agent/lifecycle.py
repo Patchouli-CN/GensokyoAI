@@ -105,24 +105,24 @@ class LifecycleManager:
             self._setup_windows_signal_handler()
 
     def _setup_windows_signal_handler(self) -> None:
-        """Windows 平台的信号处理"""
+        """Windows 平台的信号处理
+
+        🐛 修复: 不再使用 sys.exit(0) 绕过 finally 清理流程。
+        改为抛出 KeyboardInterrupt，让 run_interactive 的异常处理接管，
+        经过 finally → stop() → shutdown() → _on_shutdown()，确保数据保存。
+        第二次 Ctrl+C 恢复默认信号处理（强制退出）。
+        """
+        _signal_received = [False]  # 使用列表以便在闭包中修改
 
         def windows_handler(signum, frame):
-            if not self._shutting_down:
-                self._shutting_down = True
-                logger.info("收到中断信号，正在保存数据...")
+            if _signal_received[0]:
+                # 第二次信号: 恢复默认处理，强制退出
+                sig.signal(signum, sig.SIG_DFL)
+                raise KeyboardInterrupt
 
-                # 同步执行关闭回调
-                if self._on_shutdown:
-                    try:
-                        # 在 Windows 信号处理器中不能运行异步代码
-                        # 所以这里需要特殊处理，或者只做同步保存
-                        logger.warning("Windows 下请使用 Ctrl+Break 或等待程序自然退出")
-                    except Exception as e:
-                        logger.error(f"关闭回调执行失败: {e}")
-
-                logger.info("正在退出...")
-                sys.exit(0)
+            _signal_received[0] = True
+            logger.info("收到中断信号，正在保存数据...")
+            raise KeyboardInterrupt
 
         sig.signal(signal.SIGINT, windows_handler)
         sig.signal(signal.SIGTERM, windows_handler)

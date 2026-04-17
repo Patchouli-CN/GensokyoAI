@@ -416,8 +416,12 @@ class Agent:
         """关闭回调"""
         self.event_bus.publish(Event(type=SystemEvent.AGENT_SHUTDOWN, source="agent"))
 
-        if self._save_coordinator:
-            self.save_coordinator.sync_save(self.working_memory)
+        # 🐛 修复: 使用 force=True 强制保存所有数据，包括异步保存未完成的消息
+        # 使用 self.save_coordinator 属性确保懒加载初始化，添加异常保护
+        try:
+            self.save_coordinator.sync_save(self.working_memory, force=True)
+        except Exception as e:
+            logger.error(f"关闭时保存数据出错: {e}")
 
         await self.event_bus.stop()
         logger.info("Agent 已关闭")
