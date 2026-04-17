@@ -42,7 +42,7 @@ class ConsoleBackend(BaseBackend):
             agent=agent,
             backend=self,
             source="console",
-            issuer="Player"
+            issuer="User"
         )
 
         # 颜色配置
