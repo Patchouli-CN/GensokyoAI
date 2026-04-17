@@ -1,6 +1,6 @@
-# GensokyoAI/commands/__init__.py
-
 """命令处理模块 - 纯抽象，不依赖任何后端"""
+
+# GensokyoAI/commands/__init__.py
 
 from .parser import CommandParser, CommandType, ParsedCommand
 from .decorators import command, get_command, list_commands

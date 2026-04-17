@@ -47,18 +47,14 @@ class BackgroundManager:
         self.max_workers = max_workers
         self.max_queue_size = max_queue_size
 
-        # 使用 asyncio.Queue 替代轮询
         self._task_queue: asyncio.Queue[BackgroundTask] = asyncio.Queue(maxsize=max_queue_size)
 
-        # 工作器注册表
         self._workers: dict[TaskType, BaseWorker] = {}
 
-        # 运行状态
         self._running = False
         self._worker_tasks: list[asyncio.Task] = []
         self._result_callbacks: list[Callable[[TaskResult], Awaitable[None]]] = []
 
-        # 统计信息
         self._stats = {
             "submitted": 0,
             "completed": 0,
@@ -160,7 +156,6 @@ class BackgroundManager:
 
         self._running = True
 
-        # 启动工作协程
         for i in range(self.max_workers):
             task = asyncio.create_task(self._worker_loop(i))
             self._worker_tasks.append(task)
@@ -175,14 +170,12 @@ class BackgroundManager:
         self._running = False
 
         if wait:
-            # 等待队列清空
             timeout = 5.0
             try:
                 await asyncio.wait_for(self._task_queue.join(), timeout=timeout)
             except asyncio.TimeoutError:
                 logger.warning(f"等待队列清空超时，剩余 {self._task_queue.qsize()} 个任务将被丢弃")
 
-        # 取消所有工作器
         for task in self._worker_tasks:
             task.cancel()
 
@@ -209,20 +202,16 @@ class BackgroundManager:
 
         while self._running:
             try:
-                # 使用上下文管理器，自动处理 task_done
                 async with TaskContext(self._task_queue) as task:
-                    # 获取对应的工作器
                     worker = self._workers.get(task.type)
                     if worker is None:
                         logger.warning(f"未找到工作器: {task.type.name}")
-                        continue  # task_done 会自动调用
+                        continue
 
-                    # 执行任务
                     try:
                         result = await worker.process(task)
                         await self._update_stats(result)
 
-                        # 触发回调
                         for callback in self._result_callbacks:
                             try:
                                 await callback(result)
@@ -231,16 +220,14 @@ class BackgroundManager:
 
                     except asyncio.CancelledError:
                         logger.debug(f"工作器 {worker_id} 任务被取消")
-                        raise  # 重新抛出，让外层处理
+                        raise
                     except Exception as e:
                         logger.error(f"任务执行异常: {e}")
-                        # task_done 会在上下文管理器退出时自动调用
 
             except asyncio.CancelledError:
                 logger.debug(f"工作器 {worker_id} 已取消")
                 break
             except asyncio.TimeoutError:
-                # 这个异常不会发生，因为 TaskContext 没有超时
                 continue
             except Exception as e:
                 logger.error(f"工作器 {worker_id} 发生未预期异常: {e}")

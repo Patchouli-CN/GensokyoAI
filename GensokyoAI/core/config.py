@@ -30,6 +30,7 @@ class ModelConfig(Struct):
     top_p: float = 0.9
     max_tokens: int = 2048
     timeout: int = 60
+    use_proxy: bool = False  # 🆕 是否使用代理
 
 
 class MemoryConfig(Struct):

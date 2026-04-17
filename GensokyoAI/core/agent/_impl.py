@@ -123,7 +123,6 @@ class Agent:
     def _init_memory_system(self) -> None:
         """初始化记忆系统"""
         character_name = self.character_name
-        # 🆕 记忆路径改为懒加载，等有会话时再初始化
         self._memory_base_path = self.config.session.save_path
 
         # 模型客户端（记忆系统也需要）
@@ -134,13 +133,13 @@ class Agent:
             self.config.memory, character_name, None, self._ollama_client
         )
 
-        # 🆕 语义记忆延迟初始化
         self._semantic_memory: Optional[SemanticMemoryManager] = None
 
     def _init_tool_system(self) -> None:
         """初始化工具系统"""
         self.tool_registry = ToolRegistry()
-        self.tool_executor = ToolExecutor(self.tool_registry)
+        # 🆕 创建 ToolExecutor 时传入 event_bus
+        self.tool_executor = ToolExecutor(self.tool_registry, event_bus=self.event_bus)
 
     def _init_session_system(self) -> None:
         """初始化会话管理"""
@@ -247,7 +246,6 @@ class Agent:
                 session_manager=self.session_manager,
                 session_config=self.config.session,
             )
-            # 如果有后台管理器，注入
             if self._background_manager:
                 self._save_coordinator.set_background_manager(self._background_manager)
         return self._save_coordinator
@@ -265,7 +263,6 @@ class Agent:
                 message_builder=self.message_builder,
                 save_coordinator=self.save_coordinator,
             )
-            # 如果有后台管理器，注入
             if self._background_manager:
                 self._response_handler.set_background_manager(self._background_manager)
         return self._response_handler
@@ -373,7 +370,7 @@ class Agent:
         """创建新会话"""
         session = self.session_manager.create_session()
         self._working_memory = None
-        self._semantic_memory = None  # 🆕 重置语义记忆
+        self._semantic_memory = None
 
         self.event_bus.publish(
             Event(type=SystemEvent.SESSION_CREATED, source="agent", data={"session": session})
@@ -385,7 +382,7 @@ class Agent:
         """恢复会话"""
         if self.session_manager.set_current_session(session_id):
             self._working_memory = None
-            self._semantic_memory = None  # 🆕 重置语义记忆
+            self._semantic_memory = None
             session = self.session_manager.get_current_session()
 
             self.event_bus.publish(
@@ -437,7 +434,6 @@ class Agent:
             self._background_manager = self._create_background_manager()
             await self._background_manager.start()
 
-            # 注入到已创建的组件
             if self._save_coordinator:
                 self._save_coordinator.set_background_manager(self._background_manager)
             if self._response_handler:

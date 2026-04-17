@@ -3,6 +3,7 @@
 # GensokyoAI\background\workers\persistence_worker.py
 
 import asyncio
+import time
 from typing import TYPE_CHECKING
 
 from ...utils.logging import logger
@@ -21,8 +22,6 @@ class PersistenceWorker(BaseWorker):
 
     async def process(self, task: BackgroundTask) -> TaskResult:
         """处理持久化任务"""
-        import time
-
         start_time = time.time()
 
         try:

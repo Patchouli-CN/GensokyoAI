@@ -7,14 +7,15 @@ log_file: "logs/GENSOKYOAI.log"
 
 # 模型配置
 model:
-  name: qwen3.5:9b
-  base_url: "http://127.0.0.1:11434"
+  name: "qwen3.5:9b"
+  base_url: null  # null 表示使用默认 http://127.0.0.1:11434
   stream: true
   think: false
   temperature: 0.7
   top_p: 0.9
   max_tokens: 2048
   timeout: 60
+  use_proxy: false  # 🆕 默认不使用代理，localhost 直连
 
 # 记忆配置
 memory:

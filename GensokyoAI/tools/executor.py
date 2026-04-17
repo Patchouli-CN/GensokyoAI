@@ -4,18 +4,27 @@
 
 import json
 import asyncio
+from typing import TYPE_CHECKING, Optional
 
 from ollama import Message
 
 from .registry import ToolRegistry
 from ..utils.logging import logger
 
+if TYPE_CHECKING:
+    from ..core.events import EventBus
+
 
 class ToolExecutor:
     """工具执行器"""
 
-    def __init__(self, registry: ToolRegistry | None = None):
+    def __init__(self, registry: ToolRegistry | None = None, event_bus: Optional["EventBus"] = None):
         self._registry = registry or ToolRegistry()
+        self._event_bus = event_bus
+
+    def set_event_bus(self, event_bus: "EventBus") -> None:
+        """注入事件总线"""
+        self._event_bus = event_bus
 
     def parse_tool_calls(self, message: Message) -> list[dict]:
         """从 Message 对象解析工具调用"""
@@ -24,12 +33,10 @@ class ToolExecutor:
 
         parsed = []
         for tc in message.tool_calls:
-            # ollama 的 Message.tool_calls 已经处理好了
-            # tc.function.arguments 已经是 dict，不是字符串
             parsed.append(
                 {
                     "name": tc.function.name,
-                    "arguments": tc.function.arguments,  # 直接是 dict
+                    "arguments": tc.function.arguments,
                 }
             )
         return parsed
@@ -39,10 +46,15 @@ class ToolExecutor:
         name = tool_call.get("name")
         arguments = tool_call.get("arguments", {})
 
+        # 🆕 发布工具调用开始事件
+        self._publish_tool_event("started", name, arguments)
+
         tool_def = self._registry.get(name)  # type: ignore
         if not tool_def:
             error_msg = f"工具 '{name}' 未找到"
             logger.warning(error_msg)
+            # 🆕 发布工具调用失败事件
+            self._publish_tool_event("failed", name, arguments, error_msg)
             return {
                 "role": "tool",
                 "name": name,
@@ -64,6 +76,9 @@ class ToolExecutor:
 
             logger.info(f"工具 {name} 执行成功: {result[:100]}...")
 
+            # 🆕 发布工具调用完成事件
+            self._publish_tool_event("completed", name, arguments, result=result)
+
             return {
                 "role": "tool",
                 "name": name,
@@ -72,11 +87,51 @@ class ToolExecutor:
         except Exception as e:
             error_msg = f"工具执行失败: {e}"
             logger.error(f"工具 {name} 执行错误: {e}")
+            # 🆕 发布工具调用失败事件
+            self._publish_tool_event("failed", name, arguments, error_msg)
             return {
                 "role": "tool",
                 "name": name,
                 "content": f"错误: {error_msg}",
             }
+
+    def _publish_tool_event(
+        self,
+        status: str,
+        name: str,
+        arguments: dict,
+        error: str | None = None,
+        result: str | None = None,
+    ) -> None:
+        """发布工具事件"""
+        if self._event_bus is None:
+            return
+
+        from ..core.events import Event, SystemEvent
+
+        if status == "started":
+            event_type = SystemEvent.TOOL_CALL_STARTED
+        elif status == "completed":
+            event_type = SystemEvent.TOOL_CALL_COMPLETED
+        else:
+            event_type = SystemEvent.TOOL_CALL_FAILED
+
+        data = {
+            "name": name,
+            "arguments": arguments,
+        }
+        if error:
+            data["error"] = error
+        if result:
+            data["result"] = result[:200] if len(result) > 200 else result
+
+        self._event_bus.publish(
+            Event(
+                type=event_type,
+                source="tool_executor",
+                data=data,
+            )
+        )
 
     async def execute_batch(self, tool_calls: list[dict]) -> list[dict]:
         """批量执行工具调用（并行）"""

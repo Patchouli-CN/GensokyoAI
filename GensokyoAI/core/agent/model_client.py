@@ -3,6 +3,7 @@
 # GensokyoAI/core/agent/model_client.py
 
 import asyncio
+import os
 from typing import AsyncIterator, Optional
 
 from ollama import AsyncClient as OllamaAsyncClient
@@ -30,10 +31,21 @@ class ModelClient:
         self.config = config
         self._event_bus = event_bus
         self._client = self._build_client()
-        logger.debug(f"ModelClient 初始化完成，模型: {config.name}")
+        logger.debug(f"ModelClient 初始化完成，模型: {config.name}, 使用代理: {config.use_proxy}")
 
     def _build_client(self) -> OllamaAsyncClient:
         """构建 Ollama 异步客户端"""
+        # 🆕 根据配置决定是否使用代理
+        if not self.config.use_proxy:
+            # 不使用代理：清除代理环境变量，确保 localhost 直连
+            os.environ.pop("HTTP_PROXY", None)
+            os.environ.pop("HTTPS_PROXY", None)
+            os.environ["NO_PROXY"] = "localhost,127.0.0.1,::1"
+            logger.debug("已禁用代理，localhost 将直连")
+        else:
+            # 使用代理：保留系统代理设置
+            logger.debug(f"使用代理模式，base_url: {self.config.base_url}")
+
         return OllamaAsyncClient(host=self.config.base_url)
 
     def _build_options(self) -> dict:
@@ -74,9 +86,14 @@ class ModelClient:
             "model": self.config.name,
             "messages": messages,
             "tools": tools,
-            "think": self.config.think,
             "options": self._build_options(),
         }
+
+        # 🆕 qwen 模型不支持 think 参数，只有 deepseek-r1 等支持
+        if hasattr(self.config, "think") and self.config.think:
+            # 检查模型是否支持 think（简单判断）
+            if "deepseek" in self.config.name.lower() or "r1" in self.config.name.lower():
+                kwargs["think"] = self.config.think
 
         try:
             logger.debug(f"非流式调用模型，消息数: {len(messages)}")
@@ -121,9 +138,13 @@ class ModelClient:
             "model": self.config.name,
             "messages": messages,
             "tools": tools,
-            "think": self.config.think,
             "options": self._build_options(),
         }
+
+        # 🆕 qwen 模型不支持 think 参数
+        if hasattr(self.config, "think") and self.config.think:
+            if "deepseek" in self.config.name.lower() or "r1" in self.config.name.lower():
+                kwargs["think"] = self.config.think
 
         try:
             logger.debug(f"流式调用模型，消息数: {len(messages)}")
@@ -171,7 +192,7 @@ class ModelClient:
         """
         self.config = config
         self._client = self._build_client()
-        logger.info(f"ModelClient 配置已更新，模型: {config.name}")
+        logger.info(f"ModelClient 配置已更新，模型: {config.name}, 使用代理: {config.use_proxy}")
 
     async def embeddings(
         self,
