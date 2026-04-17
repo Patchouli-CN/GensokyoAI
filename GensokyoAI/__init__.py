@@ -48,7 +48,7 @@ GensokyoAI - 幻想乡 AI 角色扮演引擎
 --------
 
 1. 安装依赖：
-   pip install ollama msgspec rich loguru ayafileio numpy pyyaml
+   pip install ollama msgspec rich loguru ayafileio pyyaml
 
 2. 确保 Ollama 运行并下载模型：
    ollama pull qwen3.5:9b
