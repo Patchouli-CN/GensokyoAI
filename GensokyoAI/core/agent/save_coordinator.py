@@ -74,18 +74,19 @@ class SaveCoordinator:
         self._save_pending = False
         self._last_saved_turn = 0
 
-    def should_save(self, working_memory: "WorkingMemoryManager") -> bool:
+    def should_save(self, working_memory: "WorkingMemoryManager", force: bool = False) -> bool:
         """
         判断是否应该保存（去重）
 
         Args:
             working_memory: 工作记忆管理器
+            force: 是否强制保存（忽略去重逻辑）
 
         Returns:
             True 表示应该保存
         """
-        # 关闭时强制保存
-        if self._shutting_down:
+        # 强制保存或关闭时强制保存
+        if force or self._shutting_down:
             return True
 
         current_turn = len(working_memory) // 2
@@ -136,12 +137,14 @@ class SaveCoordinator:
     async def save_async(
         self,
         working_memory: "WorkingMemoryManager",
+        force: bool = False,
     ) -> bool:
         """
         异步保存（如果需要）
 
         Args:
             working_memory: 工作记忆管理器
+            force: 是否强制保存（忽略去重逻辑）
 
         Returns:
             True 表示提交了保存任务
@@ -151,17 +154,25 @@ class SaveCoordinator:
             return False
 
         # 检查是否应该保存
-        if not self.should_save(working_memory):
+        if not self.should_save(working_memory, force=force):
             return False
-
-        # 标记 pending
-        self.mark_pending(working_memory)
 
         # 获取当前会话
         current_session = self._session_manager.get_current_session()
         if current_session is None:
             self._save_pending = False
             return False
+
+        # 获取当前轮数
+        current_turn = len(working_memory) // 2
+
+        # 🆕 如果已经保存过相同轮数，跳过
+        if not force and current_turn == self._last_saved_turn and self._save_pending:
+            logger.debug(f"轮数 {current_turn} 已提交过保存任务，跳过")
+            return False
+
+        # 标记 pending
+        self.mark_pending(working_memory)
 
         # 确保后台管理器已启动
         await self.start_background_manager()
@@ -180,26 +191,36 @@ class SaveCoordinator:
                 "session_id": current_session.session_id,
                 "messages": messages,
             },
-            priority=TaskPriority.LOW,
+            priority=TaskPriority.NORMAL if force else TaskPriority.LOW,
             timeout=10.0,
         )
 
-        logger.debug(f"已提交异步保存任务 (轮数: {len(messages) // 2})")
+        logger.debug(f"已提交{'强制' if force else '异步'}保存任务 (轮数: {len(messages) // 2})")
         return True
 
-    def sync_save(self, working_memory: "WorkingMemoryManager") -> None:
+    def sync_save(self, working_memory: "WorkingMemoryManager", force: bool = False) -> None:
         """
-        同步保存（用于关闭时）
+        同步保存（用于关闭时或强制保存）
 
         Args:
             working_memory: 工作记忆管理器
+            force: 是否强制保存
         """
         try:
-            if self._session_config.auto_save:
+            if self._session_config.auto_save or force:
+                current_turn = len(working_memory) // 2
+
+                # 🆕 检查是否需要保存
+                if not force and current_turn <= self._last_saved_turn:
+                    logger.debug(f"轮数 {current_turn} 已保存过，跳过同步保存")
+                    return
+
                 current = self._session_manager.get_current_session()
                 if current:
                     self._session_manager.save_working_memory()
                     self._session_manager.save_current()
-                    logger.info(f"已保存会话数据 (轮数: {len(working_memory) // 2})")
+                    self._last_saved_turn = current_turn
+                    self._save_pending = False
+                    logger.info(f"已{'强制' if force else ''}保存会话数据 (轮数: {current_turn})")
         except Exception as e:
             logger.error(f"保存数据时出错: {e}")

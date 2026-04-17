@@ -393,8 +393,8 @@ class Agent:
         return False
 
     async def async_save(self) -> None:
-        """异步保存会话"""
-        await self.save_coordinator.save_async(self.working_memory)
+        """异步保存会话（强制）"""
+        await self.save_coordinator.save_async(self.working_memory, force=True)
 
     def rollback(self, num: int = 1, mode: Literal["turns", "messages"] = "turns") -> None:
         """回滚对话"""

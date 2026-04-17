@@ -25,9 +25,12 @@ class CoreListeners:
         bus.subscribe(SystemEvent.SESSION_CREATED, self.on_session_created)
         bus.subscribe(SystemEvent.SESSION_RESUMED, self.on_session_resumed)
 
-        # 对话事件
+        # 对话事件 - message.received 保持异步，message.sent 改为同步记录
         bus.subscribe(SystemEvent.MESSAGE_RECEIVED, self.on_message_received)
-        bus.subscribe(SystemEvent.MESSAGE_SENT, self.on_message_sent)
+        # 🆕 使用同步订阅，立即记录助手消息
+        bus.subscribe_sync(SystemEvent.MESSAGE_SENT, self._sync_record_assistant_message)
+        # 同时保留异步订阅用于日志
+        bus.subscribe(SystemEvent.MESSAGE_SENT, self._async_log_message_sent)
 
         # 记忆事件
         bus.subscribe(SystemEvent.MEMORY_WORKING_ADDED, self.on_working_memory_added)
@@ -66,13 +69,17 @@ class CoreListeners:
         if hasattr(self.agent, "working_memory"):
             self.agent.working_memory.add_message("user", user_input)
 
-    async def on_message_sent(self, event: Event) -> None:
+    def _sync_record_assistant_message(self, event: Event) -> None:
+        """同步记录助手消息（立即执行）"""
         response = event.data.get("content", "")
-        logger.debug(f"发送响应: {response[:50]}...")
-
-        # 记录助手消息到工作记忆
         if hasattr(self.agent, "working_memory") and response:
             self.agent.working_memory.add_message("assistant", response)
+            logger.debug(f"同步记录助手消息: {response[:50]}...")
+
+    async def _async_log_message_sent(self, event: Event) -> None:
+        """异步记录发送日志"""
+        response = event.data.get("content", "")
+        logger.debug(f"发送响应: {response[:50]}...")
 
     # ==================== 记忆事件 ====================
 
