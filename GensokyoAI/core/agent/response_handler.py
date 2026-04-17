@@ -134,9 +134,7 @@ class ResponseHandler:
 
     # ==================== 工具处理 ====================
 
-    async def handle_tool_calls_from_message(
-        self, message: Message
-    ) -> list[dict] | None:
+    async def handle_tool_calls_from_message(self, message: Message) -> list[dict] | None:
         """
         从 Message 对象处理工具调用
 
@@ -156,9 +154,7 @@ class ResponseHandler:
 
         return None
 
-    async def handle_tool_calls_from_response(
-        self, response: ChatResponse
-    ) -> list[dict] | None:
+    async def handle_tool_calls_from_response(self, response: ChatResponse) -> list[dict] | None:
         """
         从 ChatResponse 对象处理工具调用（便捷方法）
 
@@ -222,9 +218,7 @@ class ResponseHandler:
 
         return True
 
-    async def trigger_auto_memory(
-        self, user_input: str, assistant_response: str
-    ) -> None:
+    async def trigger_auto_memory(self, user_input: str, assistant_response: str) -> None:
         """触发异步自动记忆"""
         if not self._should_auto_memory(user_input, assistant_response):
             return
@@ -312,9 +306,7 @@ class ResponseHandler:
 
         # 处理工具调用
         if tool_calls_message:
-            if tool_results := await self.handle_tool_calls_from_message(
-                tool_calls_message
-            ):
+            if tool_results := await self.handle_tool_calls_from_message(tool_calls_message):
                 self.record_tool_results(tool_results)
 
                 # 继续对话

@@ -62,7 +62,9 @@ class MessageBuilder:
                 tools_desc = "\n\n【可用工具】\n"
                 tools_desc += "\n".join(f"- {t.name}: {t.description}" for t in tools)
                 prompt += tools_desc
-                prompt += "\n当需要获取外部信息时，请调用相应的工具。调用工具后，将结果整合到回复中。"
+                prompt += (
+                    "\n当需要获取外部信息时，请调用相应的工具。调用工具后，将结果整合到回复中。"
+                )
 
         return prompt
 
@@ -76,9 +78,7 @@ class MessageBuilder:
         Returns:
             消息列表，格式为 [{"role": "...", "content": "..."}]
         """
-        messages: list[dict[str, str]] = [
-            {"role": "system", "content": self.system_prompt}
-        ]
+        messages: list[dict[str, str]] = [{"role": "system", "content": self.system_prompt}]
 
         # 情景记忆（历史摘要）
         if episodic_context := self._episodic_memory.get_relevant_context(user_input):
@@ -115,9 +115,7 @@ class MessageBuilder:
         Returns:
             消息列表
         """
-        messages: list[dict[str, str]] = [
-            {"role": "system", "content": self.system_prompt}
-        ]
+        messages: list[dict[str, str]] = [{"role": "system", "content": self.system_prompt}]
         messages.extend(self._working_memory.get_context())
         messages.append(
             {

@@ -9,15 +9,17 @@ from msgspec import field, Struct
 
 class CommandType(Enum):
     """命令类型"""
-    SYSTEM = auto()   # 系统命令 (exit, save, etc.)
-    CHAT = auto()     # 聊天命令 (think, whisper)
-    PROMPT = auto()   # 提示词命令 (know, meta, attention)
-    CUSTOM = auto()   # 自定义命令
-    NONE = auto()     # 不是命令
+
+    SYSTEM = auto()  # 系统命令 (exit, save, etc.)
+    CHAT = auto()  # 聊天命令 (think, whisper)
+    PROMPT = auto()  # 提示词命令 (know, meta, attention)
+    CUSTOM = auto()  # 自定义命令
+    NONE = auto()  # 不是命令
 
 
 class TagDefinition:
     """标签定义"""
+
     def __init__(
         self,
         name: str,
@@ -39,6 +41,7 @@ class TagDefinition:
 
 class ParsedCommand(Struct):
     """解析后的命令"""
+
     type: CommandType
     name: str
     content: str = ""
@@ -106,7 +109,7 @@ class CommandParser:
 
         # 1. 解析标签模式 <tag>content</tag> 和 <tag content />
         tag_pattern = r"<([^>\s]+)(?:\s+([^>]+?))?\s*(?:>(.*?)</\1>|/>)"
-        
+
         for match in re.finditer(tag_pattern, text, re.IGNORECASE | re.DOTALL):
             tag_name = match.group(1).lower()
             tag_args = match.group(2) or ""

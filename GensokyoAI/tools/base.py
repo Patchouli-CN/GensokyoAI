@@ -103,9 +103,7 @@ def tool(name: Optional[str] = None, description: Optional[str] = None) -> Calla
                 name=param_name,
                 type=tool_type,
                 required=param.default is inspect.Parameter.empty,
-                default=None
-                if param.default is inspect.Parameter.empty
-                else param.default,
+                default=None if param.default is inspect.Parameter.empty else param.default,
             )
 
         # 检查是否是异步函数

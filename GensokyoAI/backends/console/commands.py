@@ -4,7 +4,7 @@
 
 from typing import TYPE_CHECKING
 
-from ...commands import command, CommandType, CommandContext, CommandResult
+from ...commands import command, CommandType, CommandContext, CommandResult, CommandExecutor
 from ...utils.formatters import format_session_id
 from ...utils.helpers import safe_get
 
@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 
 # ==================== 系统命令 ====================
+
 
 @command(name="exit", cmd_type=CommandType.SYSTEM, aliases=["quit"], description="退出程序")
 async def cmd_exit(ctx: CommandContext) -> CommandResult:
@@ -29,7 +30,6 @@ async def cmd_back(ctx: CommandContext) -> CommandResult:
     ctx.agent_inst.rollback(1)
     return CommandResult.success("back", "已回滚上一轮对话")
 
-
 @command(name="new", cmd_type=CommandType.SYSTEM, description="创建新会话")
 async def cmd_new(ctx: CommandContext) -> CommandResult:
     """创建新会话"""
@@ -37,17 +37,17 @@ async def cmd_new(ctx: CommandContext) -> CommandResult:
     session = ctx.agent_inst.create_session()
     backend._prompt_context.clear()
     session_id_short = format_session_id(session.session_id)
-    
+
     if greeting := safe_get(ctx.agent_inst.config, "character.greeting"):
         backend._print_assistant_message(greeting)
-    
+
     return CommandResult.success("new", f"已创建新会话: {session_id_short}")
 
 
 @command(name="save", cmd_type=CommandType.SYSTEM, description="保存当前会话")
 async def cmd_save(ctx: CommandContext) -> CommandResult:
     """保存会话"""
-    await ctx.agent_inst._async_save()
+    await ctx.agent_inst.async_save()
     return CommandResult.success("save", "会话已保存")
 
 
@@ -64,7 +64,7 @@ async def cmd_sessions(ctx: CommandContext) -> CommandResult:
 async def cmd_stream(ctx: CommandContext, mode: str = "toggle") -> CommandResult:
     """切换流式输出"""
     backend: "ConsoleBackend" = ctx.backend_inst
-    
+
     if mode in ("on", "true", "1", "enable"):
         backend._use_stream = True
         return CommandResult.success("stream", "流式输出已开启")
@@ -88,17 +88,52 @@ async def cmd_clear(ctx: CommandContext) -> CommandResult:
     backend._prompt_context.clear()
     return CommandResult.success("clear", f"已清空 {count} 条提示词上下文")
 
+@command(name="errors", cmd_type=CommandType.SYSTEM, description="查看最近错误")
+async def cmd_errors(ctx: CommandContext) -> CommandResult:
+    """查看系统错误状态"""
+    backend: "ConsoleBackend" = ctx.backend_inst
+    agent = ctx.agent_inst
+    
+    backend.console.print("[bold red]📊 错误统计[/]")
+    
+    if hasattr(agent, 'error_listeners'):
+        stats = agent.error_listeners.get_error_stats()
+        backend.console.print(f"总错误数: {stats['total']}")
+        
+        if stats['counts']:
+            backend.console.print("\n[bold]按类型:[/]")
+            for key, count in stats['counts'].items():
+                backend.console.print(f"  • {key}: {count}")
+        else:
+            backend.console.print("  [dim]暂无错误记录[/]")
+        
+        if stats['recent']:
+            backend.console.print("\n[bold]最近错误:[/]")
+            for err in stats['recent'][-5:]:
+                ts = err['timestamp'].strftime("%H:%M:%S")
+                status = f"[{err.get('status_code', 'N/A')}]" if err.get('status_code') else ""
+                error_preview = err['error'][:50] + "..." if len(err['error']) > 50 else err['error']
+                backend.console.print(f"  • {ts} {status} {error_preview}")
+    else:
+        backend.console.print("[dim]错误监听器未初始化[/]")
+    
+    # 🆕 显示 EventBus 状态
+    if hasattr(agent, 'event_bus'):
+        stats = agent.event_bus.stats
+        backend.console.print(f"\n[bold]EventBus 状态:[/]")
+        backend.console.print(f"  已发布: {stats['published']}, 已投递: {stats['delivered']}, 错误: {stats['errors']}")
+    
+    return CommandResult.success("errors", "错误已显示")
+
 
 @command(name="help", cmd_type=CommandType.SYSTEM, description="显示帮助信息")
 async def cmd_help(ctx: CommandContext) -> CommandResult:
     """显示帮助"""
     backend: "ConsoleBackend" = ctx.backend_inst
-    
-    from ...commands import CommandExecutor, CommandType as CmdType
-    
+
     executor = CommandExecutor()
     commands = executor.list_commands()
-    
+
     help_text = """
 [bold cyan]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/]
 [bold cyan]  可用命令列表[/]
@@ -107,27 +142,27 @@ async def cmd_help(ctx: CommandContext) -> CommandResult:
 [bold yellow]系统命令:[/]
 """
     for cmd in commands:
-        if cmd.type == CmdType.SYSTEM:
+        if cmd.type == CommandType.SYSTEM:
             aliases = f" ({', '.join(cmd.aliases)})" if cmd.aliases else ""
             help_text += f"  • <cmd>{cmd.name}</cmd>, /{cmd.name}{aliases} - {cmd.description}\n"
             help_text += f"    [dim]用法: {cmd.usage}[/]\n"
-    
+
     help_text += "\n[bold magenta]提示词命令 (会传递给 AI):[/]\n"
     for cmd in commands:
-        if cmd.type == CmdType.PROMPT:
+        if cmd.type == CommandType.PROMPT:
             aliases = f" ({', '.join(cmd.aliases)})" if cmd.aliases else ""
             help_text += f"  • <{cmd.name}>内容</{cmd.name}>{aliases} - {cmd.description}\n"
-    
+
     help_text += "\n[bold green]聊天命令 (仅本地显示):[/]\n"
     for cmd in commands:
-        if cmd.type == CmdType.CHAT:
+        if cmd.type == CommandType.CHAT:
             help_text += f"  • <{cmd.name}>内容</{cmd.name}> - {cmd.description}\n"
-    
+
     help_text += f"\n[dim]当前提示词上下文: {len(backend._prompt_context)} 条[/]"
     help_text += "\n[bold cyan]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/]"
-    
+
     backend.console.print(help_text)
-    
+
     return CommandResult.success("help", "帮助信息已显示")
 
 
@@ -159,6 +194,7 @@ def _make_chat_handler(cmd_name: str):
             color = _CHAT_COLORS.get(cmd_name, "white")
             backend.console.print(f"[{color}]{icon} {content}[/]")
         return CommandResult.success(cmd_name)
+
     return handler
 
 
@@ -191,12 +227,12 @@ def _make_prompt_handler(cmd_name: str):
         "meta": ["metadata"],
         "attention": ["tips"],
     }
-    
+
     @command(
-        name=cmd_name, 
-        cmd_type=CommandType.PROMPT, 
+        name=cmd_name,
+        cmd_type=CommandType.PROMPT,
         aliases=aliases_map.get(cmd_name, []),
-        description=f"提供{cmd_name}信息给 AI"
+        description=f"提供{cmd_name}信息给 AI",
     )
     async def handler(ctx: CommandContext, content: str = "") -> CommandResult:
         if content:
@@ -204,11 +240,12 @@ def _make_prompt_handler(cmd_name: str):
             prefix = _PROMPT_PREFIXES.get(cmd_name, "")
             icon = _PROMPT_ICONS.get(cmd_name, "")
             backend._prompt_context.append(f"{prefix}\n{content}")
-            
-            preview = content[:100] + ('...' if len(content) > 100 else '')
+
+            preview = content[:100] + ("..." if len(content) > 100 else "")
             backend.console.print(f"[dim]{icon} {preview}[/]")
-            
+
         return CommandResult.success(cmd_name, f"已添加{cmd_name}上下文 ({len(content)} 字符)")
+
     return handler
 
 

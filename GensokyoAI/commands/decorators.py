@@ -15,7 +15,7 @@ _COMMAND_REGISTRY: dict[str, "CommandDefinition"] = {}
 
 class CommandDefinition:
     """命令定义"""
-    
+
     def __init__(
         self,
         name: str,
@@ -34,8 +34,7 @@ class CommandDefinition:
         self._type_hints = get_type_hints(handler)
         self._is_async = inspect.iscoroutinefunction(handler)
         self.usage = usage or self._generate_usage(handler)
-    
-    
+
     def _generate_usage(self, handler: Callable) -> str:
         params = []
         for name, param in self._sig.parameters.items():
@@ -46,21 +45,21 @@ class CommandDefinition:
             else:
                 params.append(f"<{name}>")
         return f"/{self.name} " + " ".join(params) if params else f"/{self.name}"
-    
+
     def parse_args(self, content: str) -> dict:
         args = {}
         param_names = [p for p in self._sig.parameters.keys() if p not in ("cmd", "ctx")]
-        
+
         if not param_names:
             return args
-        
+
         parts = content.strip().split()
-        
+
         for i, name in enumerate(param_names):
             if i < len(parts):
                 param = self._sig.parameters[name]
                 hint = self._type_hints.get(name, str)
-                
+
                 try:
                     if hint == bool:
                         args[name] = parts[i].lower() in ("true", "1", "yes", "on")
@@ -71,16 +70,18 @@ class CommandDefinition:
                     else:
                         args[name] = parts[i]
                 except ValueError:
-                    args[name] = param.default if param.default is not inspect.Parameter.empty else None
+                    args[name] = (
+                        param.default if param.default is not inspect.Parameter.empty else None
+                    )
             else:
                 param = self._sig.parameters[name]
                 if param.default is not inspect.Parameter.empty:
                     args[name] = param.default
                 else:
                     args[name] = None
-        
+
         return args
-    
+
     @property
     def all_names(self) -> list[str]:
         return [self.name] + self.aliases
@@ -94,9 +95,10 @@ def command(
     usage: str = "",
 ):
     """命令装饰器"""
+
     def decorator(func: Callable) -> Callable:
         cmd_name = name or func.__name__.replace("cmd_", "")
-        
+
         cmd_def = CommandDefinition(
             name=cmd_name,
             handler=func,
@@ -105,17 +107,17 @@ def command(
             description=description,
             usage=usage,
         )
-        
+
         for n in cmd_def.all_names:
             _COMMAND_REGISTRY[n.lower()] = cmd_def
             logger.debug(f"注册命令: {n} (类型: {cmd_type.name})")
-        
+
         @wraps(func)
         async def wrapper(*args, **kwargs):
             return await func(*args, **kwargs) if cmd_def._is_async else func(*args, **kwargs)
-        
+
         return wrapper
-    
+
     return decorator
 
 

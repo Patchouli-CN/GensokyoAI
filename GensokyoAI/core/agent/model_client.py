@@ -11,6 +11,7 @@ from msgspec import Struct
 
 from ..config import ModelConfig
 from ..exceptions import ModelError
+from ..events import Event, SystemEvent, EventBus
 from ...utils.logging import logger
 
 
@@ -23,24 +24,11 @@ class StreamChunk(Struct):
 
 
 class ModelClient:
-    """
-    模型客户端 - 纯粹封装 Ollama 调用
+    """模型客户端 - 纯粹封装 Ollama 调用"""
 
-    职责：
-    - 管理 Ollama 异步客户端实例
-    - 提供非流式和流式调用接口
-    - 处理超时和异常
-    - 不涉及任何业务逻辑（记忆、会话、工具等）
-    """
-
-    def __init__(self, config: ModelConfig):
-        """
-        初始化模型客户端
-
-        Args:
-            config: 模型配置
-        """
+    def __init__(self, config: ModelConfig, event_bus: Optional["EventBus"] = None):  # 🆕 接收 EventBus
         self.config = config
+        self._event_bus = event_bus  # 🆕
         self._client = self._build_client()
         logger.debug(f"ModelClient 初始化完成，模型: {config.name}")
 
@@ -56,24 +44,26 @@ class ModelClient:
             "num_predict": self.config.max_tokens,
         }
 
+    def _publish_error(self, error: Exception, context: dict) -> None:
+        """🆕 发布错误事件"""
+        if self._event_bus:
+            self._event_bus.publish(Event(
+                type=SystemEvent.MODEL_ERROR,
+                source="model_client",
+                data={
+                    "model": self.config.name,
+                    "error": str(error),
+                    "error_type": type(error).__name__,
+                    **context,
+                }
+            ))
+
     async def chat(
         self,
         messages: list[dict[str, str]],
         tools: Optional[list[dict]] = None,
     ) -> ChatResponse:
-        """
-        非流式调用模型
-
-        Args:
-            messages: 消息列表
-            tools: 工具 schema 列表（可选）
-
-        Returns:
-            ChatResponse: 完整的模型响应
-
-        Raises:
-            ModelError: 调用失败或超时
-        """
+        """非流式调用模型"""
         kwargs = {
             "model": self.config.name,
             "messages": messages,
@@ -81,7 +71,6 @@ class ModelClient:
             "options": self._build_options(),
         }
 
-        # think 参数是可选的，只有支持 think 的模型才传
         if hasattr(self.config, "think"):
             kwargs["think"] = self.config.think
 
@@ -95,31 +84,37 @@ class ModelClient:
             return response
 
         except asyncio.TimeoutError:
-            logger.error(f"模型调用超时 ({self.config.timeout}s)")
-            raise ModelError(f"模型调用超时 ({self.config.timeout}秒)")
+            error_msg = f"模型调用超时 ({self.config.timeout}s)"
+            logger.error(error_msg)
+            
+            # 🆕 发布超时错误事件
+            self._publish_error(
+                ModelError(error_msg),
+                {"context": "chat", "timeout": self.config.timeout, "message_count": len(messages)}
+            )
+            raise ModelError(error_msg)
 
         except Exception as e:
-            logger.error(f"模型调用失败: {e}")
-            raise ModelError(f"模型调用失败: {e}") from e
+            error_msg = f"模型调用失败: {e}"
+            logger.error(error_msg)
+            
+            # 🆕 检查是否是 502 错误
+            error_str = str(e)
+            if "502" in error_str:
+                logger.warning("检测到 502 错误，可能是代理或连接问题")
+            
+            self._publish_error(
+                e if isinstance(e, ModelError) else ModelError(error_msg),
+                {"context": "chat", "message_count": len(messages), "status_code": "502" if "502" in error_str else None}
+            )
+            raise ModelError(error_msg) from e
 
     async def chat_stream(
         self,
         messages: list[dict[str, str]],
         tools: Optional[list[dict]] = None,
     ) -> AsyncIterator[StreamChunk]:
-        """
-        流式调用模型
-
-        Args:
-            messages: 消息列表
-            tools: 工具 schema 列表（可选）
-
-        Yields:
-            StreamChunk: 流式响应块
-
-        Raises:
-            ModelError: 调用失败
-        """
+        """流式调用模型"""
         kwargs = {
             "model": self.config.name,
             "messages": messages,
@@ -137,7 +132,6 @@ class ModelClient:
             async for chunk in stream:
                 message = chunk.message
 
-                # 检查是否有工具调用
                 if message.tool_calls:
                     yield StreamChunk(
                         is_tool_call=True,
@@ -146,9 +140,29 @@ class ModelClient:
                 elif message.content:
                     yield StreamChunk(content=message.content)
 
+        except asyncio.TimeoutError:
+            error_msg = f"流式调用超时 ({self.config.timeout}s)"
+            logger.error(error_msg)
+            self._publish_error(
+                ModelError(error_msg),
+                {"context": "chat_stream", "timeout": self.config.timeout}
+            )
+            raise ModelError(error_msg)
+
         except Exception as e:
-            logger.error(f"流式模型调用失败: {e}")
-            raise ModelError(f"流式模型调用失败: {e}") from e
+            error_msg = f"流式模型调用失败: {e}"
+            logger.error(error_msg)
+            
+            error_str = str(e)
+            self._publish_error(
+                e if isinstance(e, ModelError) else ModelError(error_msg),
+                {
+                    "context": "chat_stream", 
+                    "message_count": len(messages),
+                    "status_code": "502" if "502" in error_str else None
+                }
+            )
+            raise ModelError(error_msg) from e
 
     def update_config(self, config: ModelConfig) -> None:
         """
@@ -198,9 +212,7 @@ class ModelClient:
 
         except asyncio.TimeoutError:
             logger.error(f"embeddings 调用超时 ({timeout or self.config.timeout}s)")
-            raise ModelError(
-                f"embeddings 调用超时 ({timeout or self.config.timeout}秒)"
-            )
+            raise ModelError(f"embeddings 调用超时 ({timeout or self.config.timeout}秒)")
 
         except Exception as e:
             logger.error(f"embeddings 调用失败: {e}")
@@ -225,9 +237,7 @@ class ModelClient:
         Returns:
             向量列表
         """
-        tasks = [
-            self.embeddings(prompt, model, timeout, **kwargs) for prompt in prompts
-        ]
+        tasks = [self.embeddings(prompt, model, timeout, **kwargs) for prompt in prompts]
         responses = await asyncio.gather(*tasks)
 
         embeddings = []

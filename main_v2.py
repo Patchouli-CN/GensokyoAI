@@ -24,12 +24,8 @@ def parse_args():
 
     parser.add_argument("--new-session", action="store_true", help="创建新会话")
     parser.add_argument("--resume", type=str, metavar="SESSION_ID", help="恢复指定会话")
-    parser.add_argument(
-        "--character", "-c", type=str, help="角色名称或角色配置文件路径"
-    )
-    parser.add_argument(
-        "--config", type=str, default="config/default.yaml", help="配置文件路径"
-    )
+    parser.add_argument("--character", "-c", type=str, help="角色名称或角色配置文件路径")
+    parser.add_argument("--config", type=str, default="config/default.yaml", help="配置文件路径")
     parser.add_argument("--list-sessions", action="store_true", help="列出所有会话")
     parser.add_argument("--no-stream", action="store_true", help="禁用流式输出")
 
@@ -103,7 +99,9 @@ async def main():
         if sessions:
             latest = max(sessions, key=lambda s: s.last_active)
             agent.session_manager.set_current_session(latest.session_id)  # 👈 显式设置
-            console.print(f"[green]✓ 已恢复历史会话: {latest.session_id[:8]}... ({latest.total_turns} 轮)[/]")
+            console.print(
+                f"[green]✓ 已恢复历史会话: {latest.session_id[:8]}... ({latest.total_turns} 轮)[/]"
+            )
         else:
             session = agent.create_session()  # 👈 内部会设置
             console.print(f"[green]✓ 新会话已就绪: {session.session_id[:8]}...[/]")

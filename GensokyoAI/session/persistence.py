@@ -149,23 +149,15 @@ class SessionPersistence:
                     session_file = char_dir / f"{session_id}.json"
                     if session_file.exists():
                         self._add_to_index(char_dir.name, session_id)
-                        async with ayafileio.open(
-                            session_file, "r", encoding="utf-8"
-                        ) as f:
+                        async with ayafileio.open(session_file, "r", encoding="utf-8") as f:
                             content = await f.read()
                             data = json.loads(content)
                         data["messages"] = messages
                         if "session" in data:
                             data["session"]["total_turns"] = len(messages) // 2
-                        async with ayafileio.open(
-                            session_file, "w", encoding="utf-8"
-                        ) as f:
-                            await f.write(
-                                json.dumps(data, ensure_ascii=False, indent=2)
-                            )
-                        logger.debug(
-                            f"消息已异步保存: {session_id}, {len(messages)} 条"
-                        )
+                        async with ayafileio.open(session_file, "w", encoding="utf-8") as f:
+                            await f.write(json.dumps(data, ensure_ascii=False, indent=2))
+                        logger.debug(f"消息已异步保存: {session_id}, {len(messages)} 条")
                         return
 
             logger.warning(f"未找到会话文件: {session_id}")
@@ -235,9 +227,7 @@ class SessionPersistence:
 
         return SessionContext.from_dict(data["session"])
 
-    async def load_session_async(
-        self, character_id: str, session_id: str
-    ) -> SessionContext | None:
+    async def load_session_async(self, character_id: str, session_id: str) -> SessionContext | None:
         """加载会话（异步 - 使用 ayafileio）"""
         path = self._get_session_path(character_id, session_id)
         if not path.exists():

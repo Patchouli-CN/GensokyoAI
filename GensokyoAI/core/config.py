@@ -40,7 +40,6 @@ class MemoryConfig(Struct):
     episodic_summary_model: str = "qwen3.5:9b"
     episodic_keep_recent: int = 10
     semantic_enabled: bool = True
-    semantic_embedding_model: str = "nomic-embed-text"
     semantic_top_k: int = 5
     semantic_similarity_threshold: float = 0.7
     auto_memory_enabled: bool = True
@@ -51,9 +50,7 @@ class ToolConfig(Struct):
     """工具配置"""
 
     enabled: bool = True
-    builtin_tools: list[str] = field(
-        default_factory=lambda: ["time", "moon", "memory", "system"]
-    )
+    builtin_tools: list[str] = field(default_factory=lambda: ["time", "moon", "memory", "system"])
     custom_tools_path: Path | None = None
 
 
@@ -178,9 +175,7 @@ class ConfigLoader:
 
         # 日志配置 - override 优先
         result.log_level = (
-            override.log_level
-            if override.log_level != LogLevel.INFO
-            else base.log_level
+            override.log_level if override.log_level != LogLevel.INFO else base.log_level
         )
         result.log_console = override.log_console
         result.log_file = override.log_file or base.log_file
@@ -202,13 +197,9 @@ class ConfigLoader:
             base_url=override.base_url or base.base_url,
             stream=override.stream,
             think=override.think,
-            temperature=override.temperature
-            if override.temperature != 0.7
-            else base.temperature,
+            temperature=override.temperature if override.temperature != 0.7 else base.temperature,
             top_p=override.top_p if override.top_p != 0.9 else base.top_p,
-            max_tokens=override.max_tokens
-            if override.max_tokens != 2048
-            else base.max_tokens,
+            max_tokens=override.max_tokens if override.max_tokens != 2048 else base.max_tokens,
             timeout=override.timeout if override.timeout != 60 else base.timeout,
         )
 
@@ -228,9 +219,6 @@ class ConfigLoader:
             if override.episodic_keep_recent != 10
             else base.episodic_keep_recent,
             semantic_enabled=override.semantic_enabled,
-            semantic_embedding_model=override.semantic_embedding_model
-            if override.semantic_embedding_model != "nomic-embed-text"
-            else base.semantic_embedding_model,
             semantic_top_k=override.semantic_top_k
             if override.semantic_top_k != 5
             else base.semantic_top_k,
@@ -246,27 +234,21 @@ class ConfigLoader:
     def _merge_tool(self, base: ToolConfig, override: ToolConfig) -> ToolConfig:
         """合并工具配置 - 修复覆盖逻辑"""
         return ToolConfig(
-            enabled=override.enabled
-            if override.enabled != base.enabled
-            else base.enabled,
+            enabled=override.enabled if override.enabled != base.enabled else base.enabled,
             builtin_tools=override.builtin_tools
             if override.builtin_tools != base.builtin_tools
             else base.builtin_tools,
             custom_tools_path=override.custom_tools_path or base.custom_tools_path,
         )
 
-    def _merge_session(
-        self, base: SessionConfig, override: SessionConfig
-    ) -> SessionConfig:
+    def _merge_session(self, base: SessionConfig, override: SessionConfig) -> SessionConfig:
         """合并会话配置 - 修复覆盖逻辑"""
         default_path = Path("./sessions")
         return SessionConfig(
             auto_save=override.auto_save
             if override.auto_save != base.auto_save
             else base.auto_save,
-            save_path=override.save_path
-            if override.save_path != default_path
-            else base.save_path,
+            save_path=override.save_path if override.save_path != default_path else base.save_path,
             max_sessions=override.max_sessions
             if override.max_sessions != 100
             else base.max_sessions,

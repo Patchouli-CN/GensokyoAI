@@ -13,7 +13,7 @@ from .types import (
     MemoryTaskData,
     PersistenceTaskData,
 )
-from .workers import MemoryWorker, PersistenceWorker
+from .workers import PersistenceWorker
 from .workers.base import BaseWorker
 from ..utils.logging import logger
 
@@ -48,9 +48,7 @@ class BackgroundManager:
         self.max_queue_size = max_queue_size
 
         # 使用 asyncio.Queue 替代轮询
-        self._task_queue: asyncio.Queue[BackgroundTask] = asyncio.Queue(
-            maxsize=max_queue_size
-        )
+        self._task_queue: asyncio.Queue[BackgroundTask] = asyncio.Queue(maxsize=max_queue_size)
 
         # 工作器注册表
         self._workers: dict[TaskType, BaseWorker] = {}
@@ -72,29 +70,19 @@ class BackgroundManager:
 
     # ==================== 工作器注册 ====================
 
-    def register_worker(
-        self, task_type: TaskType, worker: BaseWorker
-    ) -> "BackgroundManager":
+    def register_worker(self, task_type: TaskType, worker: BaseWorker) -> "BackgroundManager":
         """注册工作器"""
         self._workers[task_type] = worker
         logger.debug(f"注册工作器: {task_type.name}")
         return self
 
-    def register_memory_worker(self, worker: MemoryWorker) -> "BackgroundManager":
-        """注册记忆工作器"""
-        return self.register_worker(TaskType.MEMORY, worker)
-
-    def register_persistence_worker(
-        self, worker: PersistenceWorker
-    ) -> "BackgroundManager":
+    def register_persistence_worker(self, worker: PersistenceWorker) -> "BackgroundManager":
         """注册持久化工作器"""
         return self.register_worker(TaskType.PERSISTENCE, worker)
 
     # ==================== 回调注册 ====================
 
-    def on_complete(
-        self, callback: Callable[[TaskResult], Awaitable[None]]
-    ) -> "BackgroundManager":
+    def on_complete(self, callback: Callable[[TaskResult], Awaitable[None]]) -> "BackgroundManager":
         """注册完成回调"""
         self._result_callbacks.append(callback)
         return self
@@ -120,9 +108,7 @@ class BackgroundManager:
                     self._stats["dropped"] += 1
 
             asyncio.create_task(_update_dropped())
-            logger.warning(
-                f"任务队列已满 ({self.max_queue_size})，丢弃任务: {task.name}"
-            )
+            logger.warning(f"任务队列已满 ({self.max_queue_size})，丢弃任务: {task.name}")
             return False
 
     def submit_memory_task(
@@ -194,9 +180,7 @@ class BackgroundManager:
             try:
                 await asyncio.wait_for(self._task_queue.join(), timeout=timeout)
             except asyncio.TimeoutError:
-                logger.warning(
-                    f"等待队列清空超时，剩余 {self._task_queue.qsize()} 个任务将被丢弃"
-                )
+                logger.warning(f"等待队列清空超时，剩余 {self._task_queue.qsize()} 个任务将被丢弃")
 
         # 取消所有工作器
         for task in self._worker_tasks:

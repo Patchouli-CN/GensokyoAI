@@ -28,9 +28,7 @@ class ToolRegistry:
                 continue
             module_name = py_file.stem
             try:
-                importlib.import_module(
-                    f".tool_builtin.{module_name}", package=__package__
-                )
+                importlib.import_module(f".tool_builtin.{module_name}", package=__package__)
                 logger.debug(f"加载内置工具: {module_name}")
             except Exception as e:
                 logger.warning(f"加载 {module_name} 失败: {e}")

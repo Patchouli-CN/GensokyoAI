@@ -1,4 +1,4 @@
-""" 控制台后端具体实现模块 """
+"""控制台后端具体实现模块"""
 # GensokyoAI/backends/console/__init__.py
 
 """控制台后端模块"""

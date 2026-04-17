@@ -7,7 +7,7 @@ BaseBackend
 
 ConsoleBackend
     内置的控制台后端实现，基于 Rich 库提供美化的终端交互。
-    
+
     这个实现可作为开发自定义后端的参考示例：
     - 如何集成 CommandExecutor
     - 如何处理 CommandResult

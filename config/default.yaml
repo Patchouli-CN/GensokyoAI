@@ -23,7 +23,6 @@ memory:
   episodic_summary_model: qwen3.5:9b
   episodic_keep_recent: 10
   semantic_enabled: true
-  semantic_embedding_model: nomic-embed-text:latest
   semantic_top_k: 5
   semantic_similarity_threshold: 0.7
   auto_memory_enabled: true

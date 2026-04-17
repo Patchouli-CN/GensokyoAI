@@ -51,9 +51,7 @@ def format_stack_trace(exctype, value, tb, max_depth=15, nested=False) -> list[s
     if context and not cause:
         exception_info.append("Original exception: ")
         exception_info.extend(
-            format_stack_trace(
-                type(context), context, context.__traceback__, nested=True
-            )
+            format_stack_trace(type(context), context, context.__traceback__, nested=True)
         )
 
     return exception_info

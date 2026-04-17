@@ -32,8 +32,8 @@ class WorkingMemory(Struct):
 
     def _trim(self) -> None:
         """裁剪到最大轮数"""
-        if len(self.messages) > self.max_turns * 2:  # *2 因为 user+assistant
-            self.messages = self.messages[-self.max_turns * 2 :]
+        if len(self.messages) > self.max_turns * 2:
+            self.messages = self.messages[-self.max_turns * 2:]
 
     def get_context(self) -> list[dict]:
         """获取上下文"""
@@ -54,12 +54,30 @@ class EpisodicMemory(Struct):
     key_events: list[str] = field(default_factory=list)
 
 
-class SemanticMemory(Struct):
-    """语义记忆 - 向量化的知识片段"""
+class Topic(Struct):
+    """话题 - 对话的语义聚类单元
+    注意：无默认值的字段必须放在有默认值的字段之前
+    """
 
-    id: str = field(default_factory=lambda: str(uuid4()))
-    content: str = ""
-    embedding: list[float] | None = None
+    name: str  # 无默认值，放最前
+    id: str = field(default_factory=lambda: str(uuid4())[:8])
+    summary: str = ""
+    created_at: datetime = field(default_factory=datetime.now)
+    last_updated: datetime = field(default_factory=datetime.now)
+    message_count: int = 0
+    importance: float = 0.0
+    related_topics: dict[str, float] = field(default_factory=dict)
+    message_ids: list[str] = field(default_factory=list)
+
+
+class TopicMemory(Struct):
+    """话题记忆 - 用于话题检索
+    注意：无默认值的字段必须放在有默认值的字段之前
+    """
+
+    content: str  # 无默认值，放最前
+    id: str = field(default_factory=lambda: str(uuid4())[:8])
+    topic_id: str = ""
     importance: float = 0.0
     tags: list[str] = field(default_factory=list)
     timestamp: datetime = field(default_factory=datetime.now)

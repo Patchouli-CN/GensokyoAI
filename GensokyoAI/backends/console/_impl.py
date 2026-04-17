@@ -39,10 +39,7 @@ class ConsoleBackend(BaseBackend):
         # 🆕 使用新的命令执行器
         self.cmd_executor = CommandExecutor(mode="smart")
         self._cmd_context = CommandContext[ConsoleBackend](
-            agent=agent,
-            backend=self,
-            source="console",
-            issuer="User"
+            agent=agent, backend=self, source="console", issuer="User"
         )
 
         # 颜色配置
@@ -74,11 +71,11 @@ class ConsoleBackend(BaseBackend):
             elif result.status == CommandStatus.NO_HANDLER:
                 if result.message:
                     self._print_error_message(result.message)
-            
+
             if result.should_exit:
                 self._running = False
                 return True
-        
+
         return False
 
     # ==================== 提示词上下文 ====================
@@ -95,6 +92,7 @@ class ConsoleBackend(BaseBackend):
 
     async def start(self) -> None:
         """启动"""
+        await self.agent.start()
         self._running = True
         logger.info("控制台后端已启动")
 
@@ -225,9 +223,7 @@ class ConsoleBackend(BaseBackend):
                         )
                         first_chunk = False
 
-                    self.console.print(
-                        chunk.content, end="", style=self.colors["assistant"]
-                    )
+                    self.console.print(chunk.content, end="", style=self.colors["assistant"])
                     full_response += chunk.content
 
                     if self._stream_handler:
@@ -251,9 +247,7 @@ class ConsoleBackend(BaseBackend):
         """非流式发送并显示"""
         character_name = safe_get(self.agent.config, "character.name", "Assistant")
 
-        self.console.print(
-            f"\n[{self.colors['assistant']}]{character_name}: [/]", end=""
-        )
+        self.console.print(f"\n[{self.colors['assistant']}]{character_name}: [/]", end="")
         self.console.print("思考中...", style="dim", end="\r")
 
         response = await self.agent.send(message)
@@ -273,9 +267,7 @@ class ConsoleBackend(BaseBackend):
         """打印助手消息"""
         character_name = safe_get(self.agent.config, "character.name", "Assistant")
         self.console.print()
-        self.console.print(
-            f"[{self.colors['assistant']}]{character_name}: [/]{message}"
-        )
+        self.console.print(f"[{self.colors['assistant']}]{character_name}: [/]{message}")
 
     def _print_system_message(self, message: str, style: str = "system") -> None:
         """打印系统消息"""
@@ -298,9 +290,7 @@ class ConsoleBackend(BaseBackend):
         if message := tool_info.get("message"):
             if hasattr(message, "tool_calls"):
                 tool_names = [
-                    tc.function.name
-                    for tc in message.tool_calls
-                    if hasattr(tc, "function")
+                    tc.function.name for tc in message.tool_calls if hasattr(tc, "function")
                 ]
                 if tool_names:
                     logger.info(f"调用工具: {', '.join(tool_names)}")
@@ -327,13 +317,11 @@ class ConsoleBackend(BaseBackend):
     async def run_interactive(self) -> None:
         await self.start()
 
-        self.console.print(
-            "[dim]💡 输入 [/][bold cyan]<cmd>help</cmd>[/] [dim]查看所有命令[/]"
-        )
+        self.console.print("[dim]💡 输入 [/][bold cyan]<cmd>help</cmd>[/] [dim]查看所有命令[/]")
         self.console.print("[dim]💡 按 Ctrl+C 安全退出（会自动保存）[/]\n")
 
         exited_normally = False
-        
+
         try:
             while self._running and not self.agent.is_shutting_down:
                 try:
@@ -389,8 +377,12 @@ class ConsoleBackendBuilder:
         description: str = "",
     ) -> "ConsoleBackendBuilder":
         """注册自定义命令"""
-        self._backend.cmd_executor.parser.register_tag(name, aliases, CommandType.CUSTOM, description, handler)
-        self._backend.cmd_executor.parser.register_prefix(name, aliases, CommandType.CUSTOM, description, handler)
+        self._backend.cmd_executor.parser.register_tag(
+            name, aliases, CommandType.CUSTOM, description, handler
+        )
+        self._backend.cmd_executor.parser.register_prefix(
+            name, aliases, CommandType.CUSTOM, description, handler
+        )
         return self
 
     def build(self) -> ConsoleBackend:

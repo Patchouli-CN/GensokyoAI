@@ -12,7 +12,7 @@ from .types import (
     MemoryTaskData,
     PersistenceTaskData,
 )
-from .workers import MemoryWorker, PersistenceWorker
+from .workers import PersistenceWorker
 
 __all__ = [
     "BackgroundManager",
@@ -23,6 +23,5 @@ __all__ = [
     "TaskPriority",
     "MemoryTaskData",
     "PersistenceTaskData",
-    "MemoryWorker",
     "PersistenceWorker",
 ]
