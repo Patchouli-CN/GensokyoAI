@@ -1,10 +1,19 @@
+# GensokyoAI/memory/types.py
+
 """记忆数据类"""
 
-# GensokyoAI\memory\types.py
-
+from enum import Enum, auto
 from msgspec import Struct, field
 from datetime import datetime
 from uuid import uuid4
+from typing import Optional
+
+
+class TopicMemoryType(Enum):
+    FACT = auto()
+    PREFERENCE = auto()
+    EVENT = auto()
+    CORRECTION = auto()
 
 
 class MemoryRecord(Struct):
@@ -16,6 +25,7 @@ class MemoryRecord(Struct):
     timestamp: datetime = field(default_factory=datetime.now)
     character_id: str = "default"
     importance: float = 0.0  # 0-1 重要程度
+    emotional_valence: float = 0.0  # 🆕 情感效价 -1.0 到 1.0
     metadata: dict = field(default_factory=dict)
 
 
@@ -52,32 +62,36 @@ class EpisodicMemory(Struct):
     end_time: datetime | None = None
     message_count: int = 0
     key_events: list[str] = field(default_factory=list)
+    emotional_valence: float = 0.0  # 🆕 情感效价
+    location: str = ""  # 🆕 地点
 
 
 class Topic(Struct):
-    """话题 - 对话的语义聚类单元
-    注意：无默认值的字段必须放在有默认值的字段之前
-    """
+    """话题 - 对话的语义聚类单元"""
 
     name: str  # 无默认值，放最前
     id: str = field(default_factory=lambda: str(uuid4())[:8])
     summary: str = ""
     created_at: datetime = field(default_factory=datetime.now)
     last_updated: datetime = field(default_factory=datetime.now)
+    last_accessed: datetime = field(default_factory=datetime.now)  # 🆕 最后访问时间
+    access_count: int = 0  # 🆕 访问次数
     message_count: int = 0
     importance: float = 0.0
+    emotional_valence: float = 0.0  # 🆕 情感效价
     related_topics: dict[str, float] = field(default_factory=dict)
     message_ids: list[str] = field(default_factory=list)
 
 
 class TopicMemory(Struct):
-    """话题记忆 - 用于话题检索
-    注意：无默认值的字段必须放在有默认值的字段之前
-    """
+    """话题记忆 - 用于话题检索"""
 
     content: str  # 无默认值，放最前
     id: str = field(default_factory=lambda: str(uuid4())[:8])
     topic_id: str = ""
     importance: float = 0.0
+    emotional_impact: float = 0.0  # 🆕 情感冲击力
     tags: list[str] = field(default_factory=list)
     timestamp: datetime = field(default_factory=datetime.now)
+    memory_type: TopicMemoryType = TopicMemoryType.FACT
+    supersedes: Optional[str] = None

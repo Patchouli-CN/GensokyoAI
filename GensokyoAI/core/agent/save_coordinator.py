@@ -197,30 +197,3 @@ class SaveCoordinator:
 
         logger.debug(f"已提交{'强制' if force else '异步'}保存任务 (轮数: {len(messages) // 2})")
         return True
-
-    def sync_save(self, working_memory: "WorkingMemoryManager", force: bool = False) -> None:
-        """
-        同步保存（用于关闭时或强制保存）
-
-        Args:
-            working_memory: 工作记忆管理器
-            force: 是否强制保存
-        """
-        try:
-            if self._session_config.auto_save or force:
-                current_turn = len(working_memory) // 2
-
-                # 🆕 检查是否需要保存
-                if not force and current_turn <= self._last_saved_turn:
-                    logger.debug(f"轮数 {current_turn} 已保存过，跳过同步保存")
-                    return
-
-                current = self._session_manager.get_current_session()
-                if current:
-                    self._session_manager.save_working_memory()
-                    self._session_manager.save_current()
-                    self._last_saved_turn = current_turn
-                    self._save_pending = False
-                    logger.info(f"已{'强制' if force else ''}保存会话数据 (轮数: {current_turn})")
-        except Exception as e:
-            logger.error(f"保存数据时出错: {e}")

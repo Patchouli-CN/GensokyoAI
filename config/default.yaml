@@ -41,6 +41,33 @@ memory:
       - input: "约定了下次一起赏樱"
         name: "赏樱的约定"
 
+think_engine:
+  enabled: true
+  think_interval_minutes: 1
+  random_walk_steps_min: 2
+  random_walk_steps_max: 5
+  emotional_trigger_threshold: 0.5
+  emotional_priority_probability: 0.7
+  initiative_detection_keywords:
+    - "想说"
+    - "想问"
+    - "想告诉"
+    - "想提醒"
+    - "想分享"
+    - "想建议"
+    - "想邀请"
+    - "想安慰"
+    - "想鼓励"
+    - "想道歉"
+    - "下次见面"
+    - "等他回来"
+    - "主动"
+    - "应该告诉"
+  think_temperature: 0.7
+  think_max_tokens: 200
+  initiative_temperature: 0.8
+  initiative_max_tokens: 100
+
 # 工具配置
 tool:
   enabled: true

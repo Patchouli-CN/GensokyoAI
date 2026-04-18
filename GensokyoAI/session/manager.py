@@ -62,7 +62,7 @@ class SessionManager:
 
         # 异步保存
         await self._persistence.save_session_async(session)
-        await self._persistence.save_messages_async(session.session_id, [])
+        await self._persistence.async_save_message(session.session_id, [])
 
         logger.info(f"异步创建会话: {session.session_id}")
         return session

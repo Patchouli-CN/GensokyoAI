@@ -39,7 +39,8 @@ class SemanticMemoryManager:
         self,
         content: str,
         importance: float = 0.0,
-        topic_name: Optional[str] = None
+        emotional_valence: float = 0.0,
+        topic_name: Optional[str] = None,
     ) -> Optional["Topic"]:
         """添加语义记忆"""
         if not self._enabled:
@@ -48,8 +49,9 @@ class SemanticMemoryManager:
         topic = await self._store.add_async(
             content=content,
             importance=importance,
+            emotional_valence=emotional_valence,
             model_client=self._model_client,
-            topic_name=topic_name,  # 🆕 透传给 store
+            topic_name=topic_name,
         )
 
         if topic:

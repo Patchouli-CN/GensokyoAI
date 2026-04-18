@@ -12,6 +12,7 @@ from .save_coordinator import SaveCoordinator
 from .message_builder import MessageBuilder
 from .response_handler import ResponseHandler
 from .lifecycle import LifecycleManager
+from .think_engine import ThinkEngine
 
 from ..config import AppConfig, ConfigLoader
 from ..events import EventBus, Event, SystemEvent
@@ -52,37 +53,28 @@ class Agent:
     ) -> None:
         """初始化 Agent，所有组件在 __init__ 中完成创建和注册"""
 
-        # ---------- 1. 加载配置 ----------
         self._init_config(config, config_file, character_file)
 
-        # ---------- 2. 初始化基础设施 ----------
         self._init_infrastructure()
 
-        # ---------- 3. 初始化核心组件 ----------
         self._init_core_components()
 
-        # ---------- 4. 初始化记忆系统 ----------
+        self._init_think_engine()
+
         self._init_memory_system()
 
-        # ---------- 5. 初始化工具系统 ----------
         self._init_tool_system()
 
-        # ---------- 6. 初始化会话管理 ----------
         self._init_session_system()
 
-        # ---------- 7. 初始化消息处理组件 ----------
         self._init_message_components()
 
-        # ---------- 8. 注册事件监听器 ----------
         self._init_event_listeners()
 
-        # ---------- 9. 注入依赖 ----------
         self._inject_dependencies()
 
-        # ---------- 10. 初始化生命周期管理器 ----------
         self._init_lifecycle()
 
-        # ---------- 11. 发布启动事件 ----------
         self._publish_started_event()
 
         logger.info(f"Agent 初始化完成，角色: {self.config.character.name}")  # type: ignore
@@ -172,6 +164,10 @@ class Agent:
         """初始化生命周期管理器"""
         self.lifecycle = LifecycleManager(on_shutdown=self._on_shutdown)
         self.lifecycle.setup_signal_handlers()
+
+    def _init_think_engine(self) -> None:
+        """初始化思考引擎（延迟到语义记忆初始化后）"""
+        self._think_engine: Optional[ThinkEngine] = None
 
     def _publish_started_event(self) -> None:
         """发布 Agent 启动事件"""
@@ -407,16 +403,30 @@ class Agent:
         await self.event_bus.start()
         await self._ensure_background_manager()
         await self.episodic_memory.initialize()
+
+        # 🆕 启动思考引擎
+        if self._think_engine is None and self.semantic_memory is not None:
+            self._think_engine = ThinkEngine(
+                semantic_memory=self.semantic_memory,
+                model_client=self._ollama_client,
+                event_bus=self.event_bus,
+                character_name=self.character_name,
+                config=self.config.think_engine,
+            )
+        if self._think_engine:
+            await self._think_engine.start()
+
         logger.info("Agent 已启动")
 
     async def _on_shutdown(self) -> None:
         """关闭回调"""
         self.event_bus.publish(Event(type=SystemEvent.AGENT_SHUTDOWN, source="agent"))
 
-        # 🐛 修复: 使用 force=True 强制保存所有数据，包括异步保存未完成的消息
-        # 使用 self.save_coordinator 属性确保懒加载初始化，添加异常保护
+        if self._think_engine:
+            await self._think_engine.stop()
+
         try:
-            self.save_coordinator.sync_save(self.working_memory, force=True)
+            await self.save_coordinator.save_async(self.working_memory, force=True)
         except Exception as e:
             logger.error(f"关闭时保存数据出错: {e}")
 

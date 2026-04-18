@@ -39,7 +39,7 @@ class PersistenceWorker(BaseWorker):
                         messages = data.data.get("messages", [])
                         if session_id is None:
                             raise ValueError("Missing session_id in save_messages task")
-                        await self.persistence.save_messages_async(session_id, messages)
+                        await self.persistence.async_save_message(session_id, messages)
                     else:
                         raise ValueError(f"Unknown operation: {data.operation}")
             except asyncio.TimeoutError:

@@ -49,7 +49,7 @@ async def cmd_new(ctx: CommandContext) -> CommandResult:
 async def cmd_save(ctx: CommandContext) -> CommandResult:
     """保存会话"""
     # 🆕 强制同步保存
-    ctx.agent_inst.save_coordinator.sync_save(ctx.agent_inst.working_memory, force=True)
+    await ctx.agent_inst.save_coordinator.save_async(ctx.agent_inst.working_memory, force=True)
     return CommandResult.success("save", "会话已保存")
 
 

@@ -325,7 +325,10 @@ class ConsoleBackend(BaseBackend):
         try:
             while self._running and not self.agent.is_shutting_down:
                 try:
-                    user_input = Prompt.ask(f"[{self.colors['user']}]你[/]")
+                    # 🔧 修复：使用 asyncio.to_thread 把同步 input 放到线程池
+                    user_input = await asyncio.to_thread(
+                        Prompt.ask, f"[{self.colors['user']}]你[/]"
+                    )
 
                     if not user_input.strip():
                         continue

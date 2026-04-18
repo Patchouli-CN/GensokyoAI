@@ -1,7 +1,10 @@
-"""话题感知的记忆存储 - AI 自主命名话题"""
+# GensokyoAI/memory/topic_store.py
+
+"""话题感知的记忆存储 - AI 自主命名话题，带情感和遗忘机制"""
 
 import re
 import asyncio
+import json
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
@@ -23,7 +26,7 @@ def _json_encoder(obj):
 
 
 class TopicAwareStore:
-    """话题感知存储 - AI 自主命名话题"""
+    """话题感知存储 - AI 自主命名话题，带情感和遗忘机制"""
 
     def __init__(
         self, path: Path, max_topics: int = 50, topic_config: Optional[TopicGenerationConfig] = None
@@ -57,6 +60,8 @@ class TopicAwareStore:
                     t_data["created_at"] = datetime.fromisoformat(t_data["created_at"])
                 if "last_updated" in t_data and isinstance(t_data["last_updated"], str):
                     t_data["last_updated"] = datetime.fromisoformat(t_data["last_updated"])
+                if "last_accessed" in t_data and isinstance(t_data["last_accessed"], str):
+                    t_data["last_accessed"] = datetime.fromisoformat(t_data["last_accessed"])
 
                 topic = Topic(name=t_data.pop("name", "未命名"), **t_data)
                 self._topics[topic.id] = topic
@@ -99,6 +104,34 @@ class TopicAwareStore:
         for word in words:
             if 2 <= len(word) <= 20:
                 self._keyword_index[word].add(topic.id)
+
+    # ==================== 遗忘曲线计算 ====================
+
+    def _calculate_recall_weight(self, topic: Topic) -> float:
+        """计算话题的回忆权重"""
+        # 基础重要性
+        base = topic.importance / max(topic.message_count, 1)
+
+        # 情感因子：情感越强烈，记忆越牢固
+        emotional_factor = 1.0 + abs(topic.emotional_valence) * 2.0
+
+        # 提取频率因子
+        access_factor = 1.0 + min(topic.access_count / 10.0, 1.0)
+
+        # 时间衰减
+        days_since_access = (datetime.now() - topic.last_accessed).days
+        half_life_days = 30 * emotional_factor * access_factor
+        decay = 0.5 ** (days_since_access / half_life_days)
+
+        return base * decay
+
+    def _refresh_topic(self, topic: Topic, boost: float = 0.03) -> None:
+        """刷新话题：更新时间戳，微量增加重要性"""
+        topic.last_accessed = datetime.now()
+        topic.access_count = getattr(topic, "access_count", 0) + 1
+        topic.importance = min(topic.importance + boost, 10.0)
+
+        logger.debug(f"话题 '{topic.name}' 被刷新，重要性: {topic.importance:.2f}")
 
     # ==================== 话题候选 ====================
 
@@ -171,8 +204,6 @@ class TopicAwareStore:
             json_match = re.search(r"\{[^}]+\}", result_text)
 
             if json_match:
-                import json
-
                 scores = json.loads(json_match.group())
                 return {
                     candidates[i].id: float(scores.get(str(i + 1), 0))
@@ -211,8 +242,9 @@ class TopicAwareStore:
         self,
         content: str,
         importance: float = 0.0,
+        emotional_valence: float = 0.0,  # 🆕
         model_client: Optional[ModelClient] = None,
-        topic_name: Optional[str] = None,  # 🆕 AI 提供的话题名
+        topic_name: Optional[str] = None,
     ) -> Optional[Topic]:
         """添加语义记忆"""
         if not content:
@@ -221,6 +253,7 @@ class TopicAwareStore:
         memory = TopicMemory(
             content=content,
             importance=importance,
+            emotional_impact=abs(emotional_valence),  # 🆕 情感冲击力
         )
         self._memories[memory.id] = memory
 
@@ -228,23 +261,23 @@ class TopicAwareStore:
         if topic_name:
             topic_name_lower = topic_name.lower()
 
-            # 检查是否已存在同名话题
             if topic_name_lower in self._topic_name_index:
                 topic_id = self._topic_name_index[topic_name_lower]
                 topic = self._topics[topic_id]
-                self._update_topic(topic, memory, importance, 10.0)
+                self._update_topic(topic, memory, importance, 10.0, emotional_valence)
+                self._refresh_topic(topic, boost=0.05)  # 🆕 刷新
                 await self._save_async()
                 logger.debug(f"更新现有话题(由AI指定): {topic.name}")
                 return topic
 
-            # 创建新话题，使用 AI 提供的名称
             topic = Topic(
                 name=topic_name,
                 summary=content[: self.topic_config.summary_max_length],
+                importance=importance,
+                emotional_valence=emotional_valence,  # 🆕
             )
             topic.message_ids.append(memory.id)
             topic.message_count = 1
-            topic.importance = importance
 
             memory.topic_id = topic.id
             memory.tags = [topic_name]
@@ -254,7 +287,9 @@ class TopicAwareStore:
             self._index_topic(topic)
 
             await self._save_async()
-            logger.info(f"创建新话题(由AI命名): 「{topic_name}」 (重要性: {importance:.2f})")
+            logger.info(
+                f"创建新话题(由AI命名): 「{topic_name}」 (重要性: {importance:.2f}, 情感: {emotional_valence:.2f})"
+            )
             return topic
 
         # 降级：AI 没有提供话题名，尝试匹配现有话题
@@ -268,7 +303,8 @@ class TopicAwareStore:
 
                 if best_score >= 7.0:
                     topic = self._topics[best_id]
-                    self._update_topic(topic, memory, importance, best_score)
+                    self._update_topic(topic, memory, importance, best_score, emotional_valence)
+                    self._refresh_topic(topic, boost=0.03)  # 🆕 刷新
                     self._update_edges(topic.id, scores)
                     await self._save_async()
                     logger.debug(f"更新话题: {topic.name} (相关性: {best_score:.1f})")
@@ -281,10 +317,11 @@ class TopicAwareStore:
         topic = Topic(
             name=fallback_name,
             summary=content[: self.topic_config.summary_max_length],
+            importance=importance,
+            emotional_valence=emotional_valence,  # 🆕
         )
         topic.message_ids.append(memory.id)
         topic.message_count = 1
-        topic.importance = importance
 
         memory.topic_id = topic.id
         memory.tags = [fallback_name]
@@ -302,11 +339,20 @@ class TopicAwareStore:
         memory: TopicMemory,
         importance: float,
         score: float,
+        emotional_valence: float = 0.0,
     ) -> None:
         """更新已有话题"""
         topic.last_updated = datetime.now()
         topic.message_count += 1
         topic.importance += importance * (score / 10.0)
+
+        # 🆕 情感效价加权平均
+        old_weight = topic.message_count - 1
+        new_weight = 1
+        topic.emotional_valence = (
+            topic.emotional_valence * old_weight + emotional_valence * new_weight
+        ) / topic.message_count
+
         topic.message_ids.append(memory.id)
 
         memory.topic_id = topic.id
@@ -337,14 +383,25 @@ class TopicAwareStore:
         top_k: int = 5,
         query_text: Optional[str] = None,
     ) -> list[dict]:
-        """搜索记忆"""
+        """搜索记忆，按综合权重排序"""
         if not query_text or not self._topics:
             return []
 
-        candidates = self._get_candidates(query_text, max_candidates=top_k)
+        candidates = self._get_candidates(query_text, max_candidates=top_k * 2)
+
+        # 🆕 按遗忘曲线权重排序
+        weighted_candidates = []
+        for topic in candidates:
+            weight = self._calculate_recall_weight(topic)
+            weighted_candidates.append((topic, weight))
+
+        weighted_candidates.sort(key=lambda x: x[1], reverse=True)
 
         results = []
-        for topic in candidates[:top_k]:
+        for topic, weight in weighted_candidates[:top_k]:
+            # 🆕 检索时刷新访问时间
+            self._refresh_topic(topic, boost=0.01)
+
             memories = []
             for mid in topic.message_ids[-3:]:
                 if mid in self._memories:
@@ -355,6 +412,8 @@ class TopicAwareStore:
                     "id": topic.id,
                     "content": topic.summary,
                     "importance": topic.importance / max(topic.message_count, 1),
+                    "emotional_valence": topic.emotional_valence,  # 🆕
+                    "recall_weight": weight,  # 🆕
                     "tags": [topic.name],
                     "extracted_summary": topic.summary,
                     "extracted_keywords": [topic.name],
@@ -372,11 +431,20 @@ class TopicAwareStore:
                 "content": m.content,
                 "embedding": None,
                 "importance": m.importance,
+                "emotional_impact": m.emotional_impact,
                 "tags": m.tags,
                 "timestamp": m.timestamp.isoformat(),
             }
             for m in self._memories.values()
         ]
+
+    def get_all_topics(self) -> list[Topic]:
+        """获取所有话题（只读）"""
+        return list(self._topics.values())
+
+    def get_topic_by_id(self, topic_id: str) -> Optional[Topic]:
+        """根据 ID 获取话题"""
+        return self._topics.get(topic_id)
 
     def get_topic_graph(self) -> dict:
         """获取话题关联图"""
@@ -387,6 +455,8 @@ class TopicAwareStore:
                 "summary": t.summary,
                 "size": t.message_count,
                 "importance": t.importance,
+                "emotional_valence": t.emotional_valence,
+                "recall_weight": self._calculate_recall_weight(t),
             }
             for t in self._topics.values()
         ]

@@ -57,6 +57,39 @@ class MemoryConfig(Struct):
     topic_generation: TopicGenerationConfig = field(default_factory=TopicGenerationConfig)
 
 
+class ThinkEngineConfig(Struct):
+    """思考引擎配置"""
+
+    enabled: bool = True  # 是否启用静默思考
+    think_interval_minutes: int = 5  # 思考间隔（分钟）
+    random_walk_steps_min: int = 2  # 随机游走最少步数
+    random_walk_steps_max: int = 5  # 随机游走最多步数
+    emotional_trigger_threshold: float = 0.5  # 优先选择高情感话题的阈值
+    emotional_priority_probability: float = 0.7  # 优先选择高情感话题的概率
+    initiative_detection_keywords: list[str] = field(
+        default_factory=lambda: [
+            "想说",
+            "想问",
+            "想告诉",
+            "想提醒",
+            "想分享",
+            "想建议",
+            "想邀请",
+            "想安慰",
+            "想鼓励",
+            "想道歉",
+            "下次见面",
+            "等他回来",
+            "主动",
+            "应该告诉",
+        ]
+    )
+    think_temperature: float = 0.7  # 思考时的温度
+    think_max_tokens: int = 200  # 思考最大 token 数
+    initiative_temperature: float = 0.8  # 生成主动消息时的温度
+    initiative_max_tokens: int = 100  # 生成主动消息最大 token 数
+
+
 class ToolConfig(Struct):
     """工具配置"""
 
@@ -101,6 +134,7 @@ class AppConfig(Struct):
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     tool: ToolConfig = field(default_factory=ToolConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
+    think_engine: ThinkEngineConfig = field(default_factory=ThinkEngineConfig)
 
     # 角色
     character: CharacterConfig | None = None
@@ -178,6 +212,9 @@ class ConfigLoader:
         if "session" in data:
             config.session = SessionConfig(**data["session"])
 
+        if "think_engine" in data:
+            config.think_engine = ThinkEngineConfig(**data["think_engine"])
+
         return config
 
     def _merge(self, base: AppConfig, override: AppConfig) -> AppConfig:
@@ -196,6 +233,7 @@ class ConfigLoader:
         result.memory = self._merge_memory(base.memory, override.memory)
         result.tool = self._merge_tool(base.tool, override.tool)
         result.session = self._merge_session(base.session, override.session)
+        result.think_engine = self._merge_think_engine(base.think_engine, override.think_engine)
         result.character = override.character or base.character
         result.character_file = override.character_file or base.character_file
 
@@ -263,6 +301,43 @@ class ConfigLoader:
             max_sessions=override.max_sessions
             if override.max_sessions != 100
             else base.max_sessions,
+        )
+
+    def _merge_think_engine(
+        self, base: ThinkEngineConfig, override: ThinkEngineConfig
+    ) -> ThinkEngineConfig:
+        """合并思考引擎配置"""
+        return ThinkEngineConfig(
+            enabled=override.enabled if override.enabled != base.enabled else base.enabled,
+            think_interval_minutes=override.think_interval_minutes
+            if override.think_interval_minutes != 5
+            else base.think_interval_minutes,
+            random_walk_steps_min=override.random_walk_steps_min
+            if override.random_walk_steps_min != 2
+            else base.random_walk_steps_min,
+            random_walk_steps_max=override.random_walk_steps_max
+            if override.random_walk_steps_max != 5
+            else base.random_walk_steps_max,
+            emotional_trigger_threshold=override.emotional_trigger_threshold
+            if override.emotional_trigger_threshold != 0.5
+            else base.emotional_trigger_threshold,
+            emotional_priority_probability=override.emotional_priority_probability
+            if override.emotional_priority_probability != 0.7
+            else base.emotional_priority_probability,
+            initiative_detection_keywords=override.initiative_detection_keywords
+            or base.initiative_detection_keywords,
+            think_temperature=override.think_temperature
+            if override.think_temperature != 0.7
+            else base.think_temperature,
+            think_max_tokens=override.think_max_tokens
+            if override.think_max_tokens != 200
+            else base.think_max_tokens,
+            initiative_temperature=override.initiative_temperature
+            if override.initiative_temperature != 0.8
+            else base.initiative_temperature,
+            initiative_max_tokens=override.initiative_max_tokens
+            if override.initiative_max_tokens != 100
+            else base.initiative_max_tokens,
         )
 
     def _apply_env(self, config: AppConfig) -> AppConfig:

@@ -17,10 +17,6 @@ class SessionPersistence:
 
     def __init__(self, base_path: Path):
         self.base_path = base_path
-
-        logger.debug(
-            f"value the base_path is: {self.base_path}, type: {type(self.base_path).__name__}"
-        )
         self.base_path.mkdir(parents=True, exist_ok=True)
         self._lock = asyncio.Lock()
         # 添加 session_id -> character_id 的映射缓存
@@ -91,7 +87,6 @@ class SessionPersistence:
 
     def save_messages(self, session_id: str, messages: list[dict]) -> None:
         """保存消息（同步）- 优化版"""
-        # 使用索引快速定位
         char_id = self._session_index.get(session_id)
         if char_id:
             session_file = self.base_path / char_id / f"{session_id}.json"
@@ -106,25 +101,7 @@ class SessionPersistence:
                 logger.debug(f"消息已保存: {session_id}, {len(messages)} 条")
                 return
 
-        # 降级：遍历查找（同时更新索引）
-        for char_dir in self.base_path.iterdir():
-            if char_dir.is_dir():
-                session_file = char_dir / f"{session_id}.json"
-                if session_file.exists():
-                    self._add_to_index(char_dir.name, session_id)
-                    with open(session_file, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                    data["messages"] = messages
-                    if "session" in data:
-                        data["session"]["total_turns"] = len(messages) // 2
-                    with open(session_file, "w", encoding="utf-8") as f:
-                        json.dump(data, f, ensure_ascii=False, indent=2)
-                    logger.debug(f"消息已保存: {session_id}, {len(messages)} 条")
-                    return
-
-        logger.warning(f"未找到会话文件: {session_id}")
-
-    async def save_messages_async(self, session_id: str, messages: list[dict]) -> None:
+    async def async_save_message(self, session_id: str, messages: list[dict]) -> None:
         """保存消息（异步）- 优化版"""
         async with self._lock:
             # 使用索引快速定位
@@ -163,7 +140,7 @@ class SessionPersistence:
             logger.warning(f"未找到会话文件: {session_id}")
 
     def load_messages(self, session_id: str) -> list[dict]:
-        """加载消息（同步）- 优化版"""
+        """加载消息（同步）"""
         # 使用索引快速定位
         char_id = self._session_index.get(session_id)
         if char_id:
@@ -189,7 +166,7 @@ class SessionPersistence:
         return []
 
     async def load_messages_async(self, session_id: str) -> list[dict]:
-        """加载消息（异步 - 使用 ayafileio）- 优化版"""
+        """加载消息（异步 - 使用 ayafileio）"""
         # 使用索引快速定位
         char_id = self._session_index.get(session_id)
         if char_id:

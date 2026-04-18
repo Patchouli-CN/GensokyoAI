@@ -47,6 +47,7 @@ class SystemEvent(Enum):
     MEMORY_EPISODIC_COMPRESSED = "memory.episodic.compressed"
     MEMORY_SEMANTIC_ADDED = "memory.semantic.added"
     MEMORY_SEMANTIC_RECALLED = "memory.semantic.recalled"
+    MEMORY_SEMANTIC_UPDATED = "memory.semantic.updated"
     MEMORY_SEMANTIC_ADDED_RESPONSE = "memory.semantic.added.response"
     MEMORY_SEMANTIC_RECALLED_RESPONSE = "memory.semantic.recalled.response"
 
@@ -135,9 +136,6 @@ class EventBus:
         # 请求-响应机制
         self._pending_requests: dict[str, asyncio.Future] = {}
         self._response_timeout = 30.0
-
-        # 🆕 同步监听器（在 publish 时立即调用，不等队列）
-        self._sync_listeners: dict[SystemEvent, list[Callable[[Event], None]]] = {}
 
     # ==================== 生命周期 ====================
 
@@ -253,19 +251,6 @@ class EventBus:
 
         return sub.id
 
-    def subscribe_sync(self, event_type: SystemEvent, handler: Callable[[Event], None]) -> None:
-        """
-        🆕 注册同步监听器 - 在 publish 时立即调用，不等事件队列
-
-        适用于需要实时更新的场景（如错误统计、指标收集）
-        """
-        if event_type not in self._sync_listeners:
-            self._sync_listeners[event_type] = []
-        self._sync_listeners[event_type].append(handler)
-
-        if self.enable_trace:
-            logger.debug(f"⚡ [EventBus] 同步订阅: '{event_type.value}' -> {handler.__name__}")
-
     def subscribe_all(
         self,
         event_types: list[SystemEvent],
@@ -301,9 +286,6 @@ class EventBus:
                 f"(来源: {event.source}, ID: {event.id}) {data_preview}"
             )
 
-        # 🆕 立即调用同步监听器
-        self._notify_sync_listeners(event)
-
         if immediate:
             asyncio.create_task(self._process_event(event))
         else:
@@ -312,17 +294,6 @@ class EventBus:
                 self._stats["published"] += 1
             except asyncio.QueueFull:
                 logger.warning(f"⚠️ [EventBus] 事件队列已满，丢弃事件: {event.type.value}")
-
-    def _notify_sync_listeners(self, event: Event) -> None:
-        """立即通知同步监听器"""
-        if event.type in self._sync_listeners:
-            for handler in self._sync_listeners[event.type]:
-                try:
-                    handler(event)
-                    if self.enable_trace:
-                        logger.debug(f"⚡ [EventBus] 同步处理: {handler.__name__}")
-                except Exception as e:
-                    logger.error(f"❌ [EventBus] 同步监听器异常 {handler.__name__}: {e}")
 
     # 异步请求-响应（非阻塞）
     async def request(
