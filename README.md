@@ -185,7 +185,8 @@ GensokyoAI/
 │   │   │   ├── model_client.py # Ollama 异步客户端
 │   │   │   ├── message_builder.py # 消息构建器
 │   │   │   ├── response_handler.py # 响应处理器（工具调用）
-│   │   │   └── save_coordinator.py # 保存协调器（去重）
+│   │   │   ├── save_coordinator.py # 保存协调器（去重）
+│   │   │   └── think_engine.py # 思考引擎，让AI可以自己产生想法！
 │   │   ├── config.py          # 配置管理（YAML + 环境变量）
 │   │   ├── events.py          # 事件总线（发布/订阅）
 │   │   ├── event_listeners.py # 核心事件监听器
