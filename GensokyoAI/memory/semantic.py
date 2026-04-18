@@ -39,7 +39,7 @@ class SemanticMemoryManager:
         self,
         content: str,
         importance: float = 0.0,
-        tags: Optional[list[str]] = None,
+        topic_name: Optional[str] = None
     ) -> Optional["Topic"]:
         """添加语义记忆"""
         if not self._enabled:
@@ -49,6 +49,7 @@ class SemanticMemoryManager:
             content=content,
             importance=importance,
             model_client=self._model_client,
+            topic_name=topic_name,  # 🆕 透传给 store
         )
 
         if topic:

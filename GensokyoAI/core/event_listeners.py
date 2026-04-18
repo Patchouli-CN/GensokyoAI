@@ -152,7 +152,7 @@ class MemoryServiceListeners:
         data = event.data
         content = data.get("content", "")
         importance = data.get("importance", 0.5)
-        tags = data.get("tags", [])
+        topic_name = data.get("topic_name")  # 🆕 从事件中提取话题名
 
         if not content:
             self.event_bus.respond(event, None)
@@ -163,7 +163,7 @@ class MemoryServiceListeners:
                 topic = await self.agent.semantic_memory.add_async(
                     content=content,
                     importance=importance,
-                    tags=tags,
+                    topic_name=topic_name,  # 🆕 传递给 semantic_memory
                 )
                 if topic:
                     logger.debug(f"记忆服务: 已存储 -> 话题「{topic.name}」")

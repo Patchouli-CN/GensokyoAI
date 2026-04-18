@@ -1,7 +1,6 @@
-"""话题感知的记忆存储 - 让模型自己判断话题相关性"""
+"""话题感知的记忆存储 - AI 自主命名话题"""
 
 import re
-import json
 import asyncio
 from pathlib import Path
 from datetime import datetime
@@ -13,12 +12,10 @@ import ayafileio
 
 from .types import Topic, TopicMemory
 from ..utils.logging import logger
-
 from ..core.config import TopicGenerationConfig
 from ..core.agent.model_client import ModelClient
 
 
-# msgspec 的 JSON 编码器，处理 datetime
 def _json_encoder(obj):
     if isinstance(obj, datetime):
         return obj.isoformat()
@@ -26,7 +23,7 @@ def _json_encoder(obj):
 
 
 class TopicAwareStore:
-    """话题感知存储"""
+    """话题感知存储 - AI 自主命名话题"""
 
     def __init__(
         self, path: Path, max_topics: int = 50, topic_config: Optional[TopicGenerationConfig] = None
@@ -47,7 +44,7 @@ class TopicAwareStore:
     # ==================== 持久化 ====================
 
     def _load_sync(self) -> None:
-        """同步加载（使用 msgspec）"""
+        """同步加载"""
         if not self.path.exists():
             return
 
@@ -55,7 +52,6 @@ class TopicAwareStore:
             with open(self.path, "rb") as f:
                 data = msgspec.json.decode(f.read())
 
-            # 恢复 Topic 对象
             for t_data in data.get("topics", []):
                 if "created_at" in t_data and isinstance(t_data["created_at"], str):
                     t_data["created_at"] = datetime.fromisoformat(t_data["created_at"])
@@ -67,7 +63,6 @@ class TopicAwareStore:
                 self._topic_name_index[topic.name.lower()] = topic.id
                 self._index_topic(topic)
 
-            # 恢复 TopicMemory 对象
             for m_data in data.get("memories", []):
                 if "timestamp" in m_data and isinstance(m_data["timestamp"], str):
                     m_data["timestamp"] = datetime.fromisoformat(m_data["timestamp"])
@@ -80,7 +75,7 @@ class TopicAwareStore:
             logger.warning(f"加载话题存储失败: {e}")
 
     async def _save_async(self) -> None:
-        """异步保存（使用 msgspec）"""
+        """异步保存"""
         async with self._lock:
             self.path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -89,7 +84,6 @@ class TopicAwareStore:
                 "memories": list(self._memories.values()),
             }
 
-            # 用 msgspec 序列化，加上 indent 参数格式化
             json_bytes = msgspec.json.format(
                 msgspec.json.encode(data, enc_hook=_json_encoder), indent=2
             )
@@ -211,50 +205,6 @@ class TopicAwareStore:
 
         return scores
 
-    # ==================== 生成话题信息 ====================
-
-    async def _generate_topic_info(
-        self, content: str, model_client: ModelClient
-    ) -> tuple[str, str]:
-        """让 LLM 生成话题名和摘要"""
-        cfg = self.topic_config
-
-        # 构建示例部分
-        examples_text = ""
-        if cfg.examples:
-            examples_text = "\n话题名示例：\n"
-            for ex in cfg.examples:
-                examples_text += f'- 如果{ex["input"]}："{ex["name"]}"\n'
-
-        prompt = f"""为以下对话生成一个有意义的话题名（≤{cfg.name_max_length}字）和摘要（≤{cfg.summary_max_length}字）。
-{examples_text}
-内容：
-{content}
-
-只返回 JSON：{{"name": "话题名", "summary": "摘要"}}"""
-
-        try:
-            response = await model_client.client.chat(
-                model=model_client.model_name,
-                messages=[{"role": "user", "content": prompt}],
-                stream=False,
-                options={"temperature": 0.3, "num_predict": 100},
-            )
-
-            result_text = response.message.content.strip()  # type: ignore
-            json_match = re.search(r"\{[^}]+\}", result_text)
-
-            if json_match:
-                data = json.loads(json_match.group())
-                return data.get("name", "未命名"), data.get(
-                    "summary", content[: cfg.summary_max_length]
-                )
-
-        except Exception as e:
-            logger.debug(f"生成话题信息失败: {e}")
-
-        return f"话题{len(self._topics) + 1}", content[: cfg.summary_max_length]
-
     # ==================== 添加记忆 ====================
 
     async def add_async(
@@ -262,12 +212,11 @@ class TopicAwareStore:
         content: str,
         importance: float = 0.0,
         model_client: Optional[ModelClient] = None,
+        topic_name: Optional[str] = None,  # 🆕 AI 提供的话题名
     ) -> Optional[Topic]:
         """添加语义记忆"""
         if not content:
             return None
-
-        candidates = self._get_candidates(content)
 
         memory = TopicMemory(
             content=content,
@@ -275,7 +224,42 @@ class TopicAwareStore:
         )
         self._memories[memory.id] = memory
 
-        # 尝试匹配现有话题
+        # 🆕 优先使用 AI 提供的话题名
+        if topic_name:
+            topic_name_lower = topic_name.lower()
+
+            # 检查是否已存在同名话题
+            if topic_name_lower in self._topic_name_index:
+                topic_id = self._topic_name_index[topic_name_lower]
+                topic = self._topics[topic_id]
+                self._update_topic(topic, memory, importance, 10.0)
+                await self._save_async()
+                logger.debug(f"更新现有话题(由AI指定): {topic.name}")
+                return topic
+
+            # 创建新话题，使用 AI 提供的名称
+            topic = Topic(
+                name=topic_name,
+                summary=content[: self.topic_config.summary_max_length],
+            )
+            topic.message_ids.append(memory.id)
+            topic.message_count = 1
+            topic.importance = importance
+
+            memory.topic_id = topic.id
+            memory.tags = [topic_name]
+
+            self._topics[topic.id] = topic
+            self._topic_name_index[topic_name_lower] = topic.id
+            self._index_topic(topic)
+
+            await self._save_async()
+            logger.info(f"创建新话题(由AI命名): 「{topic_name}」 (重要性: {importance:.2f})")
+            return topic
+
+        # 降级：AI 没有提供话题名，尝试匹配现有话题
+        candidates = self._get_candidates(content)
+
         if model_client and candidates:
             scores = await self._score_topics(content, candidates, model_client)
 
@@ -290,37 +274,26 @@ class TopicAwareStore:
                     logger.debug(f"更新话题: {topic.name} (相关性: {best_score:.1f})")
                     return topic
 
-        # 创建新话题
-        if model_client:
-            name, summary = await self._generate_topic_info(content, model_client)
-        else:
-            name = f"话题{len(self._topics) + 1}"
-            summary = content[: self.topic_config.summary_max_length]
+        # 最终降级：生成默认话题名
+        fallback_name = f"话题{len(self._topics) + 1}"
+        logger.info(f"使用降级话题名: {fallback_name}")
 
         topic = Topic(
-            name=name,
-            summary=summary,
+            name=fallback_name,
+            summary=content[: self.topic_config.summary_max_length],
         )
         topic.message_ids.append(memory.id)
         topic.message_count = 1
         topic.importance = importance
 
         memory.topic_id = topic.id
-        memory.tags = [name]
+        memory.tags = [fallback_name]
 
         self._topics[topic.id] = topic
-        self._topic_name_index[name.lower()] = topic.id
+        self._topic_name_index[fallback_name.lower()] = topic.id
         self._index_topic(topic)
 
-        # 建立与候选话题的关联
-        if candidates and model_client:
-            scores = await self._score_topics(content, candidates, model_client)
-            for cand_id, score in scores.items():
-                if score >= 4.0:
-                    topic.related_topics[cand_id] = score
-
         await self._save_async()
-        logger.debug(f"创建新话题: {name} (重要性: {importance:.2f})")
         return topic
 
     def _update_topic(

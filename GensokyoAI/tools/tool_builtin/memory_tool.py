@@ -27,13 +27,18 @@ def get_event_bus() -> Optional["EventBus"]:
 @tool()
 async def remember(
     content: str,
+    topic: str = "",  # 🆕 让 AI 自己指定话题名
     category: str = "general",
     importance: int = 5,
 ) -> str:
     """
     记住重要的信息。当你了解到新的事实时主动调用。
-    分类主要是这些：
-        character, event, location, preference, knowledge, general
+
+    Args:
+        content: 要记住的内容
+        topic: 话题名称，用于归类记忆。如果不填，系统会自动生成
+        category: 分类 - character, event, location, preference, knowledge, general
+        importance: 重要性 1-10
     """
     event_bus = get_event_bus()
     if event_bus is None:
@@ -50,6 +55,7 @@ async def remember(
     importance = max(1, min(10, importance))
     normalized_importance = importance / 10.0
 
+    # 🆕 如果没有提供 topic，让系统生成（降级方案）
     request_event = Event(
         type=SystemEvent.MEMORY_SEMANTIC_ADDED,
         source="tool.remember",
@@ -57,18 +63,18 @@ async def remember(
             "content": content,
             "importance": normalized_importance,
             "tags": [category],
+            "topic_name": topic if topic else None,  # 🆕 传递话题名
         },
     )
 
     result = await event_bus.request(request_event, timeout=10.0)
 
     if result and isinstance(result, dict):
-        topic_name = result.get("topic_name", "")
-        if topic_name:
-            if importance >= 8:
-                return f"「这个很重要，我记住了！({topic_name})」"
-            else:
-                return f"「嗯，记住了～」"
+        topic_name = result.get("topic_name", topic or "记忆")
+        if importance >= 8:
+            return f"「这个很重要，我记住了！({topic_name})」"
+        else:
+            return f"「嗯，记住了～」"
 
     return "「记住了～」"
 
