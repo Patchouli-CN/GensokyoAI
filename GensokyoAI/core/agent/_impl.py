@@ -125,10 +125,8 @@ class Agent:
         character_name = self.character_name
         self._memory_base_path = self.config.session.save_path
 
-        # 模型客户端（记忆系统也需要）
         self._ollama_client = ModelClient(self.config.model, event_bus=self.event_bus)
 
-        # 情景记忆（不依赖路径）
         self.episodic_memory = EpisodicMemoryManager(
             self.config.memory, character_name, None, self._ollama_client
         )
@@ -408,6 +406,7 @@ class Agent:
         """启动 Agent"""
         await self.event_bus.start()
         await self._ensure_background_manager()
+        await self.episodic_memory.initialize()
         logger.info("Agent 已启动")
 
     async def _on_shutdown(self) -> None:

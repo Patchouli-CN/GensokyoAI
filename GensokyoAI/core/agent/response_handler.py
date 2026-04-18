@@ -63,10 +63,10 @@ class ResponseHandler:
 
     # ==================== 消息记录 ====================
 
-    def record_user_message(self, content: str) -> None:
+    async def record_user_message(self, content: str) -> None:
         """记录用户消息"""
         self._working_memory.add_message("user", content)
-        self._episodic_memory.add_message(
+        await self._episodic_memory.add_message(
             MemoryRecord(
                 content=content,
                 role="user",
@@ -74,11 +74,11 @@ class ResponseHandler:
             )
         )
 
-    def record_tool_results(self, results: list[dict]) -> None:
+    async def record_tool_results(self, results: list[dict]) -> None:
         """记录工具调用结果"""
         for result in results:
             self._working_memory.add_message(result["role"], result["content"])
-            self._episodic_memory.add_message(
+            await self._episodic_memory.add_message(
                 MemoryRecord(
                     content=result["content"],
                     role="tool",
@@ -135,7 +135,7 @@ class ResponseHandler:
             完整的助手消息
         """
         result = partial_message.content or ""
-        self.record_tool_results(tool_results)
+        await self.record_tool_results(tool_results)
 
         if partial_message.content:
             self._working_memory.add_message("assistant", result)
@@ -223,7 +223,7 @@ class ResponseHandler:
         # 处理工具调用
         if tool_calls_message:
             if tool_results := await self.handle_tool_calls_from_message(tool_calls_message):
-                self.record_tool_results(tool_results)
+                await self.record_tool_results(tool_results)
 
                 # 继续对话
                 async for chunk in self._continue_with_tool_results_stream():
@@ -233,4 +233,3 @@ class ResponseHandler:
                     yield chunk
 
         await self._save_coordinator.save_async(self._working_memory)
-        

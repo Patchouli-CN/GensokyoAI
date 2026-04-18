@@ -28,7 +28,9 @@ def _json_encoder(obj):
 class TopicAwareStore:
     """话题感知存储"""
 
-    def __init__(self, path: Path, max_topics: int = 50, topic_config: Optional[TopicGenerationConfig] = None):
+    def __init__(
+        self, path: Path, max_topics: int = 50, topic_config: Optional[TopicGenerationConfig] = None
+    ):
         self.path = Path(path)
         self.max_topics = max_topics
         self.topic_config = topic_config or TopicGenerationConfig()
@@ -89,8 +91,7 @@ class TopicAwareStore:
 
             # 用 msgspec 序列化，加上 indent 参数格式化
             json_bytes = msgspec.json.format(
-                msgspec.json.encode(data, enc_hook=_json_encoder),
-                indent=2
+                msgspec.json.encode(data, enc_hook=_json_encoder), indent=2
             )
 
             async with ayafileio.open(self.path, "wb") as f:
@@ -213,20 +214,18 @@ class TopicAwareStore:
     # ==================== 生成话题信息 ====================
 
     async def _generate_topic_info(
-        self,
-        content: str,
-        model_client: ModelClient
+        self, content: str, model_client: ModelClient
     ) -> tuple[str, str]:
         """让 LLM 生成话题名和摘要"""
         cfg = self.topic_config
-        
+
         # 构建示例部分
         examples_text = ""
         if cfg.examples:
             examples_text = "\n话题名示例：\n"
             for ex in cfg.examples:
-                examples_text += f"- 如果{ex['input']}：\"{ex['name']}\"\n"
-        
+                examples_text += f'- 如果{ex["input"]}："{ex["name"]}"\n'
+
         prompt = f"""为以下对话生成一个有意义的话题名（≤{cfg.name_max_length}字）和摘要（≤{cfg.summary_max_length}字）。
 {examples_text}
 内容：
@@ -246,14 +245,15 @@ class TopicAwareStore:
             json_match = re.search(r"\{[^}]+\}", result_text)
 
             if json_match:
-
                 data = json.loads(json_match.group())
-                return data.get("name", "未命名"), data.get("summary", content[:cfg.summary_max_length])
+                return data.get("name", "未命名"), data.get(
+                    "summary", content[: cfg.summary_max_length]
+                )
 
         except Exception as e:
             logger.debug(f"生成话题信息失败: {e}")
 
-        return f"话题{len(self._topics) + 1}", content[:cfg.summary_max_length]
+        return f"话题{len(self._topics) + 1}", content[: cfg.summary_max_length]
 
     # ==================== 添加记忆 ====================
 
@@ -295,7 +295,7 @@ class TopicAwareStore:
             name, summary = await self._generate_topic_info(content, model_client)
         else:
             name = f"话题{len(self._topics) + 1}"
-            summary = content[:self.topic_config.summary_max_length]
+            summary = content[: self.topic_config.summary_max_length]
 
         topic = Topic(
             name=name,

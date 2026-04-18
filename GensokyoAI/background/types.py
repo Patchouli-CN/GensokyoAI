@@ -64,4 +64,3 @@ class EventTaskData(Struct):
     event_name: str
     event_data: Any = None
     source: str | None = None
-    

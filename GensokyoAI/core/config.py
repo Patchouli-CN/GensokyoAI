@@ -32,11 +32,14 @@ class ModelConfig(Struct):
     timeout: int = 60
     use_proxy: bool = False  # 🆕 是否使用代理
 
+
 class TopicGenerationConfig(Struct):
     """话题生成配置"""
+
     name_max_length: int = 10
     summary_max_length: int = 100
     examples: list[dict] = field(default_factory=list)
+
 
 class MemoryConfig(Struct):
     """记忆配置"""
@@ -50,7 +53,7 @@ class MemoryConfig(Struct):
     semantic_similarity_threshold: float = 0.7
     auto_memory_enabled: bool = True
     auto_memory_model: str = "qwen3.5:9b"
-    
+
     topic_generation: TopicGenerationConfig = field(default_factory=TopicGenerationConfig)
 
 

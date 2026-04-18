@@ -1,9 +1,10 @@
-"""情景记忆 - 异步优化版"""
+"""情景记忆 - 纯异步版"""
+
 # GensokyoAI\memory\episodic.py
 
+import asyncio
 from typing import Optional
 from datetime import datetime
-import asyncio
 
 from .types import EpisodicMemory, MemoryRecord
 from ..core.config import MemoryConfig
@@ -13,7 +14,7 @@ from ..core.agent.model_client import ModelClient
 
 
 class EpisodicMemoryManager:
-    """情景记忆管理器"""
+    """情景记忆管理器 - 纯异步"""
 
     def __init__(
         self,
@@ -31,37 +32,22 @@ class EpisodicMemoryManager:
 
         self._model_client = model_client
 
-        self._load()
-
-    def _load(self) -> None:
+    async def initialize(self) -> None:
+        """异步初始化，加载持久化数据"""
         if self._persistence:
-            self._episodes = self._persistence.load_episodes(self.character_id)
+            self._episodes = await self._persistence.load_episodes_async(self.character_id)
         logger.info(f"加载了 {len(self._episodes)} 条情景记忆")
 
-    def add_message(self, record: MemoryRecord) -> None:
+    async def add_message(self, record: MemoryRecord) -> None:
+        """异步添加消息，触发压缩检查"""
         self._current_episode_messages.append(record)
 
         if len(self._current_episode_messages) >= self.config.episodic_threshold:
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(self.compress_async())
-            except RuntimeError:
-                self.compress_sync()
+            # 不等待压缩完成，后台执行
+            asyncio.create_task(self.compress())
 
-    def compress_sync(self) -> Optional[EpisodicMemory]:
-        """同步压缩（内部调用异步方法）"""
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                future = asyncio.run_coroutine_threadsafe(self.compress_async(), loop)
-                return future.result(timeout=30)
-            else:
-                return asyncio.run(self.compress_async())
-        except Exception as e:
-            logger.error(f"同步压缩失败: {e}")
-            return None
-
-    async def compress_async(self) -> Optional[EpisodicMemory]:
+    async def compress(self) -> Optional[EpisodicMemory]:
+        """压缩当前消息为情景记忆"""
         async with self._compress_lock:
             if len(self._current_episode_messages) < self.config.episodic_threshold:
                 return None
@@ -76,7 +62,7 @@ class EpisodicMemoryManager:
             )
             recent = self._current_episode_messages[-keep_recent:] if keep_recent > 0 else []
 
-            summary = await self._generate_summary_async(to_compress)
+            summary = await self._generate_summary(to_compress)
 
             episode = EpisodicMemory(
                 summary=summary,
@@ -97,7 +83,8 @@ class EpisodicMemoryManager:
             logger.info(f"异步压缩完成，生成摘要长度: {len(summary)}")
             return episode
 
-    async def _generate_summary_async(self, messages: list[MemoryRecord]) -> str:
+    async def _generate_summary(self, messages: list[MemoryRecord]) -> str:
+        """生成对话摘要"""
         conversation = []
         for m in messages:
             role_name = "用户" if m.role == "user" else "助手"
@@ -113,7 +100,8 @@ class EpisodicMemoryManager:
 
         try:
             if not self._model_client:
-                raise MemorySystemError("没有客户端！")
+                raise MemorySystemError("没有模型客户端！")
+
             response = await self._model_client.client.chat(
                 model=self.config.episodic_summary_model,
                 messages=[{"role": "user", "content": prompt}],
@@ -126,13 +114,15 @@ class EpisodicMemoryManager:
             return f"[压缩摘要] 共 {len(messages)} 条消息"
 
     def _extract_key_events(self, messages: list[MemoryRecord]) -> list[str]:
+        """提取关键事件"""
         events = []
         for m in messages:
             if m.importance > 0.7 or len(m.content) > 100:
                 events.append(m.content[:100])
         return events[-10:]
 
-    def get_relevant_context(self, max_summaries: int = 3) -> list[str]:
+    def get_relevant_context(self, query: str = "", max_summaries: int = 3) -> list[str]:
+        """获取相关历史摘要（同步方法，供 MessageBuilder 调用）"""
         if not self._episodes:
             return []
 
@@ -140,4 +130,15 @@ class EpisodicMemoryManager:
         return [e.summary for e in recent]
 
     def get_current_context(self) -> list[str]:
+        """获取当前未压缩的消息内容"""
         return [m.content for m in self._current_episode_messages]
+
+    @property
+    def episode_count(self) -> int:
+        """已压缩的情景记忆数量"""
+        return len(self._episodes)
+
+    @property
+    def pending_message_count(self) -> int:
+        """待压缩的消息数量"""
+        return len(self._current_episode_messages)
