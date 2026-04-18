@@ -41,7 +41,7 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["GensokyoAI"]
 
-[tool.uv]
+[dependency-groups]
 dev-dependencies = []
 
 [tool.ruff]
