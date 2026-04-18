@@ -15,7 +15,7 @@ class BaseBackend(ABC):
         pass
 
     @abstractmethod
-    async def send(self, message: str) -> str:
+    async def send(self, message: str, system_contexts: list[str] | None = None) -> str:
         """发送消息"""
         pass
 

@@ -1,6 +1,6 @@
 """控制台后端 - 集成 Rich 美化"""
 
-# GensokyoAI/backends/console.py
+# GensokyoAI/backends/console/_impl.py
 
 from typing import Callable
 import asyncio
@@ -80,13 +80,12 @@ class ConsoleBackend(BaseBackend):
 
     # ==================== 提示词上下文 ====================
 
-    def _build_prompt_with_context(self, user_message: str) -> str:
-        """构建带提示词上下文的完整消息"""
+    def _build_system_contexts(self) -> list[str]:
+        """构建系统上下文列表（用于传递给 Agent）"""
         if not self._prompt_context:
-            return user_message
-
-        context_text = "\n\n".join(self._prompt_context[-5:])
-        return f"{context_text}\n\n【用户消息】\n{user_message}"
+            return []
+        # 返回最近 5 条上下文，每条作为一个独立的 system 消息
+        return self._prompt_context[-5:]
 
     # ==================== 核心方法 ====================
 
@@ -175,7 +174,7 @@ class ConsoleBackend(BaseBackend):
 
         self.console.print(Panel(panel_content, title="会话列表", border_style="cyan"))
 
-    async def send(self, message: str) -> str:
+    async def send(self, message: str, system_contexts: list[str] | None = None) -> str:
         """发送消息并获取回复"""
         if not self._running or self.agent.is_shutting_down:
             return ""
@@ -191,18 +190,18 @@ class ConsoleBackend(BaseBackend):
         if not clean_text:
             return ""
 
-        # 构建带上下文的完整消息
-        full_message = self._build_prompt_with_context(clean_text)
+        # 🆕 构建系统上下文列表
+        system_contexts = self._build_system_contexts()
 
         # 正常发送消息
-        if self._use_stream and safe_get(self.agent.config, "model.stream", True):
-            response = await self._send_stream(full_message)
+        if self._use_stream and self.agent.config.model.stream:
+            response = await self._send_stream(clean_text, system_contexts)
         else:
-            response = await self._send_non_stream(full_message)
+            response = await self._send_non_stream(clean_text, system_contexts)
 
         return response
 
-    async def _send_stream(self, message: str) -> str:
+    async def _send_stream(self, message: str, system_contexts: list[str]) -> str:
         """流式发送并显示"""
         full_response = ""
         first_chunk = True
@@ -210,7 +209,7 @@ class ConsoleBackend(BaseBackend):
         character_name = safe_get(self.agent.config, "character.name", "Assistant")
 
         try:
-            async for chunk in self.agent.send_stream(message):
+            async for chunk in self.agent.send_stream(message, system_contexts):
                 if self.agent.is_shutting_down:
                     break
                 if chunk.is_tool_call and chunk.tool_info:
@@ -243,14 +242,14 @@ class ConsoleBackend(BaseBackend):
 
         return full_response
 
-    async def _send_non_stream(self, message: str) -> str:
+    async def _send_non_stream(self, message: str, system_contexts: list[str]) -> str:
         """非流式发送并显示"""
         character_name = safe_get(self.agent.config, "character.name", "Assistant")
 
         self.console.print(f"\n[{self.colors['assistant']}]{character_name}: [/]", end="")
         self.console.print("思考中...", style="dim", end="\r")
 
-        response = await self.agent.send(message)
+        response = await self.agent.send(message, system_contexts)
 
         if response:
             self.console.print(f"[{self.colors['assistant']}]{character_name}: [/]", end="")

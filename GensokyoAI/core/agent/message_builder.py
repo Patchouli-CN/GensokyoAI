@@ -68,19 +68,27 @@ class MessageBuilder:
 
         return prompt
 
-    def build(self, user_input: str) -> list[dict[str, str]]:
+    def build(
+        self, user_input: str, system_contexts: list[str] | None = None
+    ) -> list[dict[str, str]]:
         """
         构建完整消息列表
 
         Args:
             user_input: 用户输入
+            system_contexts: 可选的系统上下文列表，每一项将作为独立的 system 消息插入
 
         Returns:
             消息列表，格式为 [{"role": "...", "content": "..."}]
         """
         messages: list[dict[str, str]] = [{"role": "system", "content": self.system_prompt}]
 
-        # 情景记忆（历史摘要）
+        # 🆕 1. 注入来自用户界面的系统级上下文（如 <attention>、<know>、<meta>）
+        if system_contexts:
+            for ctx in system_contexts:
+                messages.append({"role": "system", "content": ctx})
+
+        # 2. 情景记忆（历史摘要）
         if episodic_context := self._episodic_memory.get_relevant_context(user_input):
             messages.append(
                 {
@@ -89,7 +97,7 @@ class MessageBuilder:
                 }
             )
 
-        # 语义记忆（相关记忆）
+        # 3. 语义记忆（相关记忆）
         if semantic_context := self._semantic_memory.get_relevant_context(user_input):
             messages.append(
                 {
@@ -98,10 +106,10 @@ class MessageBuilder:
                 }
             )
 
-        # 工作记忆（当前对话）
+        # 4. 工作记忆（当前对话）
         messages.extend(self._working_memory.get_context())
 
-        # 当前用户输入
+        # 5. 当前用户输入
         messages.append({"role": "user", "content": user_input})
 
         return messages

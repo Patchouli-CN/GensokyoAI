@@ -266,7 +266,9 @@ class Agent:
 
     # ==================== 核心 API ====================
 
-    async def send(self, user_input: str) -> Message | None:
+    async def send(
+        self, user_input: str, system_contexts: list[str] | None = None
+    ) -> Message | None:
         """发送消息（非流式）"""
         if self.is_shutting_down:
             return None
@@ -285,7 +287,7 @@ class Agent:
                     )
                 )
 
-                response = await self._do_send(user_input)
+                response = await self._do_send(user_input, system_contexts)
 
                 if response and response.content:
                     self.event_bus.publish(
@@ -308,16 +310,18 @@ class Agent:
                 )
                 raise
 
-    async def _do_send(self, user_input: str) -> Message:
+    async def _do_send(self, user_input: str, system_contexts: list[str] | None) -> Message:
         """实际执行发送逻辑"""
         await self._ensure_background_manager()
 
-        messages = self.message_builder.build(user_input)
+        messages = self.message_builder.build(user_input, system_contexts)
         tools = self.tool_registry.get_schemas() if self.config.tool.enabled else None
 
         return await self.response_handler.process_non_stream(user_input, messages, tools)
 
-    async def send_stream(self, user_input: str) -> AsyncIterator[StreamChunk]:
+    async def send_stream(
+        self, user_input: str, system_contexts: list[str] | None = None
+    ) -> AsyncIterator[StreamChunk]:
         """发送消息（流式）"""
         if self.is_shutting_down:
             return
@@ -329,7 +333,7 @@ class Agent:
         async with self._request_semaphore:
             full_response = ""
             try:
-                async for chunk in self._do_send_stream(user_input):
+                async for chunk in self._do_send_stream(user_input, system_contexts):
                     if chunk.content:
                         full_response += chunk.content
                     yield chunk
@@ -344,11 +348,13 @@ class Agent:
                         )
                     )
 
-    async def _do_send_stream(self, user_input: str) -> AsyncIterator[StreamChunk]:
+    async def _do_send_stream(
+        self, user_input: str, system_contexts: list[str] | None
+    ) -> AsyncIterator[StreamChunk]:
         """实际执行流式发送逻辑"""
         await self._ensure_background_manager()
 
-        messages = self.message_builder.build(user_input)
+        messages = self.message_builder.build(user_input, system_contexts)
         tools = self.tool_registry.get_schemas() if self.config.tool.enabled else None
 
         async for chunk in self.response_handler.process_stream(user_input, messages, tools):
