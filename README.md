@@ -23,7 +23,15 @@ https://qun.qq.com/universal-share/share?ac=1&authKey=2YjM%2FXyrxGTrkTDQMoxKM5QB
 |---------|------|---------|
 | **工作记忆** | 当前会话的完整对话 | 滑动窗口，保留最近 N 轮 |
 | **情景记忆** | 历史对话的压缩摘要 | 模型自动摘要，关键事件提取 |
-| **语义记忆** | 长期知识存储和检索 | 向量检索 + 模型提取双模式，自动降级 |
+| **语义记忆** | 长期知识存储和检索 | 🆕 独创的话题感知存储，无需向量数据库 |
+
+### 🛠️ 自主记忆工具
+角色可以主动管理自己的记忆：
+- **`remember` 工具** - AI 自主判断何时记住重要信息
+- **`recall` 工具** - AI 需要时主动检索相关记忆
+- **话题感知存储** - 自动将记忆归类到话题，建立关联图谱
+
+> 💡 **设计哲学**：记忆管理完全交给 AI 自主决策，不做任何自动规则。因为最懂角色需要记住什么的，正是扮演它的 LLM 本身。
 
 ### 💬 强大的会话管理
 - ✅ 创建、保存、恢复、列出会话
@@ -37,6 +45,7 @@ https://qun.qq.com/universal-share/share?ac=1&authKey=2YjM%2FXyrxGTrkTDQMoxKM5QB
 - `get_current_dateinfo` - 获取日期和曜日（七曜日！）
 - `get_moon_phase` - 获取月相
 - `get_system_info` - 系统信息
+- `remember` / `recall` - 自主记忆管理
 
 ### 🎛️ 智能命令系统
 | 命令类型 | 示例 | 说明 |
@@ -47,16 +56,17 @@ https://qun.qq.com/universal-share/share?ac=1&authKey=2YjM%2FXyrxGTrkTDQMoxKM5QB
 | **系统命令** | `/help`, `/save`, `/new` | 控制程序行为 |
 | **聊天命令** | `<think>`, `<whisper>` | 本地显示，不发给 AI |
 
-### ⚡ 高性能异步架构
+### ⚡ 事件驱动架构
 - 全异步设计，基于 `asyncio`
-- 后台任务队列处理记忆和持久化
+- **事件总线**解耦所有组件，易于扩展
+- 后台任务队列处理持久化
 - 流式输出支持，打字机效果
 - 优雅的信号处理和关闭流程
 
 ### 🔌 可扩展后端
 - 抽象后端基类 `BaseBackend`
 - 内置 Rich 美化的控制台后端
-- 易于扩展为 WebUI、QQ 机器人、Discord Bot 等
+- 命令系统与后端解耦，易于扩展为 WebUI、QQ 机器人、Discord Bot 等
 
 ## 📦 快速开始
 
@@ -68,26 +78,31 @@ https://qun.qq.com/universal-share/share?ac=1&authKey=2YjM%2FXyrxGTrkTDQMoxKM5QB
 
 **方式一：使用 UV（推荐）**
 [UV](https://docs.astral.sh/uv/) 是一个极速的 Python 包管理器。
-1. 克隆仓库并进入目录：`git clone https://github.com/Patchouli-CN/GensokyoAI.git` 然后 `cd GensokyoAI`
-2. 安装 UV：
-   - Windows: `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
-   - macOS / Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh`
-3. 同步依赖：`uv sync`（UV 会自动创建虚拟环境并安装所有依赖）
+```bash
+git clone https://github.com/Patchouli-CN/GensokyoAI.git
+cd GensokyoAI
+uv sync
+```
 
 **方式二：使用 pip**
-1. 克隆仓库并进入目录：`git clone https://github.com/Patchouli-CN/GensokyoAI.git` 然后 `cd GensokyoAI`
-2. 安装依赖：`pip install -r requirements.txt`
+```bash
+git clone https://github.com/Patchouli-CN/GensokyoAI.git
+cd GensokyoAI
+pip install -r requirements.txt
+```
 
 ### 下载模型
 
-- 对话模型：`ollama pull qwen3.5:9b`
-- Embedding 模型：`ollama pull nomic-embed-text`（用于语义记忆）
+```bash
+# 对话模型（必选）
+ollama pull qwen3.5:9b
+```
 
-> 💡 **提示：** 如果有自己享用的模型，可以去`config/default.yaml`里改配置文件。
+> 💡 **提示：** 可以在 `config/default.yaml` 里修改模型配置。
 
 ### 创建角色
 
-在 `characters/` 目录下创建你的角色文件，例如 `reimu.yaml`：
+在 `characters/` 目录，或者任意你喜欢的地方创建角色文件，例如 `reimu.yaml`：
 
 ```yaml
 name: "博丽灵梦"
@@ -103,17 +118,18 @@ example_dialogue:
 
 ### 启动对话
 
-**使用 UV 启动（推荐）：**
-- 新建会话：`uv run main_v2.py --character characters/reimu.yaml --new-session`
-- 恢复会话：`uv run main_v2.py --character characters/reimu.yaml --resume <session_id>`
-- 列出会话：`uv run main_v2.py --list-sessions`
+```bash
+# 新建会话
+uv run main_v2.py --character characters/reimu.yaml --new-session
 
-**使用 Python 启动：**
-- 新建会话：`python main_v2.py --character characters/reimu.yaml --new-session`
-- 恢复会话：`python main_v2.py --character characters/reimu.yaml --resume <session_id>`
-- 列出会话：`python main_v2.py --list-sessions`
+# 恢复会话
+uv run main_v2.py --character characters/reimu.yaml --resume <session_id>
 
-> 💡 **提示：** Windows 用户也可以直接双击 `run_default.cmd`（pip 用户）或 `run_default_uv.cmd`（UV 用户）快速启动默认角色西行寺幽幽子。
+# 列出所有会话
+uv run main_v2.py --list-sessions
+```
+
+> 💡 **提示：** Windows 用户可以直接双击 `run_default_uv.cmd` 快速启动默认角色（西行寺幽幽子）。
 
 ## 🎮 命令行参数
 
@@ -142,10 +158,11 @@ example_dialogue:
 - `/sessions`：列出历史会话
 - `/stream on/off`：切换流式输出
 - `/clear`：清空提示词上下文
+- `/errors`：查看最近错误统计
 
-### 聊天命令（仅本地显示，不会发送给 AI）
-- `💭（内心独白内容）`：表达角色内心想法
-- `<whisper>（小声）...</whisper>`：小声说话
+### 聊天命令（仅本地显示，不发送给 AI）
+- `<think>内心独白</think>`：表达角色内心想法
+- `<whisper>悄悄话</whisper>`：小声说话
 - `<ooc>出戏内容</ooc>`：戏外交流
 - `<describe>环境描写</describe>`：场景描述
 - `<action>角色动作</action>`：动作描写
@@ -154,44 +171,87 @@ example_dialogue:
 
 ```
 GensokyoAI/
-├── backends/           # 后端抽象与实现
-│   ├── base.py         # 抽象基类
-│   └── console.py      # Rich 控制台后端
-├── core/               # 核心模块
-│   ├── agent/          # Agent 实现
-│   │   ├── _impl.py        # 主类
-│   │   ├── lifecycle.py    # 生命周期管理
-│   │   ├── model_client.py # 模型客户端
-│   │   ├── message_builder.py # 消息构建
-│   │   ├── response_handler.py # 响应处理
-│   │   └── save_coordinator.py # 保存协调
-│   ├── config.py       # 配置管理
-│   ├── events.py       # 事件总线
-│   └── exceptions.py   # 自定义异常
-├── memory/             # 记忆系统
-│   ├── working.py      # 工作记忆
-│   ├── episodic.py     # 情景记忆
-│   └── semantic.py     # 语义记忆（向量检索）
-├── session/            # 会话管理
-│   ├── manager.py      # 会话管理器
-│   └── persistence.py  # 持久化
-├── tools/              # 工具调用系统
-│   ├── base.py         # 工具装饰器
-│   ├── registry.py     # 工具注册中心
-│   ├── executor.py     # 工具执行器
-│   └── tool_builtin/   # 内置工具
-│       ├── time.py
-│       ├── moon.py
-│       └── system.py
-├── background/         # 后台任务系统
-│   ├── manager.py      # 任务管理器
-│   └── workers/        # 工作器
-├── utils/              # 工具函数
-├── characters/         # 角色配置文件
-├── sessions/           # 会话存储目录
-├── config/             # 应用配置
-│   └── default.yaml
-└── main_v2.py          # 入口文件
+├── GensokyoAI/                # 主包目录
+│   ├── backends/              # 后端抽象与实现
+│   │   ├── base.py            # 抽象基类 BaseBackend
+│   │   └── console/           # Rich 控制台后端
+│   │       ├── _impl.py       # ConsoleBackend 实现
+│   │       └── commands.py    # 内置命令处理器
+│   │
+│   ├── core/                  # 核心模块
+│   │   ├── agent/             # Agent 实现
+│   │   │   ├── _impl.py       # Agent 主类
+│   │   │   ├── lifecycle.py   # 生命周期管理（信号处理）
+│   │   │   ├── model_client.py # Ollama 异步客户端
+│   │   │   ├── message_builder.py # 消息构建器
+│   │   │   ├── response_handler.py # 响应处理器（工具调用）
+│   │   │   └── save_coordinator.py # 保存协调器（去重）
+│   │   ├── config.py          # 配置管理（YAML + 环境变量）
+│   │   ├── events.py          # 事件总线（发布/订阅）
+│   │   ├── event_listeners.py # 核心事件监听器
+│   │   └── exceptions.py      # 自定义异常
+│   │
+│   ├── memory/                # 记忆系统
+│   │   ├── working.py         # 工作记忆（当前对话）
+│   │   ├── episodic.py        # 情景记忆（历史摘要）
+│   │   ├── semantic.py        # 语义记忆管理器
+│   │   ├── topic_store.py     # 🆕 话题感知存储（核心）
+│   │   └── types.py           # 记忆数据类型
+│   │
+│   ├── session/               # 会话管理
+│   │   ├── manager.py         # 会话管理器
+│   │   ├── persistence.py     # 异步持久化
+│   │   └── context.py         # 会话上下文
+│   │
+│   ├── commands/              # 命令系统（与后端解耦）
+│   │   ├── parser.py          # 命令解析器（标签/前缀）
+│   │   ├── executor.py        # 命令执行器
+│   │   ├── decorators.py      # @command 装饰器
+│   │   ├── context.py         # 命令上下文
+│   │   └── result.py          # 命令执行结果
+│   │
+│   ├── tools/                 # 工具调用系统
+│   │   ├── base.py            # @tool 装饰器
+│   │   ├── registry.py        # 工具注册中心
+│   │   ├── executor.py        # 工具执行器
+│   │   └── tool_builtin/      # 内置工具
+│   │       ├── time.py        # 时间/日期工具
+│   │       ├── moon.py        # 月相工具
+│   │       ├── system.py      # 系统信息工具
+│   │       └── memory_tool.py # 🆕 自主记忆工具
+│   │
+│   ├── background/            # 后台任务系统
+│   │   ├── manager.py         # 任务管理器（队列+工作器）
+│   │   ├── types.py           # 任务数据类型
+│   │   └── workers/           # 工作器实现
+│   │       ├── base.py        # 工作器基类
+│   │       └── persistence_worker.py # 持久化工作器
+│   │
+│   └── utils/                 # 工具函数
+│       ├── logging.py         # 日志配置
+│       ├── formatters.py      # 格式化工具
+│       ├── helpers.py         # 通用辅助函数
+│       └── exec_hook.py       # 异常堆栈美化
+│
+├── characters/                # 角色配置文件
+│   ├── example.yaml           # 角色模板
+│   ├── marisa.yaml            # 雾雨魔理沙
+│   └── yuyuko.yaml            # 西行寺幽幽子
+│
+├── config/                    # 应用配置
+│   └── default.yaml           # 默认配置
+│
+├── sessions/                  # 会话存储目录（自动生成）
+│   └── {角色名}/               # 按角色分类
+│       ├── {session_id}.json  # 会话数据
+│       └── memory/            # 记忆数据
+│           └── {session_id}/
+│               └── topics.json # 话题和记忆
+│
+├── main_v2.py                 # 入口文件
+├── pyproject.toml             # 项目配置（UV）
+├── requirements.txt           # 依赖列表
+└── README.md                  # 本文档
 ```
 
 ## 🔧 高级用法
@@ -200,7 +260,8 @@ GensokyoAI/
 
 ```python
 import asyncio
-from GensokyoAI import Agent, ConsoleBackendBuilder
+from GensokyoAI.core.agent import Agent
+from GensokyoAI.backends.console import ConsoleBackendBuilder
 
 async def main():
     # 创建 Agent
@@ -223,16 +284,15 @@ asyncio.run(main())
 from GensokyoAI.tools.base import tool
 
 @tool(description="获取幻想乡的天气")
-def get_gensokyo_weather(location: str = "博丽神社") -> str:
+async def get_gensokyo_weather(location: str = "博丽神社") -> str:
     """获取指定地点的天气"""
-    # 你的实现
     return f"{location}今天天气晴朗，适合喝茶"
 ```
 
 ### 扩展自定义后端
 
 ```python
-from GensokyoAI.backends import BaseBackend
+from GensokyoAI.backends.base import BaseBackend
 
 class WebBackend(BaseBackend):
     async def start(self):
@@ -240,10 +300,13 @@ class WebBackend(BaseBackend):
         pass
     
     async def send(self, message: str) -> str:
-        # 处理 Web 请求
         return await self.agent.send(message)
     
-    # ... 实现其他抽象方法
+    async def stop(self):
+        pass
+    
+    def set_stream_handler(self, handler):
+        self._stream_handler = handler
 ```
 
 ## 🌍 环境变量
@@ -267,7 +330,6 @@ class WebBackend(BaseBackend):
 ## 📝 待办事项
 
 - [ ] WebUI 后端（Gradio/FastAPI）
-- [ ] 向量数据库支持（Chroma/Qdrant）
 - [ ] 多角色同时对话
 - [ ] 语音输入/输出
 - [ ] 更多内置工具
@@ -286,10 +348,10 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 
 ## 🌟 Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=Patchouyo-CN/GensokyoAI&type=Date)](https://star-history.com/#Patchouli-CN/GensokyoAI&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=Patchouli-CN/GensokyoAI&type=Date)](https://star-history.com/#Patchouli-CN/GensokyoAI&Date)
 
 ---
 
 **Made with ❤️ and 🍵 in Gensokyo**
 
-*"只有华丽并不是魔法，弹幕最重要的是火力！" —— 雾雨魔理沙*
+*"只有华丽并不是魔法，弹幕最重要的是火力DA⭐ZE！" —— 雾雨魔理沙*
