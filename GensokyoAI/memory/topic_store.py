@@ -1,6 +1,17 @@
-# GensokyoAI/memory/topic_store.py
+"""
+话题感知的记忆存储 - 比阿求的记忆力还好DA☆ZE！
 
-"""话题感知的记忆存储 - AI 自主命名话题，带情感和遗忘机制"""
+阿求：我编纂了《幻想乡缘起》，什么都记得！
+本模块：我不光记得，还能联想，还会遗忘，还会情感标记！
+帕秋莉：姆Q~ 这存储结构比我的图书馆还整齐...
+
+Design Philosophy:
+- 紫大人说：边界要模糊，所以话题之间要有重叠
+- 幽幽子说：记忆太多会撑死的，所以要遗忘
+- 魔理沙说：重要的东西要"借"久一点DA☆ZE~
+"""
+
+# GensokyoAI/memory/topic_store.py
 
 import re
 import asyncio
@@ -26,7 +37,15 @@ def _json_encoder(obj):
 
 
 class TopicAwareStore:
-    """话题感知存储 - AI 自主命名话题，带情感和遗忘机制"""
+    """
+    话题感知存储 - 幻想乡最强记忆体
+    
+    能力：
+    - 自主命名话题 (比琪露诺聪明多了)
+    - 情感标记记忆 (比古明地觉还会读心)
+    - 遗忘曲线 (比幽幽子吃得还慢)
+    - 话题关联 (比紫的隙间还能连)
+    """
 
     def __init__(
         self, path: Path, max_topics: int = 50, topic_config: Optional[TopicGenerationConfig] = None
@@ -112,7 +131,7 @@ class TopicAwareStore:
         # 基础重要性
         base = topic.importance / max(topic.message_count, 1)
 
-        # 情感因子：情感越强烈，记忆越牢固
+        # 古明地觉：你能感受到吗？
         emotional_factor = 1.0 + abs(topic.emotional_valence) * 2.0
 
         # 提取频率因子
@@ -246,18 +265,22 @@ class TopicAwareStore:
         model_client: Optional[ModelClient] = None,
         topic_name: Optional[str] = None,
     ) -> Optional[Topic]:
-        """添加语义记忆"""
+        """
+        添加语义记忆！
+        
+        - 魔理沙：借来的记忆也要好好保存DA☆ZE！
+        - 咲夜：比我的时停还快（异步嘛）
+        """
         if not content:
             return None
 
         memory = TopicMemory(
             content=content,
             importance=importance,
-            emotional_impact=abs(emotional_valence),  # 🆕 情感冲击力
+            emotional_impact=abs(emotional_valence), # 泪目了！
         )
         self._memories[memory.id] = memory
 
-        # 🆕 优先使用 AI 提供的话题名
         if topic_name:
             topic_name_lower = topic_name.lower()
 
@@ -265,7 +288,7 @@ class TopicAwareStore:
                 topic_id = self._topic_name_index[topic_name_lower]
                 topic = self._topics[topic_id]
                 self._update_topic(topic, memory, importance, 10.0, emotional_valence)
-                self._refresh_topic(topic, boost=0.05)  # 🆕 刷新
+                self._refresh_topic(topic, boost=0.05) 
                 await self._save_async()
                 logger.debug(f"更新现有话题(由AI指定): {topic.name}")
                 return topic
@@ -292,7 +315,7 @@ class TopicAwareStore:
             )
             return topic
 
-        # 降级：AI 没有提供话题名，尝试匹配现有话题
+        # 哎呀，话题名就是很难想嘛！
         candidates = self._get_candidates(content)
 
         if model_client and candidates:

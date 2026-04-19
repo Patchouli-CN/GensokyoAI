@@ -1,2 +1,2 @@
 
-python main_v2.py --character "characters\yuyuko.yaml" --new-session
+python main_v2.py --character "characters\marisa.yaml" --new-session
