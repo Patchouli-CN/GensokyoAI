@@ -317,7 +317,7 @@ class Agent:
         messages = self.message_builder.build(user_input, system_contexts)
         tools = self.tool_registry.get_schemas() if self.config.tool.enabled else None
 
-        return await self.response_handler.process_non_stream(user_input, messages, tools)
+        return await self.response_handler.process_non_stream(messages, tools)
 
     async def send_stream(
         self, user_input: str, system_contexts: list[str] | None = None
@@ -357,7 +357,7 @@ class Agent:
         messages = self.message_builder.build(user_input, system_contexts)
         tools = self.tool_registry.get_schemas() if self.config.tool.enabled else None
 
-        async for chunk in self.response_handler.process_stream(user_input, messages, tools):
+        async for chunk in self.response_handler.process_stream(messages, tools):
             if self.is_shutting_down:
                 break
             yield chunk
