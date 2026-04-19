@@ -70,6 +70,10 @@ class SystemEvent(Enum):
     BACKGROUND_TASK_SUBMITTED = "background.task.submitted"
     BACKGROUND_TASK_COMPLETED = "background.task.completed"
     BACKGROUND_TASK_FAILED = "background.task.failed"
+    
+    # 思考事件
+    THINK_ENGINE_INITIATIVE = "think.engine.initiative"  # 产生主动消息
+    THINK_ENGINE_THOUGHT = "think.engine.thought"        # 静默思考完成（可选）
 
 
 class Event(Struct):

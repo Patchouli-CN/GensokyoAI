@@ -38,8 +38,6 @@ class TopicGenerationConfig(Struct):
 
     name_max_length: int = 10
     summary_max_length: int = 100
-    examples: list[dict] = field(default_factory=list)
-
 
 class MemoryConfig(Struct):
     """记忆配置"""

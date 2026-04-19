@@ -33,13 +33,6 @@ memory:
   topic_generation:
     name_max_length: 10
     summary_max_length: 100
-    examples:
-      - input: "用户介绍了自己叫君羽"
-        name: "君羽的初次来访"
-      - input: "讨论了幽幽子喜欢吃什么点心"
-        name: "幽幽子的点心偏好"
-      - input: "约定了下次一起赏樱"
-        name: "赏樱的约定"
 
 think_engine:
   enabled: true

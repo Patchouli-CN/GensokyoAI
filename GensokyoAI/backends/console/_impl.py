@@ -11,6 +11,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from ..base import BaseBackend
+from ...core.events import Event, SystemEvent
 from ...core.agent import Agent
 from ...utils.logger import logger
 from ...utils.formatters import format_session_id, format_datetime
@@ -35,8 +36,6 @@ class ConsoleBackend(BaseBackend):
         self._running = False
         self._use_stream = True
         self.console = RichConsole()
-
-        # 🆕 使用新的命令执行器
         self.cmd_executor = CommandExecutor(mode="smart")
         self._cmd_context = CommandContext[ConsoleBackend](
             agent=agent, backend=self, source="console", issuer="User"
@@ -53,6 +52,14 @@ class ConsoleBackend(BaseBackend):
             "cmd": "bold cyan",
             "prompt": "bold magenta",
         }
+        
+        self._initiative_queue: asyncio.Queue[str] = asyncio.Queue()
+        
+        # 角色有想法啦！
+        agent.event_bus.subscribe(
+            SystemEvent.THINK_ENGINE_INITIATIVE,
+            self._on_initiative_message
+        )
 
         # 累积的提示词上下文
         self._prompt_context: list[str] = []
@@ -312,9 +319,30 @@ class ConsoleBackend(BaseBackend):
         """设置颜色主题"""
         if element in self.colors:
             self.colors[element] = color
+            
+    
+    async def _on_initiative_message(self, event: Event) -> None:
+        """将主动消息放入队列"""
+        await self._initiative_queue.put(event.data.get("message", ""))
 
     async def run_interactive(self) -> None:
         await self.start()
+        
+        async def show_initiatives():
+            while self._running:
+                try:
+                    # 非阻塞等待，超时后继续循环
+                    msg = await asyncio.wait_for(
+                        self._initiative_queue.get(), 
+                        timeout=0.5
+                    )
+                    self.console.print()
+                    self.console.print(f"[dim]💭 角色想对你说：[/]")
+                    self._print_assistant_message(msg)
+                except asyncio.TimeoutError:
+                    pass
+        
+        asyncio.create_task(show_initiatives())
 
         self.console.print("[dim]💡 输入 [/][bold cyan]<cmd>help</cmd>[/] [dim]查看所有命令[/]")
         self.console.print("[dim]💡 按 Ctrl+C 安全退出（会自动保存）[/]\n")

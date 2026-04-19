@@ -5,15 +5,13 @@
 import asyncio
 import random
 from datetime import datetime, timedelta
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 
 from ...utils.logger import logger
-
-if TYPE_CHECKING:
-    from ...memory.semantic import SemanticMemoryManager
-    from .model_client import ModelClient
-    from ..events import EventBus
-    from ..config import ThinkEngineConfig
+from ...memory.semantic import SemanticMemoryManager
+from .model_client import ModelClient
+from ..events import EventBus, SystemEvent, Event
+from ..config import ThinkEngineConfig
 
 # 为了研发这个引擎，下面是一个小故事：
 # 上白泽慧音：
@@ -27,9 +25,9 @@ class ThinkEngine:
 
     def __init__(
         self,
-        semantic_memory: "SemanticMemoryManager",
-        model_client: "ModelClient",
-        event_bus: "EventBus",
+        semantic_memory: SemanticMemoryManager,
+        model_client: ModelClient,
+        event_bus: EventBus,
         character_name: str,
         config: "ThinkEngineConfig",  # 🆕 接收配置
     ):
@@ -43,9 +41,6 @@ class ThinkEngine:
         self._think_task: Optional[asyncio.Task] = None
         self._last_think_time: Optional[datetime] = None
         self._think_interval = timedelta(minutes=config.think_interval_minutes)
-
-        # 待发送的主动消息队列
-        self._pending_initiatives: list[str] = []
 
     async def start(self) -> None:
         """启动思考引擎"""
@@ -126,7 +121,7 @@ class ThinkEngine:
             f"- {t.name}: {t.summary} (情感: {t.emotional_valence:.2f})" for t in walk
         )
 
-        prompt = f"""<think>
+        prompt = f"""
 你现在处于静默状态，正在回顾与用户的过往。
 
 你联想到了以下话题：
@@ -138,7 +133,7 @@ class ThinkEngine:
 3. 你是否有什么想主动对用户说的话或做的事？
 
 只思考，不行动。记住你是{self.character_name}。
-</think>"""
+"""
 
         logger.debug(f"🧠 [{self.character_name}] 正在静默思考，游走话题: {[t.name for t in walk]}")
 
@@ -156,15 +151,34 @@ class ThinkEngine:
             thought = response.message.content
             if thought:
                 logger.info(f"💭 [{self.character_name}] 内心独白: {thought[:100]}...")
-
-                # 检查是否产生主动意图
+                
+                # 🆕 发布思考完成事件（可选，用于调试/监控）
+                self.event_bus.publish(Event(
+                    type=SystemEvent.THINK_ENGINE_THOUGHT,
+                    source="think_engine",
+                    data={
+                        "character": self.character_name,
+                        "thought": thought,
+                        "topics": [t.name for t in walk]
+                    }
+                ))
+                
+                # 检查主动意图
                 if self._has_initiative_intent(thought):
                     initiative = await self._generate_initiative(thought, walk)
                     if initiative:
-                        self._pending_initiatives.append(initiative)
-                        logger.info(
-                            f"✨ [{self.character_name}] 产生主动意图: {initiative[:50]}..."
-                        )
+                        # 🆕 发布主动消息事件，而不是存入队列！
+                        self.event_bus.publish(Event(
+                            type=SystemEvent.THINK_ENGINE_INITIATIVE,
+                            source="think_engine",
+                            data={
+                                "character": self.character_name,
+                                "message": initiative,
+                                "thought": thought,  # 附带部分思考，便于上下文
+                                "trigger_topics": [t.name for t in walk[:3]]
+                            }
+                        ))
+                        logger.info(f"✨ [{self.character_name}] 发布主动消息事件: {initiative[:50]}...")
 
         except Exception as e:
             logger.error(f"静默思考失败: {e}")
@@ -205,16 +219,6 @@ class ThinkEngine:
         except Exception as e:
             logger.error(f"生成主动消息失败: {e}")
             return None
-
-    def get_pending_initiative(self) -> Optional[str]:
-        """获取并清空待发送的主动消息"""
-        if self._pending_initiatives:
-            return self._pending_initiatives.pop(0)
-        return None
-
-    def has_pending_initiative(self) -> bool:
-        """是否有待发送的主动消息"""
-        return len(self._pending_initiatives) > 0
 
     def trigger_think_now(self) -> None:
         """立即触发一次思考"""
