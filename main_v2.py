@@ -12,11 +12,11 @@ from GensokyoAI.core.config import ConfigLoader
 from GensokyoAI.backends.console import ConsoleBackendBuilder
 from GensokyoAI.utils.exec_hook import set_exechook
 
-# 设置全局异常钩子
+# 灵梦，这是异变啊！
+# 灵梦：嗯？让我看看，这也不是没啥事吗？（喝茶）
 set_exechook()
 
 console = Console()
-
 
 def parse_args():
     """解析命令行参数"""

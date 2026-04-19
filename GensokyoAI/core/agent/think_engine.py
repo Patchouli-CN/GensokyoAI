@@ -15,9 +15,15 @@ if TYPE_CHECKING:
     from ..events import EventBus
     from ..config import ThinkEngineConfig
 
-
+# 为了研发这个引擎，下面是一个小故事：
+# 上白泽慧音：
+#  - **我思故我在，思想是一个人的重要组成部分！**
+#  - **什么？你问我这个历史老师为什么说起哲学了？**
+#  - **可能是阅历多了吧！**
 class ThinkEngine:
-    """静默思考引擎 - 让 AI 拥有自己的心理时间"""
+    """
+    静默思考引擎 - 让 AI 拥有自己的心理时间
+    """
 
     def __init__(
         self,
