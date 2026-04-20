@@ -389,6 +389,9 @@ class Agent:
 
         if self._think_engine:
             await self._think_engine.stop()
+            
+        if self._background_manager:
+            await self._background_manager.stop(wait=True)
 
         try:
             await self.save_coordinator.save_async(self.working_memory, force=True)
