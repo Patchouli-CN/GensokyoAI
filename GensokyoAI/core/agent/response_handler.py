@@ -83,7 +83,8 @@ class ResponseHandler:
         """处理流式响应"""
         tool_calls_message: Message | None = None
 
-        async for chunk in self._model_client.chat_stream(messages, tools):
+        # 第一次流式调用
+        async for chunk in self._safe_stream(messages, tools, "第一次流式调用"):
             if self._shutting_down:
                 break
             if chunk.is_tool_call and chunk.tool_info:
@@ -91,14 +92,49 @@ class ResponseHandler:
             else:
                 yield chunk
 
-        if self._shutting_down:
+        if self._shutting_down or not tool_calls_message:
             return
 
-        if tool_calls_message:
-            if tool_results := await self._handle_tool_calls(tool_calls_message):
-                await self._record_tool_results(tool_results)
-                cont_messages = self._message_builder.build_continuation()
-                async for chunk in self._model_client.chat_stream(cont_messages, None):
-                    if self._shutting_down:
-                        break
-                    yield chunk
+        # 工具调用
+        tool_results = await self._safe_tool_calls(tool_calls_message)
+        if not tool_results:
+            return
+
+        await self._safe_record_results(tool_results)
+        cont_messages = self._message_builder.build_continuation()
+
+        # 第二次流式调用
+        async for chunk in self._safe_stream(cont_messages, None, "第二次流式调用"):
+            if self._shutting_down:
+                break
+            yield chunk
+            
+    # ==================== 私有容错方法 ====================
+
+    async def _safe_stream(
+        self, messages: list, tools: list | None, context: str
+    ) -> AsyncIterator[StreamChunk]:
+        """带容错的流式调用"""
+        try:
+            async for chunk in self._model_client.chat_stream(messages, tools):
+                yield chunk
+        except Exception as e:
+            logger.error(f"{context}失败: {e}")
+            yield StreamChunk(content=f"\n[响应中断: {e}]\n")
+
+
+    async def _safe_tool_calls(self, message: Message) -> list[dict] | None:
+        """带容错的工具调用"""
+        try:
+            return await self._handle_tool_calls(message)
+        except Exception as e:
+            logger.error(f"工具调用处理失败: {e}")
+            return None
+
+
+    async def _safe_record_results(self, results: list[dict]) -> None:
+        """带容错的结果记录"""
+        try:
+            await self._record_tool_results(results)
+        except Exception as e:
+            logger.warning(f"记录工具结果失败: {e}")
