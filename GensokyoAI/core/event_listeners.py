@@ -25,10 +25,14 @@ class CoreListeners:
         # 会话事件
         bus.subscribe(SystemEvent.SESSION_CREATED, self.on_session_created)
         bus.subscribe(SystemEvent.SESSION_RESUMED, self.on_session_resumed)
+        
+        # 思考事件
+        bus.subscribe(SystemEvent.THINK_ENGINE_THOUGHT, self.on_thought_record)
 
         # 对话事件
         bus.subscribe(SystemEvent.MESSAGE_RECEIVED, self.on_message_received)
         bus.subscribe(SystemEvent.MESSAGE_SENT, self.on_message_sent)
+        bus.subscribe(SystemEvent.THINK_ENGINE_INITIATIVE, self.on_initiative_speak_record)
 
         # 记忆事件
         bus.subscribe(SystemEvent.MEMORY_WORKING_ADDED, self.on_working_memory_added)
@@ -57,6 +61,26 @@ class CoreListeners:
         session = event.data.get("session")
         if session:
             logger.info(f"会话已恢复: {session.session_id[:8]}...")
+            
+    # ==================== 思考事件 ====================
+    async def on_thought_record(self, event: Event) -> None:
+        """当角色静默思考时，把思考内容存入语义/情景记忆"""
+        thought = event.data.get("thought", "")
+        if not thought:
+            return
+
+        # 1. 存入语义记忆 (TopicAwareStore)
+        # 让角色的长期记忆里，有这段“内心戏”
+        await self.agent.semantic_memory.add_async(
+            content=f"【内心思考】{thought}",
+            importance=0.6,  # 思考的重要性中等偏高
+            emotional_valence=event.data.get("emotional_valence", 0.0)
+        )
+
+        # 2. (可选) 也可以记录到情景记忆，作为一段“心理事件”
+        # await self.agent.episodic_memory.add_message(...)
+
+        logger.debug(f"🧠 已记录静默思考到语义记忆: {thought[:30]}...")
 
     # ==================== 对话事件 ====================
 
@@ -73,6 +97,13 @@ class CoreListeners:
         
         self.agent.working_memory.add_message("assistant", response)
         logger.debug(f"记录并发送响应: {response[:50]}...")
+        
+    async def on_initiative_speak_record(self, event: Event) -> None:
+        """当角色主动说话时，也把这句话记录到工作记忆"""
+        message = event.data.get("message", "")
+        if message:
+            self.agent.working_memory.add_message("assistant", message)
+            logger.debug(f"📝 已记录主动消息到工作记忆: {message[:30]}...")
         
     # ==================== 记忆事件 ====================
 
