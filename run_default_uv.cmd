@@ -1,2 +1,2 @@
 
-uv run main_v2.py --character "characters\marisa.yaml" --new-session
+uv run main_v2.py --character "characters\zh_cn\KirisameMarisa.yaml" --new-session
