@@ -120,36 +120,38 @@ ollama pull qwen3.5:9b
 
 > 💡 **提示：** 可以在 `config/default.yaml` 里修改模型配置。
 
-### 创建角色
+### 创建角色（可选）
 
-在 `characters/` 目录，或者任意你喜欢的地方创建角色文件，例如 `reimu.yaml`：
+在 `characters/` 目录，或者任意你喜欢的地方创建角色文件，例如 `MorichikaRinnosuke.yaml`：
 
 ```yaml
-name: "博丽灵梦"
+name: "森近霖之助"
 system_prompt: |
-  你是博丽灵梦，幻想乡博丽神社的巫女...
+  你是森近霖之助，是香霖堂的店主...
   
-greeting: "「哟，又是你啊。要喝茶吗？」"
+greeting: "「~~~」"
 
 example_dialogue:
-  - user: "灵梦，你今天在做什么？"
-    assistant: "「当然是——在神社喝茶啊，还能做什么。」"
+  - user: "~~~？"
+    assistant: "「~~~」"
 ```
 
-### 启动对话
+> 💡 **提示：** 创建角色是可选项，可以在 `characters/` 目录查看内置角色。
+
+### 启动对话（以uv模式为例）
 
 ```bash
 # 新建会话
-uv run main_v2.py --character characters/reimu.yaml --new-session
+uv run main_v2.py --character characters/MorichikaRinnosuke.yaml --new-session
 
 # 恢复会话
-uv run main_v2.py --character characters/reimu.yaml --resume <session_id>
+uv run main_v2.py --character characters/MorichikaRinnosuke.yaml --resume <session_id>
 
 # 列出所有会话
 uv run main_v2.py --list-sessions
 ```
 
-> 💡 **提示：** Windows 用户可以直接双击 `run_default_uv.cmd` 快速启动默认角色（西行寺幽幽子）。
+> 💡 **提示：** Windows 用户可以直接双击 `run_default_uv.cmd` 快速启动默认角色（雾雨魔理沙）。
 
 ## 🎮 命令行参数
 
