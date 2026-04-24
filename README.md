@@ -85,13 +85,13 @@
 
 ### 🔌 多 LLM Provider 支持
 通过可插拔的 Provider 架构，支持多种 LLM API：
-| Provider | 说明 | 安装 |
-|----------|------|------|
-| **Ollama** | 本地模型（默认） | `pip install gensokyoai[ollama]` |
-| **OpenAI** | OpenAI / Deepseek / SiliconFlow / vLLM 等兼容 API（Chat Completions） | `pip install gensokyoai[openai]` |
-| **OpenAI Responses** | OpenAI 官方 Responses API（推理性能更优） | `pip install gensokyoai[openai]` |
-| **Claude** | Anthropic Claude 系列 | `pip install gensokyoai[claude]` |
-| **Gemini** | Google Gemini 系列 | `pip install gensokyoai[gemini]` |
+| Provider | 说明 |
+|----------|------|
+| **Ollama** | 本地模型（默认） |
+| **OpenAI** | Chat Completions API，兼容 Deepseek / SiliconFlow / vLLM / Groq 等第三方服务 |
+| **OpenAI Responses** | OpenAI 官方 Responses API，推理性能更优 |
+| **Claude** | Anthropic Claude 系列 |
+| **Gemini** | Google Gemini 系列 |
 
 > 💡 支持自定义 Provider 注册，可以轻松扩展到任何 LLM API。
 
