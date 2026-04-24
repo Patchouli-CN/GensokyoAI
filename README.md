@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Code Style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-> 一个专为角色扮演设计的异步 AI 对话框架，提供完整的三层记忆系统、会话管理、工具调用和可扩展后端。让你与自己喜欢的角色进行深度、连贯的对话。
+> 一个专为角色扮演设计的异步 AI 对话框架，支持多种 LLM（Ollama / OpenAI / Claude / Gemini），提供完整的三层记忆系统、会话管理、工具调用和可扩展后端。让你与自己喜欢的角色进行深度、连贯的对话。
 
 ## 🐧 QQ群：675608356
 - **欢迎来提供功能建议、BUG反馈以及纯粹交流ᗜᴗᗜ！**
@@ -83,6 +83,17 @@
 - 流式输出支持，打字机效果
 - **优雅的信号处理和关闭流程**（Ctrl+C 安全退出，数据不丢失）
 
+### 🔌 多 LLM Provider 支持
+通过可插拔的 Provider 架构，支持多种 LLM API：
+| Provider | 说明 | 安装 |
+|----------|------|------|
+| **Ollama** | 本地模型（默认） | `pip install gensokyoai[ollama]` |
+| **OpenAI** | OpenAI / Deepseek / SiliconFlow / vLLM 等兼容 API | `pip install gensokyoai[openai]` |
+| **Claude** | Anthropic Claude 系列 | `pip install gensokyoai[claude]` |
+| **Gemini** | Google Gemini 系列 | `pip install gensokyoai[gemini]` |
+
+> 💡 支持自定义 Provider 注册，可以轻松扩展到任何 LLM API。
+
 ### 🔌 可扩展后端
 - 抽象后端基类 `BaseBackend`
 - 内置 Rich 美化的控制台后端
@@ -92,16 +103,29 @@
 
 ### 环境要求
 - Python 3.10+
-- [Ollama](https://ollama.ai/) 运行中
+- 以下任选一种 LLM 后端：
+  - [Ollama](https://ollama.ai/) 本地运行（默认，免费）
+  - OpenAI API Key（或 Deepseek / SiliconFlow 等兼容服务）
+  - Anthropic Claude API Key
+  - Google Gemini API Key
 
 ### 安装
 
 **方式一：使用 UV（推荐）**
+
 [UV](https://docs.astral.sh/uv/) 是一个极速的 Python 包管理器。
 ```bash
 git clone https://github.com/Patchouli-CN/GensokyoAI.git
 cd GensokyoAI
-uv sync
+
+# 基础安装 + Ollama（默认 Provider）
+uv sync --extra ollama
+
+# 或者安装其他 Provider
+uv sync --extra openai      # OpenAI / Deepseek / SiliconFlow 等
+uv sync --extra claude       # Anthropic Claude
+uv sync --extra gemini       # Google Gemini
+uv sync --extra all          # 全部 Provider
 ```
 
 **方式二：使用 pip**
@@ -111,14 +135,52 @@ cd GensokyoAI
 pip install -r requirements.txt
 ```
 
-### 下载模型
-
+**按需安装 LLM Provider（pip）**
 ```bash
-# 对话模型（必选）
+pip install ollama                 # Ollama（默认）
+pip install openai                 # OpenAI / Deepseek / SiliconFlow 等
+pip install anthropic              # Anthropic Claude
+pip install google-genai           # Google Gemini
+```
+
+> 💡 **提示：** UV 用户通过 `--extra` 参数选择 Provider，pip 用户直接安装对应的 SDK 包即可。
+
+### 配置 LLM Provider
+
+**使用 Ollama（默认）**
+```bash
+# 下载模型
 ollama pull qwen3.5:9b
 ```
 
-> 💡 **提示：** 可以在 `config/default.yaml` 里修改模型配置。
+**使用 OpenAI / Deepseek 等**
+
+编辑 `config/default.yaml`：
+```yaml
+model:
+  provider: "openai"
+  name: "gpt-4o"                          # 或 deepseek-chat 等
+  api_key: "sk-..."
+  base_url: "https://api.deepseek.com/v1" # 可选，不填则使用 OpenAI 官方
+```
+
+**使用 Claude**
+```yaml
+model:
+  provider: "claude"
+  name: "claude-sonnet-4-20250514"
+  api_key: "sk-ant-..."
+```
+
+**使用 Gemini**
+```yaml
+model:
+  provider: "gemini"
+  name: "gemini-2.0-flash"
+  api_key: "AIza..."
+```
+
+> 💡 **提示：** 也可以通过环境变量 `GENSOKYOAI_PROVIDER`、`GENSOKYOAI_API_KEY`、`GENSOKYOAI_BASE_URL` 覆盖配置。
 
 ### 创建角色（可选）
 
@@ -204,14 +266,21 @@ GensokyoAI/
 │   │   ├── agent/             # Agent 实现
 │   │   │   ├── _impl.py       # Agent 主类
 │   │   │   ├── lifecycle.py   # 生命周期管理（信号处理）
-│   │   │   ├── model_client.py # Ollama 异步客户端
+│   │   │   ├── model_client.py # LLM 客户端（Facade，多 Provider）
+│   │   │   ├── types.py       # 🆕 统一类型系统（跨 Provider）
+│   │   │   ├── providers/     # 🆕 LLM Provider 插件目录
+│   │   │   │   ├── base.py    # Provider 抽象基类
+│   │   │   │   ├── ollama_provider.py  # Ollama 实现
+│   │   │   │   ├── openai_provider.py  # OpenAI 兼容实现
+│   │   │   │   ├── claude_provider.py  # Claude 实现
+│   │   │   │   └── gemini_provider.py  # Gemini 实现
 │   │   │   ├── message_builder.py # 消息构建器
 │   │   │   ├── response_handler.py # 响应处理器（工具调用）
 │   │   │   ├── save_coordinator.py # 保存协调器（去重）
-│   │   │   ├── think_engine.py # 🆕 静默思考引擎
-│   │   │   ├── action_planner.py # 🆕 行动规划器（决策大脑）
-│   │   │   ├── action_executor.py # 🆕 行动执行器
-│   │   │   └── actions.py     # 🆕 行动定义
+│   │   │   ├── think_engine.py # 静默思考引擎
+│   │   │   ├── action_planner.py # 行动规划器（决策大脑）
+│   │   │   ├── action_executor.py # 行动执行器
+│   │   │   └── actions.py     # 行动定义
 │   │   ├── config.py          # 配置管理（YAML + 环境变量）
 │   │   ├── events.py          # 事件总线（发布/订阅）
 │   │   ├── event_listeners.py # 核心事件监听器
@@ -361,11 +430,35 @@ class WebBackend(BaseBackend):
         self._stream_handler = handler
 ```
 
+### 注册自定义 LLM Provider
+
+```python
+from GensokyoAI.core.agent.providers import ProviderFactory, BaseProvider
+from GensokyoAI.core.agent.types import UnifiedResponse, UnifiedMessage, StreamChunk
+
+class MyProvider(BaseProvider):
+    async def chat(self, model, messages, tools=None, options=None, **kwargs):
+        # 实现你的 LLM 调用逻辑
+        return UnifiedResponse(
+            message=UnifiedMessage(role="assistant", content="Hello!"),
+            model=model,
+        )
+
+    async def chat_stream(self, model, messages, tools=None, options=None, **kwargs):
+        yield StreamChunk(content="Hello!")
+
+# 注册后即可在配置中使用 provider: "my_llm"
+ProviderFactory.register("my_llm", MyProvider)
+```
+
 ## 🌍 环境变量
 
 | 变量名 | 说明 | 默认值 |
 |--------|------|--------|
+| `GENSOKYOAI_PROVIDER` | LLM Provider | `ollama` |
 | `GENSOKYOAI_MODEL` | 覆盖模型名称 | `qwen3.5:9b` |
+| `GENSOKYOAI_API_KEY` | API 密钥 | - |
+| `GENSOKYOAI_BASE_URL` | API 地址 | - |
 | `GENSOKYOAI_LOG_LEVEL` | 日志级别 | `INFO` |
 | `GENSOKYOAI_LOG_CONSOLE` | 控制台日志开关 | `true` |
 | `GENSOKYOAI_MEMORY_WORKING_TURNS` | 工作记忆最大轮数 | `20` |
@@ -381,6 +474,7 @@ class WebBackend(BaseBackend):
 
 ## 📝 待办事项
 
+- [x] 多 LLM Provider 支持（Ollama/OpenAI/Claude/Gemini）
 - [ ] WebUI 后端（Gradio/FastAPI）
 - [ ] 多角色同时对话
 - [ ] 语音输入/输出
@@ -393,6 +487,9 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 ## 🙏 致谢
 
 - [Ollama](https://ollama.ai/) - 本地模型运行
+- [OpenAI](https://openai.com/) - OpenAI API 及兼容生态
+- [Anthropic](https://www.anthropic.com/) - Claude 系列模型
+- [Google](https://ai.google.dev/) - Gemini 系列模型
 - [Rich](https://github.com/Textualize/rich) - 终端美化
 - [msgspec](https://github.com/jcrist/msgspec) - 高性能序列化
 - [ayafileio](https://github.com/Patchouli-CN/ayafileio) - 高性能异步文件 I/O

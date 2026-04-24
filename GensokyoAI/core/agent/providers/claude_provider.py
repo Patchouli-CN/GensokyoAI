@@ -81,7 +81,10 @@ class ClaudeProvider(BaseProvider):
 
         # Claude extended thinking 支持
         if kwargs.get("think"):
-            call_kwargs["metadata"] = {"thinking": True}
+            call_kwargs["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": options.get("num_predict", 2048),
+            }
 
         response = await self._client.messages.create(**call_kwargs)
         return self._convert_response(response)
@@ -104,7 +107,6 @@ class ClaudeProvider(BaseProvider):
             "max_tokens": options.get("num_predict") or options.get("max_tokens", 2048),
             "temperature": options.get("temperature", 0.7),
             "top_p": options.get("top_p", 0.9),
-            "stream": True,
         }
 
         if system_prompt:
@@ -112,6 +114,13 @@ class ClaudeProvider(BaseProvider):
 
         if tools:
             call_kwargs["tools"] = self._convert_tools_to_claude(tools)
+
+        # Claude extended thinking 支持
+        if kwargs.get("think"):
+            call_kwargs["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": options.get("num_predict", 2048),
+            }
 
         # 工具调用累积
         tool_name = ""

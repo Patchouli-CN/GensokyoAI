@@ -309,3 +309,11 @@ class ModelClient:
     def provider(self) -> BaseProvider:
         """获取 Provider 实例（仅供高级用途）"""
         return self._provider
+
+    @property
+    def supports_embeddings(self) -> bool:
+        """检查当前 Provider 是否支持 embeddings"""
+        # 检查 Provider 是否覆盖了 BaseProvider 的默认实现
+        from .providers.base import BaseProvider as _Base
+
+        return type(self._provider).embeddings is not _Base.embeddings
