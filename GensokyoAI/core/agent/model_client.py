@@ -168,7 +168,7 @@ class ModelClient:
                 tools=tools,
                 options=call_options,
                 **kwargs,
-            ):
+            ): # type: ignore
                 yield chunk
 
         except asyncio.TimeoutError:
@@ -287,8 +287,8 @@ class ModelClient:
 
         embeddings = []
         for resp in responses:
-            if isinstance(resp, Exception):
-                logger.warning(f"批量 embeddings 中有失败: {resp}")
+            if isinstance(resp, BaseException):
+                logger.warning(f"批量 embeddings 中有异常: {resp}")
                 embeddings.append([])
             else:
                 embeddings.append(resp.embedding)

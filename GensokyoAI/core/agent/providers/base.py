@@ -3,7 +3,7 @@
 # GensokyoAI/core/agent/providers/base.py
 
 from abc import ABC, abstractmethod
-from typing import AsyncIterator, Optional, TYPE_CHECKING
+from typing import AsyncIterator, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..types import UnifiedResponse, UnifiedEmbeddingResponse, StreamChunk
