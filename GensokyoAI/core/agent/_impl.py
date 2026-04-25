@@ -93,7 +93,11 @@ class Agent:
 
     def _init_memory_system(self) -> None:
         self._memory_base_path = self.config.session.save_path
-        self._model_client = ModelClient(self.config.model, event_bus=self.event_bus)
+        self._model_client = ModelClient(
+            self.config.model,
+            event_bus=self.event_bus,
+            embedding_config=self.config.embedding,
+        )
         self.episodic_memory = EpisodicMemoryManager(
             self.config.memory, self.character_name, None, self._model_client
         )

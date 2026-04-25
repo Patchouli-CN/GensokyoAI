@@ -5,7 +5,7 @@ log_level: DEBUG
 log_console: false
 log_file: "logs/GENSOKYOAI.log"
 
-# 模型配置
+# 主聊天模型配置
 model:
   provider: "openai"    # LLM Provider: ollama / openai / openai_responses / gemini / claude
   name: "Pro/zai-org/GLM-5.1"
@@ -18,6 +18,18 @@ model:
   max_tokens: 2048
   timeout: 60
   use_proxy: false      # 是否使用代理，默认不使用，localhost 直连
+
+# Embedding 模型配置（独立于主聊天模型，避免误用聊天模型调用 embeddings）
+# 未配置 name 时，ModelClient.embeddings() 会明确报错，不会再默认使用 model.name。
+embedding:
+  provider: null        # null 表示默认复用 model.provider；Claude 不支持 embeddings，需改用 openai/gemini/ollama 等
+  name: null            # 例如 text-embedding-3-small / BAAI/bge-m3 / nomic-embed-text / gemini-embedding-001
+  base_url: null        # null 表示复用 model.base_url
+  api_key: null         # null 表示复用 model.api_key
+  dimensions: null      # OpenAI text-embedding-3-* 支持缩短维度
+  encoding_format: null # OpenAI 支持 float / base64
+  timeout: null         # null 表示复用 model.timeout
+  use_proxy: null       # null 表示复用 model.use_proxy
 
 # ===== Provider 配置示例 =====
 #

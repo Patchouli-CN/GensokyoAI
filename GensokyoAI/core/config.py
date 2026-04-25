@@ -35,6 +35,19 @@ class ModelConfig(Struct):
     use_proxy: bool = False  # 是否使用代理
 
 
+class EmbeddingConfig(Struct):
+    """Embedding 模型配置"""
+
+    provider: str | None = None  # 默认复用 model.provider
+    name: str | None = None      # 必填；未配置时不再误用聊天模型
+    base_url: str | None = None
+    api_key: str | None = None
+    dimensions: int | None = None
+    encoding_format: str | None = None
+    timeout: int | None = None
+    use_proxy: bool | None = None
+
+
 class TopicGenerationConfig(Struct):
     """话题生成配置"""
 
@@ -114,6 +127,7 @@ class AppConfig(Struct):
 
     # 子配置
     model: ModelConfig = field(default_factory=ModelConfig)
+    embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     tool: ToolConfig = field(default_factory=ToolConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
@@ -188,6 +202,8 @@ class ConfigLoader:
 
         if "model" in data:
             config.model = ModelConfig(**data["model"])
+        if "embedding" in data:
+            config.embedding = EmbeddingConfig(**data["embedding"])
         if "memory" in data:
             config.memory = MemoryConfig(**data["memory"])
         if "tool" in data:
@@ -213,6 +229,7 @@ class ConfigLoader:
 
         # 其他配置 - override 优先
         result.model = self._merge_model(base.model, override.model)
+        result.embedding = self._merge_embedding(base.embedding, override.embedding)
         result.memory = self._merge_memory(base.memory, override.memory)
         result.tool = self._merge_tool(base.tool, override.tool)
         result.session = self._merge_session(base.session, override.session)
@@ -235,6 +252,22 @@ class ConfigLoader:
             top_p=override.top_p if override.top_p != 0.9 else base.top_p,
             max_tokens=override.max_tokens if override.max_tokens != 2048 else base.max_tokens,
             timeout=override.timeout if override.timeout != 60 else base.timeout,
+            use_proxy=override.use_proxy if override.use_proxy != base.use_proxy else base.use_proxy,
+        )
+
+    def _merge_embedding(
+        self, base: EmbeddingConfig, override: EmbeddingConfig
+    ) -> EmbeddingConfig:
+        """合并 Embedding 配置 - override 优先"""
+        return EmbeddingConfig(
+            provider=override.provider or base.provider,
+            name=override.name or base.name,
+            base_url=override.base_url or base.base_url,
+            api_key=override.api_key or base.api_key,
+            dimensions=override.dimensions or base.dimensions,
+            encoding_format=override.encoding_format or base.encoding_format,
+            timeout=override.timeout or base.timeout,
+            use_proxy=override.use_proxy if override.use_proxy is not None else base.use_proxy,
         )
 
     def _merge_memory(self, base: MemoryConfig, override: MemoryConfig) -> MemoryConfig:
@@ -333,6 +366,22 @@ class ConfigLoader:
             config.model.api_key = os.getenv("GENSOKYOAI_API_KEY")  # type: ignore
         if os.getenv("GENSOKYOAI_BASE_URL"):
             config.model.base_url = os.getenv("GENSOKYOAI_BASE_URL")  # type: ignore
+        if os.getenv("GENSOKYOAI_EMBEDDING_PROVIDER"):
+            config.embedding.provider = os.getenv("GENSOKYOAI_EMBEDDING_PROVIDER")  # type: ignore
+        if os.getenv("GENSOKYOAI_EMBEDDING_MODEL"):
+            config.embedding.name = os.getenv("GENSOKYOAI_EMBEDDING_MODEL")  # type: ignore
+        if os.getenv("GENSOKYOAI_EMBEDDING_API_KEY"):
+            config.embedding.api_key = os.getenv("GENSOKYOAI_EMBEDDING_API_KEY")  # type: ignore
+        if os.getenv("GENSOKYOAI_EMBEDDING_BASE_URL"):
+            config.embedding.base_url = os.getenv("GENSOKYOAI_EMBEDDING_BASE_URL")  # type: ignore
+        if os.getenv("GENSOKYOAI_EMBEDDING_DIMENSIONS"):
+            config.embedding.dimensions = int(os.getenv("GENSOKYOAI_EMBEDDING_DIMENSIONS"))  # type: ignore
+        if os.getenv("GENSOKYOAI_EMBEDDING_ENCODING_FORMAT"):
+            config.embedding.encoding_format = os.getenv("GENSOKYOAI_EMBEDDING_ENCODING_FORMAT")  # type: ignore
+        if os.getenv("GENSOKYOAI_EMBEDDING_TIMEOUT"):
+            config.embedding.timeout = int(os.getenv("GENSOKYOAI_EMBEDDING_TIMEOUT"))  # type: ignore
+        if os.getenv("GENSOKYOAI_EMBEDDING_USE_PROXY"):
+            config.embedding.use_proxy = os.getenv("GENSOKYOAI_EMBEDDING_USE_PROXY").lower() == "true"  # type: ignore
         if os.getenv("GENSOKYOAI_LOG_LEVEL"):
             config.log_level = LogLevel(os.getenv("GENSOKYOAI_LOG_LEVEL"))
         if os.getenv("GENSOKYOAI_LOG_CONSOLE"):

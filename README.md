@@ -67,6 +67,8 @@
 - `get_system_info` - 系统信息
 - `remember` / `recall` - 自主记忆管理
 
+> 💡 工具调用已统一适配多 Provider：OpenAI / OpenAI Responses / Ollama / Claude / Gemini 会转换为各自官方要求的工具调用格式。Claude 会使用官方 Messages API 的 `tool_use` / `tool_result` content block，不使用 OpenAI 风格的 `role: tool`。
+
 ### 🎛️ 智能命令系统
 | 命令类型 | 示例 | 说明 |
 |---------|------|------|
@@ -85,13 +87,13 @@
 
 ### 🔌 多 LLM Provider 支持
 通过可插拔的 Provider 架构，支持多种 LLM API：
-| Provider | 说明 |
-|----------|------|
-| **Ollama** | 本地模型（默认） |
-| **OpenAI** | Chat Completions API，兼容 Deepseek / SiliconFlow / vLLM / Groq 等第三方服务 |
-| **OpenAI Responses** | OpenAI 官方 Responses API，推理性能更优 |
-| **Claude** | Anthropic Claude 系列 |
-| **Gemini** | Google Gemini 系列 |
+| Provider | 对话 | 工具调用 | Embeddings | 说明 |
+|----------|------|----------|------------|------|
+| **Ollama** | ✅ | ✅ | ✅ | 本地模型（默认） |
+| **OpenAI** | ✅ | ✅ | ✅ | Chat Completions API，兼容 Deepseek / SiliconFlow / vLLM / Groq 等第三方服务 |
+| **OpenAI Responses** | ✅ | ✅ | ✅ | OpenAI 官方 Responses API，推理性能更优 |
+| **Claude** | ✅ | ✅ | ❌ | Anthropic Claude 系列；官方不提供自家 embedding 模型 |
+| **Gemini** | ✅ | ✅ | ✅ | Google Gemini 系列 |
 
 > 💡 支持自定义 Provider 注册，可以轻松扩展到任何 LLM API。
 
@@ -176,6 +178,27 @@ model:
 
 > 💡 **OpenAI 双 API 支持**：`openai` Provider 使用 Chat Completions API，兼容所有 OpenAI 兼容的第三方服务；`openai_responses` Provider 使用 Responses API，仅限 OpenAI 官方，可获得更优的推理性能和更低的成本。
 
+**配置独立 Embedding 模型**
+
+Embedding 模型现在与主聊天模型独立配置，避免把聊天模型误用于 embeddings。未配置 `embedding.name` 时，调用 embeddings 会明确报错。
+
+```yaml
+model:
+  provider: "openai"
+  name: "gpt-4o"
+  api_key: "sk-..."
+
+embedding:
+  provider: "openai"                 # 可省略，默认复用 model.provider
+  name: "text-embedding-3-small"     # 必填：不要填写聊天模型
+  api_key: "sk-..."                  # 可省略，默认复用 model.api_key
+  base_url: null                     # 可省略，默认复用 model.base_url
+  dimensions: 1024                   # 可选，仅部分模型支持，如 OpenAI text-embedding-3-*
+  encoding_format: "float"           # 可选：float / base64
+```
+
+如果主模型使用 Claude，也需要把 embedding 配到 OpenAI / Gemini / Ollama 或其他兼容 Provider，因为 Anthropic 官方不提供 Claude 自家的 embeddings；Claude 官方文档推荐按需选择 Voyage AI 等第三方 embedding 服务。
+
 **使用 Claude**
 ```yaml
 model:
@@ -192,7 +215,7 @@ model:
   api_key: "AIza..."
 ```
 
-> 💡 **提示：** 也可以通过环境变量 `GENSOKYOAI_PROVIDER`、`GENSOKYOAI_API_KEY`、`GENSOKYOAI_BASE_URL` 覆盖配置。
+> 💡 **提示：** 也可以通过环境变量 `GENSOKYOAI_PROVIDER`、`GENSOKYOAI_API_KEY`、`GENSOKYOAI_BASE_URL` 覆盖主模型配置；embedding 有独立的环境变量，见下方“环境变量”。
 
 ### 创建角色（可选）
 
@@ -388,6 +411,21 @@ memory:
   semantic_similarity_threshold: 0.7 # 相关性阈值
 ```
 
+### Embedding 配置
+```yaml
+embedding:
+  provider: null        # null 表示默认复用 model.provider
+  name: null            # 必填；不再默认使用 model.name，避免误用聊天模型
+  base_url: null        # null 表示复用 model.base_url
+  api_key: null         # null 表示复用 model.api_key
+  dimensions: null      # OpenAI text-embedding-3-* 支持缩短维度
+  encoding_format: null # OpenAI 支持 float / base64
+  timeout: null         # null 表示复用 model.timeout
+  use_proxy: null       # null 表示复用 model.use_proxy
+```
+
+> 💡 当前语义记忆默认使用“话题感知存储 + LLM 打分/关键词”的轻量方案，不强制依赖向量数据库；`ModelClient.embeddings()` 提供统一 embedding 能力，供后续向量检索、推荐或外部存储集成使用。
+
 ## 🔧 高级用法
 
 ### 编程方式使用
@@ -471,7 +509,15 @@ ProviderFactory.register("my_llm", MyProvider)
 | `GENSOKYOAI_PROVIDER` | LLM Provider | `ollama` |
 | `GENSOKYOAI_MODEL` | 覆盖模型名称 | `qwen3.5:9b` |
 | `GENSOKYOAI_API_KEY` | API 密钥 | - |
-| `GENSOKYOAI_BASE_URL` | API 地址 | - |
+| `GENSOKYOAI_BASE_URL` | 主模型 API 地址 | - |
+| `GENSOKYOAI_EMBEDDING_PROVIDER` | Embedding Provider | 默认复用主模型 Provider |
+| `GENSOKYOAI_EMBEDDING_MODEL` | Embedding 模型名称 | - |
+| `GENSOKYOAI_EMBEDDING_API_KEY` | Embedding API 密钥 | 默认复用主模型 API Key |
+| `GENSOKYOAI_EMBEDDING_BASE_URL` | Embedding API 地址 | 默认复用主模型 API 地址 |
+| `GENSOKYOAI_EMBEDDING_DIMENSIONS` | Embedding 输出维度 | - |
+| `GENSOKYOAI_EMBEDDING_ENCODING_FORMAT` | Embedding 编码格式 | - |
+| `GENSOKYOAI_EMBEDDING_TIMEOUT` | Embedding 超时时间 | 默认复用主模型 timeout |
+| `GENSOKYOAI_EMBEDDING_USE_PROXY` | Embedding 是否使用代理 | 默认复用主模型 use_proxy |
 | `GENSOKYOAI_LOG_LEVEL` | 日志级别 | `INFO` |
 | `GENSOKYOAI_LOG_CONSOLE` | 控制台日志开关 | `true` |
 | `GENSOKYOAI_MEMORY_WORKING_TURNS` | 工作记忆最大轮数 | `20` |
@@ -484,6 +530,15 @@ ProviderFactory.register("my_llm", MyProvider)
 - 写了新的角色配置文件，欢迎分享到 `characters/` 目录
 - 开发了新的后端（QQ、Discord、Telegram 等），欢迎 PR
 - 发现了 bug 或有功能建议，请提交 Issue
+
+## 🧪 测试
+
+```bash
+python -m unittest tests.test_claude_provider_conversion tests.test_model_client_embeddings
+python -m compileall GensokyoAI tests
+```
+
+当前测试覆盖 Claude 官方 `tool_use` / `tool_result` 格式转换、工具调用 ID 保留、extended thinking 预算约束，以及独立 embedding Provider / 模型路由。
 
 ## 📝 待办事项
 
