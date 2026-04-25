@@ -161,7 +161,9 @@ class ClaudeProvider(BaseProvider):
                             elif delta.type == "thinking_delta":
                                 thinking_parts.append(getattr(delta, "thinking", ""))
                             elif delta.type == "input_json_delta" and index in tool_blocks:
-                                tool_blocks[index]["input_json"] += getattr(delta, "partial_json", "")
+                                tool_blocks[index]["input_json"] += getattr(
+                                    delta, "partial_json", ""
+                                )
 
                     elif event.type == "message_stop" and tool_blocks:
                         unified_tool_calls: list[ToolCall] = []
@@ -227,7 +229,9 @@ class ClaudeProvider(BaseProvider):
 
         # Anthropic thinking budget 必须小于 max_tokens；max_tokens 太低时不自动开启，避免 400。
         if max_tokens <= 1024:
-            logger.warning("Claude extended thinking 已请求，但 max_tokens <= 1024，跳过 thinking 参数")
+            logger.warning(
+                "Claude extended thinking 已请求，但 max_tokens <= 1024，跳过 thinking 参数"
+            )
             return None
         return min(max_tokens - 1, max(1024, max_tokens // 2))
 

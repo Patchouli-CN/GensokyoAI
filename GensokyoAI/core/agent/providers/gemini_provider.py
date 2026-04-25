@@ -200,7 +200,9 @@ class GeminiProvider(BaseProvider):
                 gemini_contents.append({"role": "model", "parts": [{"text": content}]})
             elif role == "tool":
                 # Gemini 的工具结果格式
-                gemini_contents.append({"role": "user", "parts": [{"text": f"[工具结果] {content}"}]})
+                gemini_contents.append(
+                    {"role": "user", "parts": [{"text": f"[工具结果] {content}"}]}
+                )
             else:
                 gemini_contents.append({"role": "user", "parts": [{"text": content}]})
 

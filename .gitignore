@@ -16,3 +16,7 @@ plans/
 # UV
 .venv/
 uv.lock
+
+local.yaml
+
+run.cmd

@@ -41,6 +41,23 @@ class WorkingMemoryManager:
         
         self._memory.messages.append(msg)
         
+    @staticmethod
+    def _clean_reasoning(obj):
+        """递归删除 reasoning_content（迭代栈实现）"""
+        import copy
+        cleaned = copy.deepcopy(obj)
+        stack = [cleaned]
+        
+        while stack:
+            item = stack.pop()
+            if isinstance(item, dict):
+                item.pop("reasoning_content", None)
+                stack.extend(item.values())
+            elif isinstance(item, list):
+                stack.extend(item)
+        
+        return cleaned
+
     def get_context(self) -> list[dict[str, Any]]:
         """获取当前上下文"""
         return self._memory.get_context()

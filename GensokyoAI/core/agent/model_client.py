@@ -33,9 +33,7 @@ class ModelClient:
         self._provider: BaseProvider = ProviderFactory.create(config)
         self._embedding_provider: BaseProvider | None = None
         self._embedding_config = embedding_config or EmbeddingConfig()
-        logger.debug(
-            f"ModelClient 初始化完成，Provider: {config.provider}, 模型: {config.name}"
-        )
+        logger.debug(f"ModelClient 初始化完成，Provider: {config.provider}, 模型: {config.name}")
 
     def _build_options(self) -> dict:
         """构建模型选项"""
@@ -185,6 +183,7 @@ class ModelClient:
         tools: Optional[list[dict]] = None,
         model: Optional[str] = None,
         options: Optional[dict] = None,
+        extra_body: Optional[dict] = None,
         **kwargs,
     ) -> AsyncIterator[StreamChunk]:
         """
@@ -217,6 +216,7 @@ class ModelClient:
                 messages=messages,
                 tools=tools,
                 options=call_options,
+                extra_body=extra_body,
                 **kwargs,
             ): # type: ignore
                 yield chunk
@@ -268,9 +268,7 @@ class ModelClient:
         else:
             # 同一 Provider，只更新配置
             self._provider.update_config(config)
-            logger.info(
-                f"ModelClient 配置已更新，Provider: {config.provider}, 模型: {config.name}"
-            )
+            logger.info(f"ModelClient 配置已更新，Provider: {config.provider}, 模型: {config.name}")
 
     async def embeddings(
         self,

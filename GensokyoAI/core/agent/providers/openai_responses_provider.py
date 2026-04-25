@@ -218,11 +218,7 @@ class OpenAIResponsesProvider(BaseProvider):
                     unified_tool_calls = []
                     for _idx, tc_data in sorted(tool_calls_acc.items()):
                         try:
-                            args = (
-                                json.loads(tc_data["arguments"])
-                                if tc_data["arguments"]
-                                else {}
-                            )
+                            args = json.loads(tc_data["arguments"]) if tc_data["arguments"] else {}
                         except json.JSONDecodeError:
                             args = {}
                         unified_tool_calls.append(
@@ -314,11 +310,13 @@ class OpenAIResponsesProvider(BaseProvider):
                 input_items.append({"role": "user", "content": content})
             elif role == "tool":
                 # tool 结果消息 → function_call_output Item
-                input_items.append({
-                    "type": "function_call_output",
-                    "call_id": msg.get("tool_call_id", ""),
-                    "output": content,
-                })
+                input_items.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": msg.get("tool_call_id", ""),
+                        "output": content,
+                    }
+                )
             else:
                 # 未知角色，作为 user 消息处理
                 input_items.append({"role": "user", "content": content})

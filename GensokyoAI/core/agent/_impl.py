@@ -379,14 +379,14 @@ class Agent:
                     break
                 if chunk.content:
                     full_response += chunk.content
-                    await self._action_executor.feed_chunk(chunk.content) # type: ignore
+                    await self._action_executor.feed_chunk(chunk.content)  # type: ignore
 
         except Exception as e:
             logger.error(f"生成响应异常: {e}")
             error_msg = f"\n[出了点问题]\n"
             if not full_response:
                 full_response = error_msg
-                await self._action_executor.feed_chunk(error_msg) # type: ignore
+                await self._action_executor.feed_chunk(error_msg)  # type: ignore
 
         finally:
             # 🔑 无论如何都要把控制权还给用户
@@ -397,7 +397,7 @@ class Agent:
                 self.event_bus.publish(
                     Event(
                         type=SystemEvent.MESSAGE_SENT,
-                        source="agent", 
+                        source="agent",
                         data={"content": full_response},
                     )
                 )

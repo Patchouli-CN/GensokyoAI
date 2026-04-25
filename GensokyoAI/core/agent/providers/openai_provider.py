@@ -62,6 +62,32 @@ class OpenAIProvider(BaseProvider):
 
         return AsyncOpenAI(**kwargs)
 
+    # ==================== 消息清洗 ====================
+
+    @staticmethod
+    def _clean_messages(messages: list[dict]) -> list[dict]:
+        """
+        迭代清洗消息列表，移除所有 V4/V3 特有的 reasoning_content 字段。
+        使用显式栈代替递归，避免深层嵌套时栈溢出。
+        """
+        import copy
+        
+        cleaned = copy.deepcopy(messages)
+        stack = [cleaned]
+        
+        while stack:
+            obj = stack.pop()
+            
+            if isinstance(obj, dict):
+                obj.pop("reasoning_content", None)
+                stack.extend(obj.values())
+            elif isinstance(obj, list):
+                stack.extend(obj)
+        
+        return cleaned
+
+    # ==================== 核心 API ====================
+
     async def chat(
         self,
         model: str,
@@ -75,7 +101,7 @@ class OpenAIProvider(BaseProvider):
 
         call_kwargs: dict = {
             "model": model,
-            "messages": messages,
+            "messages": self._clean_messages(messages),
             "temperature": options.get("temperature", 0.7),
             "top_p": options.get("top_p", 0.9),
         }
@@ -92,7 +118,6 @@ class OpenAIProvider(BaseProvider):
         # 工具支持
         if tools:
             call_kwargs["tools"] = self._convert_tools_to_openai(tools)
-            # tool_choice 支持：auto / required / none / 指定函数
             if tool_choice := options.get("tool_choice"):
                 call_kwargs["tool_choice"] = tool_choice
 
@@ -100,12 +125,13 @@ class OpenAIProvider(BaseProvider):
 
         return self._convert_response(response)
 
-    async def chat_stream( # type: ignore
+    async def chat_stream(  # type: ignore
         self,
         model: str,
         messages: list[dict],
         tools: list[dict] | None = None,
         options: dict | None = None,
+        extra_body: dict | None = None,
         **kwargs,
     ) -> AsyncIterator[StreamChunk]:
         """流式调用 OpenAI 兼容 API"""
@@ -113,13 +139,17 @@ class OpenAIProvider(BaseProvider):
 
         call_kwargs: dict = {
             "model": model,
-            "messages": messages,
+            "messages": self._clean_messages(messages),
             "temperature": options.get("temperature", 0.7),
             "top_p": options.get("top_p", 0.9),
             "stream": True,
         }
 
-        # max_tokens 映射：优先使用 max_completion_tokens（新版 API 推荐），回退到 max_tokens
+        # 应用 extra_body（如 thinking 模式控制）
+        if extra_body:
+            call_kwargs["extra_body"] = extra_body
+
+        # max_tokens 映射
         max_tokens = (
             options.get("max_completion_tokens")
             or options.get("num_predict")
@@ -133,7 +163,7 @@ class OpenAIProvider(BaseProvider):
             if tool_choice := options.get("tool_choice"):
                 call_kwargs["tool_choice"] = tool_choice
 
-        # 流式工具调用累积器
+        # 流式工具调用累积器（不存 reasoning_content，防止 V4 要求回传）
         tool_calls_acc: dict[int, dict] = {}
 
         stream = await self._client.chat.completions.create(**call_kwargs)
@@ -161,8 +191,8 @@ class OpenAIProvider(BaseProvider):
                         if tc.function.arguments:
                             tool_calls_acc[idx]["arguments"] += tc.function.arguments
 
-            # 处理内容
-            elif delta.content:
+            # 处理内容（if 不是 elif，V4 可能同时返回 tool_calls 和 content）
+            if delta.content:
                 yield StreamChunk(content=delta.content)
 
             # 检查结束
@@ -208,11 +238,9 @@ class OpenAIProvider(BaseProvider):
             "input": prompt,
         }
 
-        # 支持 dimensions 参数（text-embedding-3-* 模型支持缩短向量维度）
         if dimensions := kwargs.get("dimensions"):
             embed_kwargs["dimensions"] = dimensions
 
-        # 支持 encoding_format 参数（float / base64）
         if encoding_format := kwargs.get("encoding_format"):
             embed_kwargs["encoding_format"] = encoding_format
 
@@ -260,9 +288,10 @@ class OpenAIProvider(BaseProvider):
                 )
 
         thinking = None
-        # 部分兼容 API（如 Deepseek）可能有 reasoning_content
+        # 只记录 reasoning_content 用于调试，不存到 UnifiedMessage 里回传
         if hasattr(message, "reasoning_content") and message.reasoning_content:
             thinking = message.reasoning_content
+            logger.debug(f"V4 思维链已记录（长度: {len(thinking)}），不回传")
 
         return UnifiedResponse(
             message=UnifiedMessage(
@@ -287,10 +316,8 @@ class OpenAIProvider(BaseProvider):
         """
         openai_tools = []
         for tool in tools:
-            # 如果已经是标准 OpenAI 格式（外部标记多态），直接使用
             if "type" in tool and "function" in tool:
                 openai_tools.append(tool)
             else:
-                # 缺少外层包装，自动适配
                 openai_tools.append({"type": "function", "function": tool})
         return openai_tools

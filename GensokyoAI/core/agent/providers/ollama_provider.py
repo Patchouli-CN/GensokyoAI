@@ -81,7 +81,7 @@ class OllamaProvider(BaseProvider):
         # 转换为统一类型
         return self._convert_response(response)
 
-    async def chat_stream( # type: ignore
+    async def chat_stream(  # type: ignore
         self,
         model: str,
         messages: list[dict],
@@ -178,7 +178,7 @@ class OllamaProvider(BaseProvider):
                     function=ToolCallFunction(
                         name=tc.function.name,
                         arguments=tc.function.arguments or {},
-                        provider="ollama"
+                        provider="ollama",
                     )
                 )
             )

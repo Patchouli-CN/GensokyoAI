@@ -41,7 +41,7 @@ class EmbeddingConfig(Struct):
     """Embedding 模型配置"""
 
     provider: str | None = None  # 默认复用 model.provider
-    name: str | None = None      # 必填；未配置时不再误用聊天模型
+    name: str | None = None  # 必填；未配置时不再误用聊天模型
     base_url: str | None = None
     api_key: str | None = None
     dimensions: int | None = None
@@ -260,12 +260,12 @@ class ConfigLoader:
             top_p=override.top_p if override.top_p != 0.9 else base.top_p,
             max_tokens=override.max_tokens if override.max_tokens != 2048 else base.max_tokens,
             timeout=override.timeout if override.timeout != 60 else base.timeout,
-            use_proxy=override.use_proxy if override.use_proxy != base.use_proxy else base.use_proxy,
+            use_proxy=override.use_proxy
+            if override.use_proxy != base.use_proxy
+            else base.use_proxy,
         )
 
-    def _merge_embedding(
-        self, base: EmbeddingConfig, override: EmbeddingConfig
-    ) -> EmbeddingConfig:
+    def _merge_embedding(self, base: EmbeddingConfig, override: EmbeddingConfig) -> EmbeddingConfig:
         """合并 Embedding 配置 - override 优先"""
         return EmbeddingConfig(
             provider=override.provider or base.provider,
@@ -393,7 +393,9 @@ class ConfigLoader:
         if os.getenv("GENSOKYOAI_EMBEDDING_TIMEOUT"):
             config.embedding.timeout = int(os.getenv("GENSOKYOAI_EMBEDDING_TIMEOUT"))  # type: ignore
         if os.getenv("GENSOKYOAI_EMBEDDING_USE_PROXY"):
-            config.embedding.use_proxy = os.getenv("GENSOKYOAI_EMBEDDING_USE_PROXY").lower() == "true"  # type: ignore
+            config.embedding.use_proxy = (
+                os.getenv("GENSOKYOAI_EMBEDDING_USE_PROXY").lower() == "true"
+            )  # type: ignore
         if os.getenv("GENSOKYOAI_LOG_LEVEL"):
             config.log_level = LogLevel(os.getenv("GENSOKYOAI_LOG_LEVEL"))
         if os.getenv("GENSOKYOAI_LOG_CONSOLE"):

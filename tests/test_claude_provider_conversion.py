@@ -45,7 +45,10 @@ class ClaudeProviderConversionTests(unittest.TestCase):
         self.assertEqual(claude_messages[1]["content"][0]["id"], "toolu_1")
         self.assertEqual(claude_messages[1]["content"][1]["id"], "toolu_2")
         self.assertEqual(claude_messages[2]["role"], "user")
-        self.assertEqual([block["type"] for block in claude_messages[2]["content"]], ["tool_result", "tool_result"])
+        self.assertEqual(
+            [block["type"] for block in claude_messages[2]["content"]],
+            ["tool_result", "tool_result"],
+        )
         self.assertEqual(claude_messages[2]["content"][0]["tool_use_id"], "toolu_1")
         self.assertEqual(claude_messages[2]["content"][1]["tool_use_id"], "toolu_2")
 
@@ -96,18 +99,26 @@ class ClaudeProviderConversionTests(unittest.TestCase):
             ],
         )
 
-        converted = ClaudeProvider._convert_response(ClaudeProvider.__new__(ClaudeProvider), response)
+        converted = ClaudeProvider._convert_response(
+            ClaudeProvider.__new__(ClaudeProvider), response
+        )
 
         self.assertEqual(converted.message.content, "我需要调用工具。")
         self.assertEqual(converted.message.tool_calls[0].id, "toolu_resp")
         self.assertEqual(converted.message.tool_calls[0].provider, "claude")
-        self.assertEqual(converted.message.tool_calls[0].function.arguments, {"timezone": "Asia/Shanghai"})
+        self.assertEqual(
+            converted.message.tool_calls[0].function.arguments, {"timezone": "Asia/Shanghai"}
+        )
 
     def test_thinking_budget_is_less_than_max_tokens(self):
         self.assertIsNone(ClaudeProvider._get_thinking_budget({}, 1024))
         self.assertEqual(ClaudeProvider._get_thinking_budget({}, 2048), 1024)
-        self.assertEqual(ClaudeProvider._get_thinking_budget({"thinking_budget_tokens": 1500}, 2048), 1500)
-        self.assertIsNone(ClaudeProvider._get_thinking_budget({"thinking_budget_tokens": 2048}, 2048))
+        self.assertEqual(
+            ClaudeProvider._get_thinking_budget({"thinking_budget_tokens": 1500}, 2048), 1500
+        )
+        self.assertIsNone(
+            ClaudeProvider._get_thinking_budget({"thinking_budget_tokens": 2048}, 2048)
+        )
 
 
 if __name__ == "__main__":
