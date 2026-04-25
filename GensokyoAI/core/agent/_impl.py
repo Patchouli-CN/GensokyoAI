@@ -394,11 +394,14 @@ class Agent:
                 self._action_executor.complete_response(full_response)
 
             if full_response and "响应中断" not in full_response:
+                data = {"content": full_response}
+                if reasoning := self.response_handler.last_assistant_reasoning:
+                    data["reasoning_content"] = reasoning
                 self.event_bus.publish(
                     Event(
                         type=SystemEvent.MESSAGE_SENT,
                         source="agent",
-                        data={"content": full_response},
+                        data=data,
                     )
                 )
 

@@ -9,7 +9,7 @@
 ## 🐧 QQ 群：675608356
 
 - **欢迎来提供功能建议、BUG 反馈以及纯粹交流ᗜᴗᗜ！**
-- **邀请链接** - https://qun.qq.com/universal-share/share?ac=1&authKey=2YjM%2FXyrxGTrkTDQMoxKM5QBzphCJzFxbXnKYDpF%2FVkmuNvH2%2BNaP2Z6l7d9LsB%2B&busi_data=eyJncm91cENvZGUiOiI2NzU2MDgzNTYiLCJ0b2tlbiI6IkROTnRsMVlMcWdPUzExZlp5T2RMbDI5eXBGRVNRcDV1blAxY2crWGhrUjdpaWVXSXoybE5CdFRSb3Q5Z3dCa0giLCJ1aW4iOiIyMjI2OTU2NTc5In0%3D&data=UBToZl_UF-gj5B9gKcj0YXcw7qCwC5DKmrw0Sh2-XNjTejEA31jAi1BONVOvh9v5PB98Y0f_Hz-MDvXiFrwnLA&svctype=4&tempid=h5_group_info
+- **邀请链接** - [QQ](https://qun.qq.com/universal-share/share?ac=1&authKey=2YjM%2FXyrxGTrkTDQMoxKM5QBzphCJzFxbXnKYDpF%2FVkmuNvH2%2BNaP2Z6l7d9LsB%2B&busi_data=eyJncm91cENvZGUiOiI2NzU2MDgzNTYiLCJ0b2tlbiI6IkROTnRsMVlMcWdPUzExZlp5T2RMbDI5eXBGRVNRcDV1blAxY2crWGhrUjdpaWVXSXoybE5CdFRSb3Q5Z3dCa0giLCJ1aW4iOiIyMjI2OTU2NTc5In0%3D&data=UBToZl_UF-gj5B9gKcj0YXcw7qCwC5DKmrw0Sh2-XNjTejEA31jAi1BONVOvh9v5PB98Y0f_Hz-MDvXiFrwnLA&svctype=4&tempid=h5_group_info) 
 
 ## ✨ 核心亮点
 
@@ -153,29 +153,36 @@ GensokyoAI 不是简单的问答机器人，而是围绕“角色扮演”设计
 - Python 3.10+
 - 以下任选一种 LLM 后端：
   - [Ollama](https://ollama.ai/) 本地运行（默认，免费）
-  - OpenAI API Key，或 DeepSeek / SiliconFlow 等云端服务
+  - OpenAI API Key，或 SiliconFlow 等云端服务
+  - DeepSeek API Key
   - Anthropic Claude API Key
   - Google Gemini API Key
 
 ### 2. 安装
 
-**方式一：使用 UV（推荐）**
+#### 方式一：使用 UV（推荐）
 
 ```bash
 git clone https://github.com/Patchouli-CN/GensokyoAI.git
 cd GensokyoAI
+```
 
-# 基础安装 + Ollama（默认 Provider）
+**基础安装 + Ollama（默认 Provider）**
+
+```bash
 uv sync --extra ollama
+```
 
-# 或安装其他 Provider
+**或安装其他 Provider**
+
+```bash
 uv sync --extra openai      # OpenAI / DeepSeek / SiliconFlow 等 OpenAI SDK 兼容服务
 uv sync --extra claude      # Anthropic Claude
 uv sync --extra gemini      # Google Gemini
 uv sync --extra all         # 全部 Provider
 ```
 
-**方式二：使用 pip（普通用户不推荐）**
+#### 方式二：使用 pip（普通用户不推荐）
 
 ```bash
 git clone https://github.com/Patchouli-CN/GensokyoAI.git

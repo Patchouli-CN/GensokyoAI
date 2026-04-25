@@ -95,8 +95,13 @@ class CoreListeners:
     async def on_message_sent(self, event: Event) -> None:
         """记录助手消息到工作记忆 - 统一入口"""
         response = event.data.get("content", "")
+        reasoning_content = event.data.get("reasoning_content")
 
-        self.agent.working_memory.add_message("assistant", response)
+        self.agent.working_memory.add_message(
+            "assistant",
+            response,
+            reasoning_content=reasoning_content,
+        )
         logger.debug(f"记录并发送响应: {response[:50]}...")
 
     async def on_initiative_speak_record(self, event: Event) -> None:

@@ -44,9 +44,15 @@ class ResponseHandler:
         self._model_client = model_client
         self._message_builder = message_builder
         self._shutting_down = False
+        self._last_assistant_reasoning: str | None = None
 
     def set_shutting_down(self, value: bool) -> None:
         self._shutting_down = value
+
+    @property
+    def last_assistant_reasoning(self) -> str | None:
+        """最近一次最终 assistant 回复对应的 reasoning_content。"""
+        return self._last_assistant_reasoning
 
     @property
     def character_name(self) -> str:
@@ -90,6 +96,7 @@ class ResponseHandler:
     async def process_stream(
         self, messages: list[dict[str, str]], tools: list[dict] | None
     ) -> AsyncIterator[StreamChunk]:
+        self._last_assistant_reasoning = None
         tool_calls_message: UnifiedMessage | None = None
         assistant_content = ""
         assistant_reasoning = ""
@@ -112,6 +119,7 @@ class ResponseHandler:
                 yield cleaned
 
         if self._shutting_down or not tool_calls_message:
+            self._last_assistant_reasoning = assistant_reasoning or None
             return
 
         if assistant_content and not tool_calls_message.content:
@@ -127,13 +135,18 @@ class ResponseHandler:
         self._safe_record_results(tool_calls_message, tool_results)
         cont_messages = self._message_builder.build_continuation()
 
+        continuation_reasoning = ""
+
         # 第二次流式调用
         async for chunk in self._safe_stream(cont_messages, tools, "第二次流式调用"):
             if self._shutting_down:
                 break
             if chunk.reasoning_content:
+                continuation_reasoning += chunk.reasoning_content
                 continue
             yield self._clean_chunk(chunk)
+
+        self._last_assistant_reasoning = continuation_reasoning or None
 
     # ==================== 私有容错方法 ====================
 
