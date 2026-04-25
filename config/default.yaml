@@ -10,7 +10,7 @@ model:
   provider: "openai"    # LLM Provider: ollama / openai / openai_responses / gemini / claude
   name: "Pro/zai-org/GLM-5.1"
   base_url: https://api.siliconflow.cn/v1        # null 表示使用默认地址（ollama: http://127.0.0.1:11434）
-  api_key: sk-hvzlqxlykdmfguhvnvqbcfbimvtfcaewopwyrxvqxjqyvvfe         # API 密钥（OpenAI/Gemini/Claude 等需要，ollama 不需要）
+  api_key: "your-api-key"         # API 密钥（OpenAI/Gemini/Claude 等需要，ollama 不需要）
   stream: true
   think: false
   temperature: 0.7
