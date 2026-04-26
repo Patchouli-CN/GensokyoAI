@@ -181,8 +181,10 @@ class ActionPlanner:
     只输出 JSON。"""
 
         try:
+            messages = [{"role": "system", "content": prompt}]
+            messages.extend(self.working_memory.get_recent(6))
             response = await self.model_client.chat(
-                messages=[{"role": "system", "content": prompt}],
+                messages=messages,
                 options={"temperature": 0.7, "num_predict": 300},
             )
 

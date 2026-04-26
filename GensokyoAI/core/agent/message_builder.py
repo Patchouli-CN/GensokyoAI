@@ -109,9 +109,6 @@ class MessageBuilder:
         # 4. 工作记忆（当前对话）
         messages.extend(self._working_memory.get_context())
 
-        # 5. 当前用户输入
-        messages.append({"role": "user", "content": user_input})
-
         return messages
 
     def build_continuation(self) -> list[dict[str, str]]:

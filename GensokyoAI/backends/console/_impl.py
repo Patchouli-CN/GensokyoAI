@@ -51,7 +51,7 @@ class ConsoleBackend(BaseBackend):
             "info": "cyan",
             "cmd": "bold cyan",
             "prompt": "bold magenta",
-            "initiative": "dim italic",
+            "initiative": "italic yellow",
         }
 
         # 主动消息队列 + 后台显示任务
