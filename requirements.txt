@@ -6,7 +6,7 @@ rich             # 终端美化
 pyyaml           # YAML 解析
 
 # ===== 自研高性能库 =====
-ayafileio>=1.0.1.post1  # 真异步文件 I/O
+ayafileio>=1.0.1.post2  # 真异步文件 I/O
 
 # ===== LLM Provider（按需安装）=====
 ollama           # Ollama 本地模型（默认 Provider）

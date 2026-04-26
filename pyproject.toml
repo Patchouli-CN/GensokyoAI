@@ -27,7 +27,7 @@ dependencies = [
     "loguru",
     "rich",
     "pyyaml",
-    "ayafileio>=1.0.1.post1",
+    "ayafileio>=1.0.1.post2",
 ]
 
 [project.optional-dependencies]
