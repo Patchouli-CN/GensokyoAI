@@ -123,6 +123,27 @@ class SessionManager:
                 # 立即保存会话信息
                 self._persistence.save_session(session)
 
+    async def save_working_memory_async(self, session_id: str | None = None) -> bool:
+        """异步保存工作记忆到持久化，用于关机最终保存等需要等待落盘的场景"""
+        sid = session_id or self._current_session_id
+        if not sid:
+            return False
+
+        wm = self._working_memories.get(sid)
+        if not wm:
+            return False
+
+        messages = wm.get_context()
+        await self._persistence.async_save_message(sid, messages)
+        logger.debug(f"异步保存工作记忆: {sid}, {len(messages)} 条消息")
+
+        session = self._sessions.get(sid)
+        if session:
+            session.total_turns = len(messages) // 2
+            await self._persistence.save_session_async(session)
+
+        return True
+
     def delete_session(self, session_id: str) -> bool:
         """删除会话"""
         if session_id in self._sessions:

@@ -408,6 +408,9 @@ class Agent:
     async def _on_shutdown(self) -> None:
         self.event_bus.publish(Event(type=SystemEvent.AGENT_SHUTDOWN, source="agent"))
 
+        # 关机后普通自动保存不再提交后台任务；最终保存由 save_immediately 直接落盘。
+        self.save_coordinator.set_shutting_down(True)
+
         if self._think_engine:
             await self._think_engine.stop()
 
@@ -415,7 +418,7 @@ class Agent:
             await self._background_manager.stop(wait=True)
 
         try:
-            await self.save_coordinator.save_async(self.working_memory, force=True)
+            await self.save_coordinator.save_immediately(self.working_memory)
         except Exception as e:
             logger.error(f"关闭时保存数据出错: {e}")
 

@@ -51,6 +51,8 @@ class BackgroundManager:
         self._workers: dict[TaskType, BaseWorker] = {}
 
         self._running = False
+        self._accepting_tasks = False
+        self._stopping = False
         self._worker_tasks: list[asyncio.Task] = []
         self._result_callbacks: list[Callable[[TaskResult], Awaitable[None]]] = []
 
@@ -86,6 +88,15 @@ class BackgroundManager:
 
     def submit(self, task: BackgroundTask) -> bool:
         """提交任务到队列"""
+        if not self._accepting_tasks:
+            async def _update_rejected():
+                async with self._stats_lock:
+                    self._stats["dropped"] += 1
+
+            asyncio.create_task(_update_rejected())
+            logger.warning(f"后台管理器已停止接收任务，拒绝任务: {task.name}")
+            return False
+
         try:
             self._task_queue.put_nowait(task)
 
@@ -134,6 +145,8 @@ class BackgroundManager:
             return
 
         self._running = True
+        self._accepting_tasks = True
+        self._stopping = False
 
         for i in range(self.max_workers):
             task = asyncio.create_task(self._worker_loop(i))
@@ -142,11 +155,17 @@ class BackgroundManager:
         logger.info(f"后台管理器已启动 ({self.max_workers} 个工作器)")
 
     async def stop(self, wait: bool = True) -> None:
-        """停止管理器"""
+        """停止管理器
+
+        停止分两步：先停止接收新任务，再等待已有队列 drain。
+        注意不要在 join 前把 _running 置 False，否则 worker 会提前退出，队列无法真正清空。
+        """
         if not self._running:
+            self._accepting_tasks = False
             return
 
-        self._running = False
+        self._accepting_tasks = False
+        self._stopping = True
 
         if wait:
             timeout = 5.0
@@ -154,6 +173,8 @@ class BackgroundManager:
                 await asyncio.wait_for(self._task_queue.join(), timeout=timeout)
             except asyncio.TimeoutError:
                 logger.warning(f"等待队列清空超时，剩余 {self._task_queue.qsize()} 个任务将被丢弃")
+
+        self._running = False
 
         for task in self._worker_tasks:
             task.cancel()
@@ -229,6 +250,16 @@ class BackgroundManager:
     def queue_size(self) -> int:
         """当前队列大小"""
         return self._task_queue.qsize()
+
+    @property
+    def is_accepting_tasks(self) -> bool:
+        """是否仍接收新任务"""
+        return self._accepting_tasks
+
+    @property
+    def is_stopping(self) -> bool:
+        """是否正在停止"""
+        return self._stopping
 
     @property
     def stats(self) -> dict:

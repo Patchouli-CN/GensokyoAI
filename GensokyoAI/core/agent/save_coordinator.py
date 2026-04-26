@@ -70,7 +70,11 @@ class SaveCoordinator:
 
         魔理沙：重要的东西才值得保存DA☆ZE！
         """
-        if force or self._shutting_down:
+        if self._shutting_down:
+            logger.debug("正在关闭，跳过普通后台保存")
+            return False
+
+        if force:
             return True
 
         if not self._session_config.auto_save:
@@ -117,6 +121,10 @@ class SaveCoordinator:
         force: bool = False,
     ) -> bool:
         """异步保存"""
+        if self._shutting_down:
+            logger.debug("正在关闭，拒绝提交后台保存任务；请使用 save_immediately 执行最终保存")
+            return False
+
         if not self._session_config.auto_save and not force:
             return False
 
@@ -140,7 +148,7 @@ class SaveCoordinator:
         messages = working_memory.get_context()
 
         # 提交持久化任务
-        self._background_manager.submit_persistence_task(
+        submitted = self._background_manager.submit_persistence_task(
             operation="save_messages",
             data={
                 "session_id": current_session.session_id,
@@ -150,5 +158,35 @@ class SaveCoordinator:
             timeout=10.0,
         )
 
+        if not submitted:
+            self.mark_saved()
+            logger.warning("保存任务提交失败")
+            return False
+
         logger.debug(f"已提交保存任务 (轮数: {len(messages) // 2}, 消息数: {len(messages)})")
         return True
+
+    async def save_immediately(
+        self,
+        working_memory: "WorkingMemoryManager",
+    ) -> bool:
+        """立即保存当前工作记忆，不经过后台队列。
+
+        用于关机最终保存。调用返回即表示写入完成或失败，不会再提交后台任务。
+        """
+        current_session = self._session_manager.get_current_session()
+        if current_session is None:
+            return False
+
+        self.mark_saving(working_memory)
+        try:
+            success = await self._session_manager.save_working_memory_async(
+                current_session.session_id
+            )
+            if success:
+                logger.info(
+                    f"最终保存已完成 (轮数: {len(working_memory) // 2}, 消息数: {len(working_memory)})"
+                )
+            return success
+        finally:
+            self.mark_saved()
