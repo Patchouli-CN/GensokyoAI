@@ -4,7 +4,7 @@
 
 ### 1. 环境
 
-- Python 3.10+
+- Python 3.14+
 - 以下任一 LLM 后端：
   - [Ollama](https://ollama.ai/) 本地运行（默认，免费）
   - OpenAI API Key，或 SiliconFlow 等云端服务

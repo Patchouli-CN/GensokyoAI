@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "幻想乡 AI 角色扮演引擎 - 一个专为角色扮演设计的异步 AI 对话框架"
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 authors = [
     { name = "Patchouli-CN" },
 ]
@@ -14,10 +14,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Games/Entertainment",
 ]
@@ -51,5 +47,5 @@ packages = ["GensokyoAI"]
 dev-dependencies = []
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py314"
 line-length = 100

@@ -1,7 +1,7 @@
 <div align = center>
   <h1>🌸 GensokyoAI - 幻想乡 AI 角色扮演引擎</h1>
   
-  [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
+  [![Python Version](https://img.shields.io/badge/python-3.14%2B-blue)](https://www.python.org/)
   [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
   [![Code Style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 </div>
