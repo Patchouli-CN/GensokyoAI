@@ -165,7 +165,7 @@ class ModelClient:
 
         except Exception as e:
             error_msg = f"模型调用失败: {e}"
-            logger.error(error_msg)
+            logger.opt(colors=False).error(error_msg)
 
             error_str = str(e)
             if "502" in error_str:
@@ -231,7 +231,7 @@ class ModelClient:
 
         except Exception as e:
             error_msg = f"流式模型调用失败: {e}"
-            logger.error(error_msg)
+            logger.opt(colors=False).error(error_msg)
 
             self._publish_error(
                 e if isinstance(e, ModelError) else ModelError(error_msg),

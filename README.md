@@ -6,18 +6,69 @@
   [![Code Style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 </div>
 
-> 一个专为角色扮演设计的异步 AI 对话框架，支持 Ollama / OpenAI / DeepSeek / OpenAI Responses / Claude / Gemini 等多种 LLM Provider，提供三层记忆系统、会话管理、工具调用和可扩展后端。
+> 一个专为角色扮演设计的通用 Python AI Agent 工具包与运行时，支持 Ollama / OpenAI / DeepSeek / OpenAI Responses / Claude / Gemini 等多种 LLM Provider，提供三层记忆系统、会话管理、工具调用、Provider 抽象和稳定 Runtime API。
 
 [**使用指南**](./user_guide.md)  
 [**项目设计**](./project_design.md)
 
-## 交流讨论
-**欢迎来提供功能建议、BUG 反馈以及纯粹交流ᗜᴗᗜ！**
-- [QQ群: 675608356](https://qun.qq.com/universal-share/share?ac=1&authKey=2YjM%2FXyrxGTrkTDQMoxKM5QBzphCJzFxbXnKYDpF%2FVkmuNvH2%2BNaP2Z6l7d9LsB%2B&busi_data=eyJncm91cENvZGUiOiI2NzU2MDgzNTYiLCJ0b2tlbiI6IkROTnRsMVlMcWdPUzExZlp5T2RMbDI5eXBGRVNRcDV1blAxY2crWGhrUjdpaWVXSXoybE5CdFRSb3Q5Z3dCa0giLCJ1aW4iOiIyMjI2OTU2NTc5In0%3D&data=UBToZl_UF-gj5B9gKcj0YXcw7qCwC5DKmrw0Sh2-XNjTejEA31jAi1BONVOvh9v5PB98Y0f_Hz-MDvXiFrwnLA&svctype=4&tempid=h5_group_info) 
+## 项目定位
+
+GensokyoAI 是一个 Python 纯后端工具包。它不绑定任何具体 UI、桌面程序、Web 程序或聊天平台（但自带CLI，所以也可以直接用），而是把角色扮演 Agent 的核心能力封装为可复用的 Python 包与 Runtime API。
+
+核心边界：
+
+- Python 包负责 Agent、记忆、会话、工具、Provider 调用和可选依赖管理。
+- 外部调用方通过公开 Python API 或 Runtime RPC 使用这些能力。
+- OpenAI、Claude、Gemini、Ollama 等 Provider 的真实调用逻辑位于 Python 后端。
+- Provider SDK 依赖保持可选，不会强制安装全部模型服务依赖。
+- 任意客户端、脚本、服务端适配器或第三方程序都可以在不理解内部实现的情况下调用 Runtime API。
+
+## Runtime API
+
+GensokyoAI 提供前端无关的 Runtime 边界：
+
+- `GensokyoAI/runtime/service.py`：通用 `RuntimeService`。
+- `GensokyoAI/runtime/rpc.py`：RPC 方法注册、分发与 legacy 方法兼容。
+- `GensokyoAI/runtime/dependencies.py`：可选 Provider 依赖检测与白名单安装。
+- `bridge_main.py`：通用 JSON Lines RPC 入口，可被本地客户端或其他进程启动。
+
+当前 Runtime RPC 支持：
+
+- `runtime.info`
+- `runtime.health`
+- `runtime.shutdown`
+- `agent.init`
+- `agent.send_message`
+- `character.list`
+- `session.create`
+- `session.list`
+- `session.resume`
+- `dependency.status`
+- `dependency.install`
+
+旧方法名仍保留兼容，例如 `init`、`send_message`、`list_characters`、`dependency_status`、`install_dependencies`。
+
+## 可选 Provider 依赖
+
+Provider SDK 保持可选安装：
+
+- `ollama = ["ollama"]`
+- `openai = ["openai>=1.0.0"]`
+- `claude = ["anthropic>=0.20.0"]`
+- `gemini = ["google-genai>=1.0.0"]`
+- `all = [...]`
+
+依赖检测与安装由后端白名单控制。调用方只能请求 Provider 名称，例如：
+
+```json
+{"providers":["openai","deepseek"]}
+```
+
+后端会自行映射到允许安装的 Python 包，不接受任意 pip 包名或 shell 命令。
 
 ## ✨ 核心亮点
 
-> 无需理解程序逻辑，也能快速知道 GensokyoAI 能带来什么体验。
+> 快速知道 GensokyoAI 能带来什么体验。
 
 ### 真人般的对话体验
 
@@ -41,6 +92,12 @@ GensokyoAI 不是简单的问答机器人，而是围绕“角色扮演”设计
 
 你可以按需求选择本地模型、OpenAI 兼容服务、DeepSeek、Claude 或 Gemini。想要本地免费运行、接入云端大模型，或混合使用不同服务，都可以通过配置完成。
 
+## 交流讨论
+
+**欢迎来提供功能建议、BUG 反馈以及纯粹交流ᗜᴗᗜ！**
+
+- [QQ群: 675608356](https://qun.qq.com/universal-share/share?ac=1&authKey=2YjM%2FXyrxGTrkTDQMoxKM5QBzphCJzFxbXnKYDpF%2FVkmuNvH2%2BNaP2Z6l7d9LsB%2B&busi_data=eyJncm91cENvZGUiOiI2NzU2MDgzNTYiLCJ0b2tlbiI6IkROTnRsMVlMcWdPUzExZlp5T2RMbDI5eXBGRVNRcDV1blAxY2crWGhrUjdpaWVXSXoybE5CdFRSb3Q5Z3dCa0giLCJ1aW4iOiIyMjI2OTU2NTc5In0%3D&data=UBToZl_UF-gj5B9gKcj0YXcw7qCwC5DKmrw0Sh2-XNjTejEA31jAi1BONVOvh9v5PB98Y0f_Hz-MDvXiFrwnLA&svctype=4&tempid=h5_group_info)
+
 ## 贡献指南
 
 欢迎提交 Issue 和 Pull Request！
@@ -48,13 +105,15 @@ GensokyoAI 不是简单的问答机器人，而是围绕“角色扮演”设计
 如果你：
 
 - 写了新的角色配置文件，欢迎分享到 `characters/` 目录。
-- 开发了新的后端（QQ、Discord、Telegram 等），欢迎 PR。
+- 开发了新的 Provider、工具、记忆能力或 Runtime 适配器，欢迎 PR。
 - 发现了 bug 或有功能建议，请提交 Issue。
 
 ## 待办事项
 
 - [x] 多 LLM Provider 支持（Ollama / OpenAI / DeepSeek / Claude / Gemini）
-- [ ] WebUI 后端（Gradio / FastAPI）
+- [x] Runtime API
+- [x] Provider 可选依赖检测与白名单安装
+- [ ] HTTP / WebSocket Runtime adapter
 - [ ] 多角色同时对话
 - [ ] 语音输入 / 输出
 - [ ] 更多内置工具
