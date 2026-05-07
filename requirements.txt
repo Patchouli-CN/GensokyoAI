@@ -4,6 +4,7 @@ msgspec          # 高性能序列化
 loguru           # 日志系统
 rich             # 终端美化
 pyyaml           # YAML 解析
+aioconsole       # 异步控制台输入
 
 # ===== 自研高性能库 =====
 ayafileio>=1.1.2.post1  # 真异步文件 I/O

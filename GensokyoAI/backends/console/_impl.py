@@ -5,8 +5,8 @@
 from typing import Callable
 import asyncio
 
+import aioconsole
 from rich.console import Console as RichConsole
-from rich.prompt import Prompt
 from rich.panel import Panel
 from rich.text import Text
 
@@ -58,8 +58,9 @@ class ConsoleBackend(BaseBackend):
         self._initiative_queue: asyncio.Queue[str] = asyncio.Queue()
         self._display_task: asyncio.Task | None = None
 
-        # 是否有流式输出正在进行
-        self._streaming_in_progress = False
+        # 流式输出完成事件（用于主动消息等待）
+        self._streaming_done = asyncio.Event()
+        self._streaming_done.set()
 
         # 订阅主动消息事件
         agent.event_bus.subscribe(
@@ -101,6 +102,15 @@ class ConsoleBackend(BaseBackend):
         return self._prompt_context[-5:]
 
     # ==================== 核心方法 ====================
+
+    @property
+    def _character_name(self) -> str:
+        """角色名称"""
+        return safe_get(self.agent.config, "character.name", "Assistant")
+
+    def _write_character_prefix(self) -> None:
+        """打印角色名前缀（流式/非流式共用）"""
+        self.console.print(f"\n[{self.colors['assistant']}]{self._character_name}: [/]", end="")
 
     async def start(self) -> None:
         """启动"""
@@ -210,9 +220,7 @@ class ConsoleBackend(BaseBackend):
         full_response = ""
         first_chunk = True
 
-        character_name = safe_get(self.agent.config, "character.name", "Assistant")
-
-        self._streaming_in_progress = True
+        self._streaming_done.clear()
 
         try:
             async for chunk in self.agent.send_stream(message, system_contexts):
@@ -222,10 +230,7 @@ class ConsoleBackend(BaseBackend):
                     self._print_tool_call_indicator(chunk.tool_info)
                 else:
                     if first_chunk:
-                        self.console.print(
-                            f"\n[{self.colors['assistant']}]{character_name}: [/]",
-                            end="",
-                        )
+                        self._write_character_prefix()
                         first_chunk = False
 
                     self.console.print(chunk.content, end="", style=self.colors["assistant"])
@@ -246,21 +251,19 @@ class ConsoleBackend(BaseBackend):
         if not first_chunk:
             self.console.print()
 
-        self._streaming_in_progress = False
+        self._streaming_done.set()
 
         return full_response
 
     async def _send_non_stream(self, message: str, system_contexts: list[str]) -> str:
         """非流式发送并显示"""
-        character_name = safe_get(self.agent.config, "character.name", "Assistant")
-
-        self.console.print(f"\n[{self.colors['assistant']}]{character_name}: [/]", end="")
+        self._write_character_prefix()
         self.console.print("思考中...", style="dim", end="\r")
 
         response = await self.agent.send(message, system_contexts)
 
         if response:
-            self.console.print(f"[{self.colors['assistant']}]{character_name}: [/]", end="")
+            self._write_character_prefix()
             self.console.print(response.content, style=self.colors["assistant"])
 
             if self._stream_handler:
@@ -272,9 +275,8 @@ class ConsoleBackend(BaseBackend):
 
     def _print_assistant_message(self, message: str) -> None:
         """打印助手消息"""
-        character_name = safe_get(self.agent.config, "character.name", "Assistant")
         self.console.print()
-        self.console.print(f"[{self.colors['assistant']}]{character_name}: [/]{message}")
+        self.console.print(f"[{self.colors['assistant']}]{self._character_name}: [/]{message}")
 
     def _print_system_message(self, message: str, style: str = "system") -> None:
         """打印系统消息"""
@@ -339,25 +341,18 @@ class ConsoleBackend(BaseBackend):
 
     async def _display_initiative_loop(self) -> None:
         """后台协程 - 实时显示队列中的主动消息"""
-        character_name = safe_get(self.agent.config, "character.name", "Unknown")
-
         while self._running:
             try:
                 msg = await asyncio.wait_for(self._initiative_queue.get(), timeout=0.5)
             except asyncio.TimeoutError:
                 continue
 
-            # 不打断正在进行的流式输出
-            if self._streaming_in_progress:
-                # 放回去，等流式输出完成再显示
-                await self._initiative_queue.put(msg)
-                await asyncio.sleep(0.3)
-                continue
+            # 等待流式输出完成再显示主动消息
+            await self._streaming_done.wait()
 
-            # 立即打印主动消息
             self.console.print()
             self.console.print(
-                f"[{self.colors['initiative']}]💭 {character_name}: {msg}[/]"
+                f"[{self.colors['initiative']}]💭 {self._character_name}: {msg}[/]"
             )
 
     # ==================== 交互式主循环 ====================
@@ -376,9 +371,8 @@ class ConsoleBackend(BaseBackend):
         try:
             while self._running and not self.agent.is_shutting_down:
                 try:
-                    user_input = await asyncio.to_thread(
-                        Prompt.ask, f"[{self.colors['user']}]你[/]"
-                    )
+                    self.console.print(f"[{self.colors['user']}]你[/]", end="")
+                    user_input = await aioconsole.ainput()
 
                     if not user_input.strip():
                         continue

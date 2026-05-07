@@ -23,6 +23,7 @@ dependencies = [
     "loguru",
     "rich",
     "pyyaml",
+    "aioconsole",
     "ayafileio>=1.1.2.post1",
 ]
 

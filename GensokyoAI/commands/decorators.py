@@ -3,7 +3,6 @@
 
 import inspect
 from typing import Callable, Optional, get_type_hints
-from functools import wraps
 
 from ..utils.logger import logger
 from .parser import CommandType  # 直接导入
@@ -112,11 +111,7 @@ def command(
             _COMMAND_REGISTRY[n.lower()] = cmd_def
             logger.debug(f"注册命令: {n} (类型: {cmd_type.name})")
 
-        @wraps(func)
-        async def wrapper(*args, **kwargs):
-            return await func(*args, **kwargs) if cmd_def._is_async else func(*args, **kwargs)
-
-        return wrapper
+        return func
 
     return decorator
 

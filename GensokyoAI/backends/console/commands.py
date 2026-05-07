@@ -4,7 +4,7 @@
 
 from typing import TYPE_CHECKING
 
-from ...commands import command, CommandType, CommandContext, CommandResult, CommandExecutor
+from ...commands import command, CommandType, CommandContext, CommandResult
 from ...utils.formatters import format_session_id
 from ...utils.helpers import safe_get
 
@@ -138,8 +138,7 @@ async def cmd_help(ctx: CommandContext) -> CommandResult:
     """显示帮助"""
     backend: "ConsoleBackend" = ctx.backend_inst
 
-    executor = CommandExecutor()
-    commands = executor.list_commands()
+    commands = backend.cmd_executor.list_commands()
 
     help_text = """
 [bold cyan]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/]
