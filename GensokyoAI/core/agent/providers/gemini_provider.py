@@ -16,6 +16,8 @@ from ..types import (
     StreamChunk,
     ToolCall,
     ToolCallFunction,
+    ProviderCapability,
+    ModelInfo,
 )
 from ....utils.logger import logger
 
@@ -35,6 +37,18 @@ class GeminiProvider(BaseProvider):
         super().__init__(config)
         self._client = self._build_client()
         logger.debug(f"GeminiProvider 初始化完成，model: {config.name}")
+
+    @property
+    def capabilities(self) -> set[str]:
+        """Gemini Provider 能力声明。"""
+        return {
+            ProviderCapability.CHAT,
+            ProviderCapability.STREAM,
+            ProviderCapability.TOOLS,
+            ProviderCapability.EMBEDDINGS,
+            ProviderCapability.VISION,
+            ProviderCapability.REASONING,
+        }
 
     def _build_client(self):
         """构建 Gemini 客户端"""
@@ -153,6 +167,47 @@ class GeminiProvider(BaseProvider):
                         is_tool_call=True,
                         tool_info={"message": unified_msg},
                     )
+
+    async def list_models(self) -> list[ModelInfo]:
+        """列出 Gemini 模型。"""
+        try:
+            response = await self._client.aio.models.list()
+        except Exception as e:
+            logger.warning(f"拉取 Gemini 模型列表失败，将返回当前配置模型作为 fallback: {e}")
+            return [
+                ModelInfo(
+                    id=self.config.name,
+                    name=self.config.name,
+                    capabilities=sorted(self.capabilities),
+                    metadata={"fallback": True},
+                )
+            ]
+
+        items = getattr(response, "models", response) or []
+        models: list[ModelInfo] = []
+        if hasattr(items, "__aiter__"):
+            async for item in items:
+                model_id = getattr(item, "name", "") or getattr(item, "id", "")
+                if model_id:
+                    models.append(
+                        ModelInfo(
+                            id=model_id,
+                            name=model_id,
+                            capabilities=sorted(self.capabilities),
+                        )
+                    )
+        else:
+            for item in items:
+                model_id = getattr(item, "name", "") or getattr(item, "id", "")
+                if model_id:
+                    models.append(
+                        ModelInfo(
+                            id=model_id,
+                            name=model_id,
+                            capabilities=sorted(self.capabilities),
+                        )
+                    )
+        return models
 
     async def embeddings(
         self,

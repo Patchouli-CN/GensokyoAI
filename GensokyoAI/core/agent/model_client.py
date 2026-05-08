@@ -5,7 +5,7 @@
 import asyncio
 from typing import AsyncIterator, Optional
 
-from .types import UnifiedResponse, UnifiedMessage, UnifiedEmbeddingResponse, StreamChunk
+from .types import UnifiedResponse, UnifiedMessage, UnifiedEmbeddingResponse, StreamChunk, ProviderCapability
 from .providers import ProviderFactory, BaseProvider
 from .providers.request_utils import ModelAPIError, is_retryable_error, normalize_model_error
 from ..config import EmbeddingConfig, ModelConfig
@@ -58,6 +58,7 @@ class ModelClient:
             name=embedding_config.name,
             base_url=embedding_config.base_url or self.config.base_url,
             api_key=embedding_config.api_key or self.config.api_key,
+            extra_headers=self.config.extra_headers,
             timeout=embedding_config.timeout or self.config.timeout,
             thinking_enabled=False,
             retry_max_attempts=self.config.retry_max_attempts,
@@ -305,6 +306,12 @@ class ModelClient:
                         f"流式模型 API 调用失败，准备重试 ({attempt + 1}/{max_attempts})，"
                         f"status={normalized.status_code}, error={normalized}"
                     )
+                    yield StreamChunk(
+                        type="status",
+                        status="retrying",
+                        error=str(normalized),
+                        finish_reason=None,
+                    )
                     if delay:
                         await asyncio.sleep(delay)
                         delay *= backoff
@@ -480,7 +487,10 @@ class ModelClient:
         except Exception:
             return False
 
-        # 检查 Provider 是否覆盖了 BaseProvider 的默认实现
+        if embedding_provider.supports(ProviderCapability.EMBEDDINGS):
+            return True
+
+        # 兼容旧自定义 Provider：检查是否覆盖了 BaseProvider 的默认实现。
         from .providers.base import BaseProvider as _Base
 
         return type(embedding_provider).embeddings is not _Base.embeddings

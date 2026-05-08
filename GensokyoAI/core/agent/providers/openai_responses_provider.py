@@ -17,7 +17,7 @@ import json
 from typing import AsyncIterator, TYPE_CHECKING
 
 from .base import BaseProvider
-from .request_utils import normalize_openai_responses_host_and_path, sdk_base_url_for_endpoint
+from .request_utils import merge_headers, normalize_openai_responses_host_and_path, sdk_base_url_for_endpoint
 from ..types import (
     UnifiedResponse,
     UnifiedMessage,
@@ -25,6 +25,8 @@ from ..types import (
     StreamChunk,
     ToolCall,
     ToolCallFunction,
+    ProviderCapability,
+    ModelInfo,
 )
 from ....utils.logger import logger
 
@@ -50,6 +52,19 @@ class OpenAIResponsesProvider(BaseProvider):
         )
 
     @property
+    def capabilities(self) -> set[str]:
+        """OpenAI Responses Provider 能力声明。"""
+        return {
+            ProviderCapability.CHAT,
+            ProviderCapability.STREAM,
+            ProviderCapability.TOOLS,
+            ProviderCapability.EMBEDDINGS,
+            ProviderCapability.REASONING,
+            ProviderCapability.RESPONSES_API,
+            ProviderCapability.CUSTOM_ENDPOINT,
+        }
+
+    @property
     def endpoint(self) -> str:
         """当前 Provider 的规范化 API endpoint。"""
         return f"{self._endpoint.api_host}{self._endpoint.api_path}"
@@ -72,6 +87,8 @@ class OpenAIResponsesProvider(BaseProvider):
         if self.config.api_key:
             kwargs["api_key"] = self.config.api_key
         kwargs["base_url"] = sdk_base_url_for_endpoint(self._endpoint, "/responses")
+        if self.config.extra_headers:
+            kwargs["default_headers"] = merge_headers(self.config.extra_headers)
 
         return AsyncOpenAI(**kwargs)
 
@@ -131,6 +148,38 @@ class OpenAIResponsesProvider(BaseProvider):
         response = await self._client.responses.create(**call_kwargs)
 
         return self._convert_response(response)
+
+    async def list_models(self) -> list[ModelInfo]:
+        """Responses Provider 复用 OpenAI `/models` 列表。"""
+        try:
+            response = await self._client.models.list()
+        except Exception as e:
+            logger.warning(f"拉取 Responses 模型列表失败，将返回当前配置模型作为 fallback: {e}")
+            return [
+                ModelInfo(
+                    id=self.config.name,
+                    name=self.config.name,
+                    capabilities=sorted(self.capabilities),
+                    metadata={"fallback": True},
+                )
+            ]
+
+        models: list[ModelInfo] = []
+        for item in getattr(response, "data", []) or []:
+            model_id = getattr(item, "id", "") or ""
+            if not model_id:
+                continue
+            metadata = item.model_dump() if hasattr(item, "model_dump") else {}
+            models.append(
+                ModelInfo(
+                    id=model_id,
+                    name=model_id,
+                    capabilities=sorted(self.capabilities),
+                    owned_by=getattr(item, "owned_by", None),
+                    metadata=metadata,
+                )
+            )
+        return models
 
     async def chat_stream(
         self,
@@ -247,10 +296,18 @@ class OpenAIResponsesProvider(BaseProvider):
                         content="",
                         tool_calls=unified_tool_calls,
                     )
+                    usage = self._usage_to_dict(getattr(getattr(event, "response", None), "usage", None))
                     yield StreamChunk(
+                        type="tool_call",
                         is_tool_call=True,
                         tool_info={"message": unified_msg},
+                        finish_reason="tool_calls",
+                        usage=usage,
                     )
+
+                response = getattr(event, "response", None)
+                usage = self._usage_to_dict(getattr(response, "usage", None))
+                yield StreamChunk(type="finish", finish_reason="completed", usage=usage)
 
     async def embeddings(
         self,
@@ -403,6 +460,26 @@ class OpenAIResponsesProvider(BaseProvider):
             done=True,
             thinking=thinking,
         )
+
+    @staticmethod
+    def _usage_to_dict(usage) -> dict | None:
+        """将 Responses API usage 对象转换为 dict。"""
+        if usage is None:
+            return None
+        if isinstance(usage, dict):
+            return dict(usage)
+        if hasattr(usage, "model_dump"):
+            try:
+                dumped = usage.model_dump()
+                if isinstance(dumped, dict):
+                    return dumped
+            except Exception:
+                pass
+        result = {}
+        for key in ("input_tokens", "output_tokens", "total_tokens"):
+            if hasattr(usage, key):
+                result[key] = getattr(usage, key)
+        return result or None
 
     @staticmethod
     def _convert_tools_to_responses(tools: list[dict]) -> list[dict]:

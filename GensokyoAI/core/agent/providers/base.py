@@ -5,8 +5,10 @@
 from abc import ABC, abstractmethod
 from typing import AsyncIterator, TYPE_CHECKING
 
+from ..types import ProviderCapability
+
 if TYPE_CHECKING:
-    from ..types import UnifiedResponse, UnifiedEmbeddingResponse, StreamChunk
+    from ..types import UnifiedResponse, UnifiedEmbeddingResponse, StreamChunk, ModelInfo
     from ...config import ModelConfig
 
 
@@ -21,6 +23,19 @@ class BaseProvider(ABC):
 
     def __init__(self, config: "ModelConfig"):
         self.config = config
+
+    @property
+    def capabilities(self) -> set[str]:
+        """Provider 级能力声明。"""
+        return {ProviderCapability.CHAT, ProviderCapability.STREAM}
+
+    def supports(self, capability: str) -> bool:
+        """检查 Provider 是否声明支持指定能力。"""
+        return capability in self.capabilities
+
+    async def list_models(self) -> list["ModelInfo"]:
+        """列出 Provider 可用模型；默认无远程模型列表。"""
+        return []
 
     @abstractmethod
     async def chat(

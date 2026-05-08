@@ -9,6 +9,7 @@ import json
 from typing import Any, AsyncIterator, TYPE_CHECKING
 
 from .base import BaseProvider
+from .request_utils import merge_headers
 from ..types import (
     UnifiedResponse,
     UnifiedMessage,
@@ -16,6 +17,8 @@ from ..types import (
     StreamChunk,
     ToolCall,
     ToolCallFunction,
+    ProviderCapability,
+    ModelInfo,
 )
 from ....utils.logger import logger
 
@@ -36,6 +39,17 @@ class ClaudeProvider(BaseProvider):
         self._client = self._build_client()
         logger.debug(f"ClaudeProvider 初始化完成，model: {config.name}")
 
+    @property
+    def capabilities(self) -> set[str]:
+        """Claude Provider 能力声明。"""
+        return {
+            ProviderCapability.CHAT,
+            ProviderCapability.STREAM,
+            ProviderCapability.TOOLS,
+            ProviderCapability.VISION,
+            ProviderCapability.REASONING,
+        }
+
     def _build_client(self):
         """构建 Anthropic 异步客户端"""
         try:
@@ -51,6 +65,8 @@ class ClaudeProvider(BaseProvider):
             kwargs["api_key"] = self.config.api_key
         if self.config.base_url:
             kwargs["base_url"] = self.config.base_url
+        if self.config.extra_headers:
+            kwargs["default_headers"] = merge_headers(self.config.extra_headers)
 
         return AsyncAnthropic(**kwargs)
 
@@ -195,12 +211,27 @@ class ClaudeProvider(BaseProvider):
                             tool_calls=unified_tool_calls,
                         )
                         yield StreamChunk(
+                            type="tool_call",
                             is_tool_call=True,
                             tool_info={
                                 "message": unified_msg,
                                 "thinking": "".join(thinking_parts) if thinking_parts else None,
                             },
+                            finish_reason="tool_use",
                         )
+                    elif event.type == "message_stop":
+                        yield StreamChunk(type="finish", finish_reason="stop")
+
+    async def list_models(self) -> list[ModelInfo]:
+        """Claude SDK 暂不统一暴露模型列表，返回当前配置模型作为 fallback。"""
+        return [
+            ModelInfo(
+                id=self.config.name,
+                name=self.config.name,
+                capabilities=sorted(self.capabilities),
+                metadata={"fallback": True},
+            )
+        ]
 
     async def embeddings(
         self,

@@ -15,6 +15,7 @@ model:
   base_url: null        # null 表示使用 Provider 默认地址；也兼容填入完整 endpoint（如 /v1/chat/completions）
   api_path: null        # 自定义 API path；OpenAI 默认 /chat/completions，Responses 默认 /responses
   api_key: null         # API 密钥（OpenAI/Gemini/Claude/DeepSeek 等需要，ollama 不需要）
+  extra_headers: {}     # 额外 HTTP 请求头；OpenRouter 可配置 HTTP-Referer / X-Title
   stream: true
   think: false
   thinking_enabled: null # DeepSeek 专用；null 表示使用 Provider 默认值（DeepSeek 默认 true）
@@ -55,6 +56,7 @@ embedding:
 #   api_key: "sk-..."
 #   base_url: null              # 默认 https://api.openai.com/v1；也可填 https://api.openai.com/v1/chat/completions
 #   api_path: null              # 默认 /chat/completions；自定义代理可设置为 /custom/path
+#   extra_headers: {}           # 可选；传入额外 HTTP headers
 #
 # --- OpenAI Responses API（仅限 OpenAI 官方，推理性能更优） ---
 # model:
@@ -93,6 +95,9 @@ embedding:
 #   name: "openai/gpt-4o"
 #   api_key: "sk-or-..."
 #   base_url: "https://openrouter.ai/api"  # 会自动规范化为 https://openrouter.ai/api/v1
+#   extra_headers:
+#     HTTP-Referer: "https://your-site.example"
+#     X-Title: "GensokyoAI"
 #
 # --- 自定义 OpenAI 兼容代理路径 ---
 # model:

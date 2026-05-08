@@ -8,8 +8,9 @@
 
 > 一个专为角色扮演设计的通用 Python AI Agent 工具包与运行时，支持 Ollama / OpenAI / DeepSeek / OpenAI Responses / Claude / Gemini 等多种 LLM Provider，提供三层记忆系统、会话管理、工具调用、Provider 抽象和稳定 Runtime API。
 
-[**使用指南**](./user_guide.md)  
+[**使用指南**](./user_guide.md)
 [**项目设计**](./project_design.md)
+[**默认配置示例**](./config/default.yaml)
 
 ## 项目定位
 
@@ -92,6 +93,86 @@ GensokyoAI 不是简单的问答机器人，而是围绕“角色扮演”设计
 
 你可以按需求选择本地模型、OpenAI 兼容服务、DeepSeek、Claude 或 Gemini。想要本地免费运行、接入云端大模型，或混合使用不同服务，都可以通过配置完成。
 
+### 更稳定的 API 调用
+
+GensokyoAI 针对外部 AI 服务调用做了稳定性优化：
+
+- 服务商偶发 500 / 502 / 503 / 504 等临时错误时，会自动等待并重试，减少网络波动导致的中断。
+- 遇到代理或网关返回的大段 HTML 错误页时，会整理成更容易理解的错误提示。
+- OpenAI、OpenAI 兼容服务、OpenAI Responses、OpenRouter、自定义代理等 API 地址写法更加宽容。
+- 支持 `api_path`，方便接入使用自定义路径的中转、代理或内部网关。
+- 支持 `extra_headers`、Provider 能力声明、模型列表查询和更完整的流式元信息。
+- 可通过 `retry_max_attempts`、`retry_initial_delay`、`retry_backoff_factor` 调整自动重试策略。
+
+完整配置示例见 [默认配置](./config/default.yaml)。
+
+## 快速配置 Provider
+
+### OpenAI 官方 Chat Completions
+
+```yaml
+model:
+  provider: "openai"
+  name: "gpt-4o"
+  api_key: "sk-..."
+  base_url: null
+```
+
+### OpenAI Responses API
+
+```yaml
+model:
+  provider: "openai_responses"
+  name: "gpt-5"
+  api_key: "sk-..."
+  base_url: null
+```
+
+### OpenRouter
+
+```yaml
+model:
+  provider: "openai"
+  name: "openai/gpt-4o"
+  api_key: "sk-or-..."
+  base_url: "https://openrouter.ai/api"
+  extra_headers:
+    HTTP-Referer: "https://your-site.example"
+    X-Title: "GensokyoAI"
+```
+
+### 自定义 OpenAI 兼容服务
+
+```yaml
+model:
+  provider: "openai"
+  name: "your-model-name"
+  api_key: "sk-..."
+  base_url: "https://your-api.example.com"
+```
+
+### 自定义代理路径
+
+```yaml
+model:
+  provider: "openai"
+  name: "your-model-name"
+  api_key: "sk-..."
+  base_url: "https://proxy.example.com"
+  api_path: "/custom/chat/completions"
+  extra_headers:
+    X-Custom-Gateway: "gensokyo"
+```
+
+## API 调用层能力
+
+GensokyoAI 的模型调用层采用 Provider 抽象，统一封装不同模型服务的差异。
+
+- Provider 会声明自身支持的能力，例如 chat、stream、tools、embeddings、reasoning、vision、responses_api、custom_endpoint。
+- OpenAI 兼容 Provider 支持拉取 `/models`，失败时会返回当前配置模型作为 fallback。
+- 流式响应块可携带 `status`、`error`、`usage`、`finish_reason`，便于 UI、日志和上层运行时感知重试、结束原因和 token 用量。
+- 自定义 Provider 可以通过 capabilities、supports 和 list_models 接入统一能力体系。
+
 ## 交流讨论
 
 **欢迎来提供功能建议、BUG 反馈以及纯粹交流ᗜᴗᗜ！**
@@ -113,6 +194,8 @@ GensokyoAI 不是简单的问答机器人，而是围绕“角色扮演”设计
 - [x] 多 LLM Provider 支持（Ollama / OpenAI / DeepSeek / Claude / Gemini）
 - [x] Runtime API
 - [x] Provider 可选依赖检测与白名单安装
+- [x] API 调用稳定性优化（错误归一化、HTML 错误清洗、5xx 自动重试、URL 规范化）
+- [x] API 调用能力增强（extra_headers、Provider capabilities、list_models、流式 usage/finish/status 元信息）
 - [ ] HTTP / WebSocket Runtime adapter
 - [ ] 多角色同时对话
 - [ ] 语音输入 / 输出

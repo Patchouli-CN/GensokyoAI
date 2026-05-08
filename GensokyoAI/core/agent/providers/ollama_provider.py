@@ -13,6 +13,8 @@ from ..types import (
     StreamChunk,
     ToolCall,
     ToolCallFunction,
+    ProviderCapability,
+    ModelInfo,
 )
 from ....utils.logger import logger
 
@@ -31,6 +33,17 @@ class OllamaProvider(BaseProvider):
         super().__init__(config)
         self._client = self._build_client()
         logger.debug(f"OllamaProvider 初始化完成，base_url: {config.base_url}")
+
+    @property
+    def capabilities(self) -> set[str]:
+        """Ollama Provider 能力声明。"""
+        return {
+            ProviderCapability.CHAT,
+            ProviderCapability.STREAM,
+            ProviderCapability.TOOLS,
+            ProviderCapability.EMBEDDINGS,
+            ProviderCapability.CUSTOM_ENDPOINT,
+        }
 
     def _build_client(self):
         """构建 Ollama 异步客户端"""
@@ -123,6 +136,40 @@ class OllamaProvider(BaseProvider):
                 )
             elif message.content:
                 yield StreamChunk(content=message.content)
+
+    async def list_models(self) -> list[ModelInfo]:
+        """列出本地 Ollama 模型。"""
+        try:
+            response = await self._client.list()
+        except Exception as e:
+            logger.warning(f"拉取 Ollama 模型列表失败，将返回当前配置模型作为 fallback: {e}")
+            return [
+                ModelInfo(
+                    id=self.config.name,
+                    name=self.config.name,
+                    capabilities=sorted(self.capabilities),
+                    metadata={"fallback": True},
+                )
+            ]
+
+        items = getattr(response, "models", None) or response.get("models", []) if isinstance(response, dict) else []
+        models: list[ModelInfo] = []
+        for item in items:
+            name = getattr(item, "model", None) or getattr(item, "name", None)
+            if isinstance(item, dict):
+                name = item.get("model") or item.get("name")
+            if not name:
+                continue
+            metadata = item if isinstance(item, dict) else getattr(item, "__dict__", {})
+            models.append(
+                ModelInfo(
+                    id=name,
+                    name=name,
+                    capabilities=sorted(self.capabilities),
+                    metadata=dict(metadata) if isinstance(metadata, dict) else {},
+                )
+            )
+        return models
 
     async def embeddings(
         self,

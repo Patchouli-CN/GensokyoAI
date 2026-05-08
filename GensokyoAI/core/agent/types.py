@@ -4,7 +4,7 @@
 
 import msgspec
 import msgspec.json
-from typing import Sequence
+from typing import Any, Sequence
 from msgspec import Struct, field
 
 
@@ -74,6 +74,31 @@ class UnifiedEmbeddingResponse(Struct):
     model: str = ""
 
 
+class ProviderCapability:
+    """Provider 能力常量。"""
+
+    CHAT = "chat"
+    STREAM = "stream"
+    TOOLS = "tools"
+    EMBEDDINGS = "embeddings"
+    VISION = "vision"
+    REASONING = "reasoning"
+    IMAGE = "image"
+    RESPONSES_API = "responses_api"
+    CUSTOM_ENDPOINT = "custom_endpoint"
+
+
+class ModelInfo(Struct):
+    """模型元信息。"""
+
+    id: str
+    name: str = ""
+    context_window: int | None = None
+    capabilities: list[str] = field(default_factory=list)
+    owned_by: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
 class StreamChunk(Struct):
     """
     流式响应块
@@ -81,7 +106,12 @@ class StreamChunk(Struct):
     替代原来在 model_client.py 中定义的 StreamChunk
     """
 
+    type: str = "text"
     content: str = ""
     reasoning_content: str | None = None
     is_tool_call: bool = False
     tool_info: dict | None = None
+    status: str | None = None
+    error: str | None = None
+    usage: dict[str, Any] | None = None
+    finish_reason: str | None = None

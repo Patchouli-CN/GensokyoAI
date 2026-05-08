@@ -27,6 +27,7 @@ class ModelConfig(Struct):
     base_url: str | None = None
     api_path: str | None = None
     api_key: str | None = None  # API 密钥（OpenAI/Gemini/Claude 等需要）
+    extra_headers: dict[str, str] = field(default_factory=dict)
     stream: bool = True
     think: bool = False
     thinking_enabled: bool | None = None
@@ -259,6 +260,7 @@ class ConfigLoader:
             base_url=override.base_url or base.base_url,
             api_path=override.api_path or base.api_path,
             api_key=override.api_key or base.api_key,
+            extra_headers=override.extra_headers or base.extra_headers,
             stream=override.stream,
             think=override.think,
             thinking_enabled=(

@@ -12,6 +12,7 @@ sessions/
 logs/
 
 plans/
+docs/
 
 # UV
 .venv/

@@ -12,10 +12,10 @@
 
 # GensokyoAI/core/agent/providers/openai_provider.py
 
-from typing import AsyncIterator, TYPE_CHECKING
+from typing import Any, AsyncIterator, TYPE_CHECKING
 
 from .base import BaseProvider
-from .request_utils import normalize_openai_api_host_and_path, sdk_base_url_for_endpoint
+from .request_utils import merge_headers, normalize_openai_api_host_and_path, sdk_base_url_for_endpoint
 from ..types import (
     UnifiedResponse,
     UnifiedMessage,
@@ -23,6 +23,8 @@ from ..types import (
     StreamChunk,
     ToolCall,
     ToolCallFunction,
+    ProviderCapability,
+    ModelInfo,
 )
 from ....utils.logger import logger
 
@@ -48,6 +50,17 @@ class OpenAIProvider(BaseProvider):
         )
 
     @property
+    def capabilities(self) -> set[str]:
+        """OpenAI 兼容 Provider 能力声明。"""
+        return {
+            ProviderCapability.CHAT,
+            ProviderCapability.STREAM,
+            ProviderCapability.TOOLS,
+            ProviderCapability.EMBEDDINGS,
+            ProviderCapability.CUSTOM_ENDPOINT,
+        }
+
+    @property
     def endpoint(self) -> str:
         """当前 Provider 的规范化 API endpoint。"""
         return f"{self._endpoint.api_host}{self._endpoint.api_path}"
@@ -70,6 +83,8 @@ class OpenAIProvider(BaseProvider):
         if self.config.api_key:
             kwargs["api_key"] = self.config.api_key
         kwargs["base_url"] = sdk_base_url_for_endpoint(self._endpoint, "/chat/completions")
+        if self.config.extra_headers:
+            kwargs["default_headers"] = merge_headers(self.config.extra_headers)
 
         return AsyncOpenAI(**kwargs)
 
@@ -135,6 +150,41 @@ class OpenAIProvider(BaseProvider):
         response = await self._client.chat.completions.create(**call_kwargs)
 
         return self._convert_response(response)
+
+    async def list_models(self) -> list[ModelInfo]:
+        """拉取 OpenAI 兼容 `/models` 并转换为统一模型元信息。"""
+        try:
+            response = await self._client.models.list()
+        except Exception as e:
+            logger.warning(f"拉取模型列表失败，将返回当前配置模型作为 fallback: {e}")
+            return [
+                ModelInfo(
+                    id=self.config.name,
+                    name=self.config.name,
+                    capabilities=sorted(self.capabilities),
+                    metadata={"fallback": True},
+                )
+            ]
+
+        models: list[ModelInfo] = []
+        for item in getattr(response, "data", []) or []:
+            model_id = getattr(item, "id", "") or ""
+            if not model_id:
+                continue
+            metadata = self._model_item_to_metadata(item)
+            context_window = self._extract_context_window(item, metadata)
+            capabilities = self._infer_model_capabilities(item, metadata)
+            models.append(
+                ModelInfo(
+                    id=model_id,
+                    name=model_id,
+                    context_window=context_window,
+                    capabilities=capabilities,
+                    owned_by=getattr(item, "owned_by", None),
+                    metadata=metadata,
+                )
+            )
+        return models
 
     async def chat_stream(  # type: ignore
         self,
@@ -208,6 +258,9 @@ class OpenAIProvider(BaseProvider):
 
             # 检查结束
             finish_reason = chunk.choices[0].finish_reason if chunk.choices else None
+            usage = self._usage_to_dict(getattr(chunk, "usage", None))
+            if finish_reason and finish_reason != "tool_calls":
+                yield StreamChunk(type="finish", finish_reason=finish_reason, usage=usage)
             if finish_reason == "tool_calls" and tool_calls_acc:
                 import json
 
@@ -233,8 +286,11 @@ class OpenAIProvider(BaseProvider):
                     tool_calls=unified_tool_calls,
                 )
                 yield StreamChunk(
+                    type="tool_call",
                     is_tool_call=True,
                     tool_info={"message": unified_msg},
+                    finish_reason=finish_reason,
+                    usage=usage,
                 )
 
     async def embeddings(
@@ -314,6 +370,71 @@ class OpenAIProvider(BaseProvider):
             done=True,
             thinking=thinking,
         )
+
+    @staticmethod
+    def _model_item_to_metadata(item: Any) -> dict[str, Any]:
+        """尽量从 SDK 模型对象提取可序列化元数据。"""
+        if hasattr(item, "model_dump"):
+            try:
+                dumped = item.model_dump()
+                if isinstance(dumped, dict):
+                    return dumped
+            except Exception:
+                pass
+        if isinstance(item, dict):
+            return dict(item)
+        metadata: dict[str, Any] = {}
+        for key in ("created", "owned_by", "context_length", "input_modalities", "pricing"):
+            if hasattr(item, key):
+                metadata[key] = getattr(item, key)
+        return metadata
+
+    @staticmethod
+    def _extract_context_window(item: Any, metadata: dict[str, Any]) -> int | None:
+        """从 OpenAI/OpenRouter 模型元数据推断上下文窗口。"""
+        for key in ("context_length", "context_window", "max_context_length"):
+            value = metadata.get(key) or getattr(item, key, None)
+            if isinstance(value, int):
+                return value
+            if isinstance(value, str) and value.isdigit():
+                return int(value)
+        return None
+
+    def _infer_model_capabilities(self, item: Any, metadata: dict[str, Any]) -> list[str]:
+        """基于 Provider 能力和常见模型元数据推断模型能力。"""
+        capabilities = set(self.capabilities)
+        modalities = metadata.get("input_modalities") or metadata.get("modalities") or []
+        if isinstance(modalities, str):
+            modalities = [modalities]
+        if "image" in modalities or "vision" in modalities:
+            capabilities.add(ProviderCapability.VISION)
+        pricing = metadata.get("pricing") or {}
+        if isinstance(pricing, dict) and pricing.get("internal_reasoning") is not None:
+            capabilities.add(ProviderCapability.REASONING)
+        model_id = (getattr(item, "id", "") or metadata.get("id", "") or "").lower()
+        if any(marker in model_id for marker in ("reason", "r1", "o1", "o3", "o4")):
+            capabilities.add(ProviderCapability.REASONING)
+        return sorted(capabilities)
+
+    @staticmethod
+    def _usage_to_dict(usage: Any) -> dict[str, Any] | None:
+        """将 SDK usage 对象转换为 dict。"""
+        if usage is None:
+            return None
+        if isinstance(usage, dict):
+            return dict(usage)
+        if hasattr(usage, "model_dump"):
+            try:
+                dumped = usage.model_dump()
+                if isinstance(dumped, dict):
+                    return dumped
+            except Exception:
+                pass
+        result: dict[str, Any] = {}
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            if hasattr(usage, key):
+                result[key] = getattr(usage, key)
+        return result or None
 
     @staticmethod
     def _convert_tools_to_openai(tools: list[dict]) -> list[dict]:
