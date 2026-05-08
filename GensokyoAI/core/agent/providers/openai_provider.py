@@ -265,11 +265,13 @@ class OpenAIProvider(BaseProvider):
                 import json
 
                 unified_tool_calls = []
-                for _idx, tc_data in sorted(tool_calls_acc.items()):
+                raw_arguments: dict[int, str] = {}
+                for idx, tc_data in sorted(tool_calls_acc.items()):
                     try:
                         args = json.loads(tc_data["arguments"]) if tc_data["arguments"] else {}
                     except json.JSONDecodeError:
                         args = {}
+                        raw_arguments[idx] = tc_data["arguments"]
                     unified_tool_calls.append(
                         ToolCall(
                             id=tc_data.get("id", ""),
@@ -285,10 +287,13 @@ class OpenAIProvider(BaseProvider):
                     content="",
                     tool_calls=unified_tool_calls,
                 )
+                tool_info = {"message": unified_msg}
+                if raw_arguments:
+                    tool_info["raw_arguments"] = raw_arguments
                 yield StreamChunk(
                     type="tool_call",
                     is_tool_call=True,
-                    tool_info={"message": unified_msg},
+                    tool_info=tool_info,
                     finish_reason=finish_reason,
                     usage=usage,
                 )

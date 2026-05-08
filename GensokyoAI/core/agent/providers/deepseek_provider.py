@@ -235,11 +235,13 @@ class DeepSeekProvider(OpenAIProvider):
                 import json
 
                 unified_tool_calls = []
-                for _idx, tc_data in sorted(tool_calls_acc.items()):
+                raw_arguments: dict[int, str] = {}
+                for idx, tc_data in sorted(tool_calls_acc.items()):
                     try:
                         args = json.loads(tc_data["arguments"]) if tc_data["arguments"] else {}
                     except json.JSONDecodeError:
                         args = {}
+                        raw_arguments[idx] = tc_data["arguments"]
                     unified_tool_calls.append(
                         self._make_tool_call(
                             {
@@ -256,10 +258,13 @@ class DeepSeekProvider(OpenAIProvider):
                     tool_calls=unified_tool_calls,
                     reasoning_content=reasoning_acc or None,
                 )
+                tool_info = {"message": unified_msg}
+                if raw_arguments:
+                    tool_info["raw_arguments"] = raw_arguments
                 yield StreamChunk(
                     type="tool_call",
                     is_tool_call=True,
-                    tool_info={"message": unified_msg},
+                    tool_info=tool_info,
                     finish_reason=finish_reason,
                 )
             elif finish_reason:

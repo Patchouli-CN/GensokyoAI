@@ -64,6 +64,7 @@ class ModelClient:
             retry_max_attempts=self.config.retry_max_attempts,
             retry_initial_delay=self.config.retry_initial_delay,
             retry_backoff_factor=self.config.retry_backoff_factor,
+            retry_status_codes=list(self.config.retry_status_codes),
             use_proxy=(
                 embedding_config.use_proxy
                 if embedding_config.use_proxy is not None
@@ -120,15 +121,34 @@ class ModelClient:
                 )
             )
 
-    async def _call_with_retry(self, call_factory, *, context: str, model: str):
+    def _retry_status_codes(self) -> set[int]:
+        """获取当前配置的可重试 HTTP 状态码。"""
+        return set(self.config.retry_status_codes or [])
+
+    async def _call_with_retry(
+        self,
+        call_factory,
+        *,
+        context: str,
+        model: str,
+        provider: BaseProvider | None = None,
+        provider_name: str | None = None,
+        timeout: float | None = None,
+        endpoint: str | None = None,
+    ):
         """按配置对可重试 API 错误进行指数退避重试。"""
         max_attempts = max(1, self.config.retry_max_attempts)
         delay = max(0.0, self.config.retry_initial_delay)
         backoff = max(1.0, self.config.retry_backoff_factor)
+        call_provider = provider or self._provider
+        call_provider_name = provider_name or self.config.provider
+        retry_status_codes = self._retry_status_codes()
+        call_timeout = timeout or self.config.timeout
+        call_endpoint = endpoint if endpoint is not None else getattr(call_provider, "endpoint", None)
 
         for attempt in range(1, max_attempts + 1):
             try:
-                return await asyncio.wait_for(call_factory(), timeout=self.config.timeout)
+                return await asyncio.wait_for(call_factory(), timeout=call_timeout)
             except asyncio.TimeoutError:
                 raise
             except asyncio.CancelledError:
@@ -136,11 +156,15 @@ class ModelClient:
             except Exception as e:
                 normalized = normalize_model_error(
                     e,
-                    provider=self.config.provider,
+                    provider=call_provider_name,
                     model=model,
-                    endpoint=getattr(self._provider, "endpoint", None),
+                    endpoint=call_endpoint,
+                    retry_status_codes=retry_status_codes,
                 )
-                if attempt >= max_attempts or not is_retryable_error(normalized):
+                if attempt >= max_attempts or not is_retryable_error(
+                    normalized,
+                    retry_status_codes,
+                ):
                     raise normalized from e
 
                 logger.warning(
@@ -154,7 +178,7 @@ class ModelClient:
                             source="model_client",
                             data={
                                 "model": model,
-                                "provider": self.config.provider,
+                                "provider": call_provider_name,
                                 "context": context,
                                 "status": "retrying",
                                 "attempt": attempt + 1,
@@ -230,7 +254,12 @@ class ModelClient:
             normalized = (
                 e
                 if isinstance(e, ModelAPIError)
-                else normalize_model_error(e, provider=self.config.provider, model=call_model)
+                else normalize_model_error(
+                    e,
+                    provider=self.config.provider,
+                    model=call_model,
+                    retry_status_codes=self._retry_status_codes(),
+                )
             )
             error_msg = f"模型调用失败: {normalized}"
             logger.opt(colors=False).error(error_msg)
@@ -299,8 +328,12 @@ class ModelClient:
                         provider=self.config.provider,
                         model=call_model,
                         endpoint=getattr(self._provider, "endpoint", None),
+                        retry_status_codes=self._retry_status_codes(),
                     )
-                    if attempt >= max_attempts or not is_retryable_error(normalized):
+                    if attempt >= max_attempts or not is_retryable_error(
+                        normalized,
+                        self._retry_status_codes(),
+                    ):
                         raise normalized from e
                     logger.warning(
                         f"流式模型 API 调用失败，准备重试 ({attempt + 1}/{max_attempts})，"
@@ -328,7 +361,12 @@ class ModelClient:
             normalized = (
                 e
                 if isinstance(e, ModelAPIError)
-                else normalize_model_error(e, provider=self.config.provider, model=call_model)
+                else normalize_model_error(
+                    e,
+                    provider=self.config.provider,
+                    model=call_model,
+                    retry_status_codes=self._retry_status_codes(),
+                )
             )
             error_msg = f"流式模型调用失败: {normalized}"
             logger.opt(colors=False).error(error_msg)
@@ -392,6 +430,8 @@ class ModelClient:
         Raises:
             ModelError: 调用失败或超时
         """
+        embedding_provider_name = self._embedding_config.provider or self.config.provider
+        call_model = model or self._embedding_config.name or ""
         try:
             embedding_provider, embedding_model_config = self._get_embedding_provider()
             call_model = model or embedding_model_config.name
@@ -401,32 +441,74 @@ class ModelClient:
                 f"调用 embeddings 模型，Provider: {embedding_model_config.provider}, "
                 f"模型: {call_model}, 文本长度: {len(prompt)}"
             )
-            response = await asyncio.wait_for(
-                embedding_provider.embeddings(
+            response = await self._call_with_retry(
+                lambda: embedding_provider.embeddings(
                     model=call_model,
                     prompt=prompt,
                     **embedding_kwargs,
                 ),
+                context="embeddings",
+                model=call_model,
+                provider=embedding_provider,
+                provider_name=embedding_model_config.provider,
                 timeout=call_timeout,
+                endpoint=getattr(embedding_provider, "endpoint", None),
             )
             logger.debug(f"embeddings 响应完成，向量维度: {len(response.embedding)}")
             return response
 
         except asyncio.TimeoutError:
             effective_timeout = timeout or self._embedding_config.timeout or self.config.timeout
+            error_msg = f"embeddings 调用超时 ({effective_timeout}秒)"
             logger.error(f"embeddings 调用超时 ({effective_timeout}s)")
-            raise ModelError(f"embeddings 调用超时 ({effective_timeout}秒)")
+            self._publish_error(
+                ModelError(error_msg),
+                {
+                    "context": "embeddings",
+                    "timeout": effective_timeout,
+                    "prompt_length": len(prompt),
+                    "provider": embedding_provider_name,
+                    "model": call_model,
+                },
+            )
+            raise ModelError(error_msg)
 
         except NotImplementedError as e:
-            embedding_provider_name = self._embedding_config.provider or self.config.provider
             logger.warning(f"当前 Provider 不支持 embeddings: {e}")
+            self._publish_error(
+                e,
+                {
+                    "context": "embeddings",
+                    "prompt_length": len(prompt),
+                    "provider": embedding_provider_name,
+                    "model": call_model,
+                },
+            )
             raise ModelError(
                 f"当前 embedding Provider ({embedding_provider_name}) 不支持 embeddings"
             ) from e
 
         except Exception as e:
-            normalized = normalize_model_error(e, provider=self.config.provider, model=model)
+            normalized = (
+                e
+                if isinstance(e, ModelAPIError)
+                else normalize_model_error(
+                    e,
+                    provider=embedding_provider_name,
+                    model=call_model,
+                    retry_status_codes=self._retry_status_codes(),
+                )
+            )
             logger.error(f"embeddings 调用失败: {normalized}")
+            self._publish_error(
+                normalized,
+                {
+                    "context": "embeddings",
+                    "prompt_length": len(prompt),
+                    "provider": embedding_provider_name,
+                    "model": call_model,
+                },
+            )
             raise ModelError(f"embeddings 调用失败: {normalized}") from e
 
     async def embeddings_batch(

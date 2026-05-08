@@ -40,6 +40,7 @@ class ModelConfig(Struct):
     retry_max_attempts: int = 3
     retry_initial_delay: float = 1.0
     retry_backoff_factor: float = 2.0
+    retry_status_codes: list[int] = field(default_factory=lambda: [500, 502, 503, 504])
 
 
 class EmbeddingConfig(Struct):
@@ -285,6 +286,7 @@ class ConfigLoader:
             retry_backoff_factor=override.retry_backoff_factor
             if override.retry_backoff_factor != 2.0
             else base.retry_backoff_factor,
+            retry_status_codes=override.retry_status_codes or base.retry_status_codes,
         )
 
     def _merge_embedding(self, base: EmbeddingConfig, override: EmbeddingConfig) -> EmbeddingConfig:
@@ -404,6 +406,12 @@ class ConfigLoader:
             config.model.retry_initial_delay = float(os.getenv("GENSOKYOAI_RETRY_INITIAL_DELAY"))  # type: ignore
         if os.getenv("GENSOKYOAI_RETRY_BACKOFF_FACTOR"):
             config.model.retry_backoff_factor = float(os.getenv("GENSOKYOAI_RETRY_BACKOFF_FACTOR"))  # type: ignore
+        if os.getenv("GENSOKYOAI_RETRY_STATUS_CODES"):
+            config.model.retry_status_codes = [
+                int(code.strip())
+                for code in os.getenv("GENSOKYOAI_RETRY_STATUS_CODES", "").split(",")
+                if code.strip()
+            ]  # type: ignore
         if os.getenv("GENSOKYOAI_THINKING_ENABLED"):
             config.model.thinking_enabled = os.getenv("GENSOKYOAI_THINKING_ENABLED").lower() == "true"  # type: ignore
         if os.getenv("GENSOKYOAI_REASONING_EFFORT"):

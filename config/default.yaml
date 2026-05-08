@@ -25,9 +25,10 @@ model:
   max_tokens: 2048
   timeout: 60
   use_proxy: false      # 是否使用代理，默认不使用，localhost 直连
-  retry_max_attempts: 3       # 仅对 500/502/503/504 等临时服务端错误自动重试
+  retry_max_attempts: 3       # 仅对 retry_status_codes 中的临时错误自动重试
   retry_initial_delay: 1.0    # 首次重试前等待秒数
   retry_backoff_factor: 2.0   # 指数退避倍率
+  retry_status_codes: [500, 502, 503, 504] # 默认仅重试临时服务端错误；如需重试 429 可显式加入
 
 # Embedding 模型配置（独立于主聊天模型，避免误用聊天模型调用 embeddings）
 # 未配置 name 时，ModelClient.embeddings() 会明确报错，不会再默认使用 model.name。

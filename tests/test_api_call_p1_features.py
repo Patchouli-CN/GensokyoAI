@@ -164,5 +164,107 @@ class P1ApiCallFeatureTests(unittest.TestCase):
         self.assertEqual(chunks[1].content, "ok")
 
 
+    def test_openai_stream_tool_call_preserves_raw_arguments_on_json_error(self):
+        class _FakeChatCompletions:
+            async def create(self, **kwargs):
+                async def stream():
+                    delta = SimpleNamespace(
+                        content=None,
+                        tool_calls=[
+                            SimpleNamespace(
+                                index=0,
+                                id="call-1",
+                                function=SimpleNamespace(name="broken_tool", arguments='{"bad"'),
+                            )
+                        ],
+                    )
+                    yield SimpleNamespace(
+                        choices=[SimpleNamespace(delta=delta, finish_reason="tool_calls")],
+                        usage=None,
+                    )
+
+                return stream()
+
+        provider = OpenAIProvider.__new__(OpenAIProvider)
+        BaseProvider.__init__(provider, ModelConfig(provider="openai", name="test"))
+        provider._client = SimpleNamespace(
+            chat=SimpleNamespace(completions=_FakeChatCompletions())
+        )
+
+        async def collect():
+            return [chunk async for chunk in provider.chat_stream("test", [{"role": "user", "content": "hi"}])]
+
+        chunks = asyncio.run(collect())
+        self.assertEqual(chunks[0].type, "tool_call")
+        self.assertEqual(chunks[0].tool_info["raw_arguments"], {0: '{"bad"'})
+
+    def test_responses_stream_failed_yields_error_then_raises(self):
+        class _FakeResponses:
+            async def create(self, **kwargs):
+                async def stream():
+                    yield SimpleNamespace(
+                        type="response.failed",
+                        response=SimpleNamespace(error=SimpleNamespace(message="boom")),
+                    )
+
+                return stream()
+
+        provider = OpenAIResponsesProvider.__new__(OpenAIResponsesProvider)
+        BaseProvider.__init__(provider, ModelConfig(provider="openai_responses", name="test"))
+        provider._endpoint = SimpleNamespace(api_host="https://api.openai.com/v1", api_path="/responses")
+        provider._client = SimpleNamespace(responses=_FakeResponses())
+
+        async def collect_until_error():
+            chunks = []
+            with self.assertRaises(Exception) as ctx:
+                async for chunk in provider.chat_stream("test", [{"role": "user", "content": "hi"}]):
+                    chunks.append(chunk)
+            return chunks, ctx.exception
+
+        chunks, error = asyncio.run(collect_until_error())
+        self.assertEqual(chunks[0].type, "error")
+        self.assertEqual(chunks[0].error, "boom")
+        self.assertIn("boom", str(error))
+
+    def test_responses_stream_tool_call_preserves_raw_arguments_on_json_error(self):
+        class _FakeResponses:
+            async def create(self, **kwargs):
+                async def stream():
+                    yield SimpleNamespace(
+                        type="response.output_item.added",
+                        output_index=0,
+                        item=SimpleNamespace(
+                            type="function_call",
+                            call_id="call-1",
+                            id="call-1",
+                            name="broken_tool",
+                            arguments="",
+                        ),
+                    )
+                    yield SimpleNamespace(
+                        type="response.function_call_arguments.done",
+                        output_index=0,
+                        arguments='{"bad"',
+                    )
+                    yield SimpleNamespace(
+                        type="response.completed",
+                        response=SimpleNamespace(usage=None),
+                    )
+
+                return stream()
+
+        provider = OpenAIResponsesProvider.__new__(OpenAIResponsesProvider)
+        BaseProvider.__init__(provider, ModelConfig(provider="openai_responses", name="test"))
+        provider._endpoint = SimpleNamespace(api_host="https://api.openai.com/v1", api_path="/responses")
+        provider._client = SimpleNamespace(responses=_FakeResponses())
+
+        async def collect():
+            return [chunk async for chunk in provider.chat_stream("test", [{"role": "user", "content": "hi"}])]
+
+        chunks = asyncio.run(collect())
+        self.assertEqual(chunks[0].type, "tool_call")
+        self.assertEqual(chunks[0].tool_info["raw_arguments"], {0: '{"bad"'})
+
+
 if __name__ == "__main__":
     unittest.main()

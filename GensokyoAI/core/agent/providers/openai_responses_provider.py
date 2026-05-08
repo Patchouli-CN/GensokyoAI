@@ -17,7 +17,12 @@ import json
 from typing import AsyncIterator, TYPE_CHECKING
 
 from .base import BaseProvider
-from .request_utils import merge_headers, normalize_openai_responses_host_and_path, sdk_base_url_for_endpoint
+from .request_utils import (
+    ModelAPIError,
+    merge_headers,
+    normalize_openai_responses_host_and_path,
+    sdk_base_url_for_endpoint,
+)
 from ..types import (
     UnifiedResponse,
     UnifiedMessage,
@@ -276,11 +281,13 @@ class OpenAIResponsesProvider(BaseProvider):
                 # 如果有工具调用，组装并 yield
                 if tool_calls_acc:
                     unified_tool_calls = []
-                    for _idx, tc_data in sorted(tool_calls_acc.items()):
+                    raw_arguments: dict[int, str] = {}
+                    for idx, tc_data in sorted(tool_calls_acc.items()):
                         try:
                             args = json.loads(tc_data["arguments"]) if tc_data["arguments"] else {}
                         except json.JSONDecodeError:
                             args = {}
+                            raw_arguments[idx] = tc_data["arguments"]
                         unified_tool_calls.append(
                             ToolCall(
                                 id=tc_data.get("call_id", ""),
@@ -297,10 +304,13 @@ class OpenAIResponsesProvider(BaseProvider):
                         tool_calls=unified_tool_calls,
                     )
                     usage = self._usage_to_dict(getattr(getattr(event, "response", None), "usage", None))
+                    tool_info = {"message": unified_msg}
+                    if raw_arguments:
+                        tool_info["raw_arguments"] = raw_arguments
                     yield StreamChunk(
                         type="tool_call",
                         is_tool_call=True,
-                        tool_info={"message": unified_msg},
+                        tool_info=tool_info,
                         finish_reason="tool_calls",
                         usage=usage,
                     )
@@ -308,6 +318,36 @@ class OpenAIResponsesProvider(BaseProvider):
                 response = getattr(event, "response", None)
                 usage = self._usage_to_dict(getattr(response, "usage", None))
                 yield StreamChunk(type="finish", finish_reason="completed", usage=usage)
+
+            elif event_type == "response.failed":
+                response = getattr(event, "response", None)
+                error = getattr(response, "error", None) or getattr(event, "error", None)
+                error_message = self._response_error_to_message(error) or "Responses API stream failed"
+                yield StreamChunk(type="error", error=error_message, finish_reason="failed")
+                raise ModelAPIError(
+                    error_message,
+                    provider=self.config.provider,
+                    model=model,
+                    endpoint=self.endpoint,
+                    retryable=False,
+                )
+
+            elif event_type == "response.incomplete":
+                response = getattr(event, "response", None)
+                reason = getattr(response, "incomplete_details", None) or getattr(
+                    event,
+                    "incomplete_details",
+                    None,
+                )
+                error_message = self._response_error_to_message(reason) or "Responses API stream incomplete"
+                yield StreamChunk(type="error", error=error_message, finish_reason="incomplete")
+                raise ModelAPIError(
+                    error_message,
+                    provider=self.config.provider,
+                    model=model,
+                    endpoint=self.endpoint,
+                    retryable=False,
+                )
 
     async def embeddings(
         self,
@@ -460,6 +500,24 @@ class OpenAIResponsesProvider(BaseProvider):
             done=True,
             thinking=thinking,
         )
+
+    @staticmethod
+    def _response_error_to_message(error) -> str:
+        """从 Responses 流式错误/不完整事件中提取可读信息。"""
+        if error is None:
+            return ""
+        if isinstance(error, str):
+            return error
+        if isinstance(error, dict):
+            for key in ("message", "reason", "code", "type"):
+                if error.get(key):
+                    return str(error[key])
+            return str(error)
+        for attr in ("message", "reason", "code", "type"):
+            value = getattr(error, attr, None)
+            if value:
+                return str(value)
+        return str(error)
 
     @staticmethod
     def _usage_to_dict(usage) -> dict | None:
