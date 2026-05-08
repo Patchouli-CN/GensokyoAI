@@ -15,6 +15,7 @@
 from typing import AsyncIterator, TYPE_CHECKING
 
 from .base import BaseProvider
+from .request_utils import normalize_openai_api_host_and_path, sdk_base_url_for_endpoint
 from ..types import (
     UnifiedResponse,
     UnifiedMessage,
@@ -39,10 +40,17 @@ class OpenAIProvider(BaseProvider):
 
     def __init__(self, config: "ModelConfig"):
         super().__init__(config)
+        self._endpoint = normalize_openai_api_host_and_path(config.base_url, config.api_path)
         self._client = self._build_client()
         logger.debug(
-            f"OpenAIProvider 初始化完成，base_url: {config.base_url}, model: {config.name}"
+            f"OpenAIProvider 初始化完成，base_url: {self._endpoint.api_host}, "
+            f"api_path: {self._endpoint.api_path}, model: {config.name}"
         )
+
+    @property
+    def endpoint(self) -> str:
+        """当前 Provider 的规范化 API endpoint。"""
+        return f"{self._endpoint.api_host}{self._endpoint.api_path}"
 
     def _build_client(self):
         """构建 OpenAI 异步客户端"""
@@ -54,11 +62,14 @@ class OpenAIProvider(BaseProvider):
                 "或者: pip install gensokyoai[openai]"
             )
 
+        self._endpoint = normalize_openai_api_host_and_path(
+            self.config.base_url,
+            self.config.api_path,
+        )
         kwargs = {}
         if self.config.api_key:
             kwargs["api_key"] = self.config.api_key
-        if self.config.base_url:
-            kwargs["base_url"] = self.config.base_url
+        kwargs["base_url"] = sdk_base_url_for_endpoint(self._endpoint, "/chat/completions")
 
         return AsyncOpenAI(**kwargs)
 

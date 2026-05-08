@@ -7,6 +7,7 @@ from typing import AsyncIterator, Optional
 
 from .types import UnifiedResponse, UnifiedMessage, UnifiedEmbeddingResponse, StreamChunk
 from .providers import ProviderFactory, BaseProvider
+from .providers.request_utils import ModelAPIError, is_retryable_error, normalize_model_error
 from ..config import EmbeddingConfig, ModelConfig
 from ..exceptions import ModelError
 from ..events import Event, SystemEvent, EventBus
@@ -59,6 +60,9 @@ class ModelClient:
             api_key=embedding_config.api_key or self.config.api_key,
             timeout=embedding_config.timeout or self.config.timeout,
             thinking_enabled=False,
+            retry_max_attempts=self.config.retry_max_attempts,
+            retry_initial_delay=self.config.retry_initial_delay,
+            retry_backoff_factor=self.config.retry_backoff_factor,
             use_proxy=(
                 embedding_config.use_proxy
                 if embedding_config.use_proxy is not None
@@ -90,22 +94,79 @@ class ModelClient:
         """发布错误事件 - 立即通知监听器"""
         if self._event_bus:
             error_str = str(error)
-            status_code = "502" if "502" in error_str else None
+            data = {
+                "model": self.config.name,
+                "provider": self.config.provider,
+                "error": error_str,
+                "error_type": type(error).__name__,
+                **context,
+            }
+            if isinstance(error, ModelAPIError):
+                data.update(
+                    {
+                        "status_code": error.status_code,
+                        "response_body": error.response_body,
+                        "endpoint": error.endpoint,
+                        "retryable": error.retryable,
+                    }
+                )
 
             self._event_bus.publish(
                 Event(
                     type=SystemEvent.MODEL_ERROR,
                     source="model_client",
-                    data={
-                        "model": self.config.name,
-                        "provider": self.config.provider,
-                        "error": error_str,
-                        "error_type": type(error).__name__,
-                        "status_code": status_code,
-                        **context,
-                    },
+                    data=data,
                 )
             )
+
+    async def _call_with_retry(self, call_factory, *, context: str, model: str):
+        """按配置对可重试 API 错误进行指数退避重试。"""
+        max_attempts = max(1, self.config.retry_max_attempts)
+        delay = max(0.0, self.config.retry_initial_delay)
+        backoff = max(1.0, self.config.retry_backoff_factor)
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return await asyncio.wait_for(call_factory(), timeout=self.config.timeout)
+            except asyncio.TimeoutError:
+                raise
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                normalized = normalize_model_error(
+                    e,
+                    provider=self.config.provider,
+                    model=model,
+                    endpoint=getattr(self._provider, "endpoint", None),
+                )
+                if attempt >= max_attempts or not is_retryable_error(normalized):
+                    raise normalized from e
+
+                logger.warning(
+                    f"模型 API 调用失败，准备重试 ({attempt + 1}/{max_attempts})，"
+                    f"context={context}, status={normalized.status_code}, error={normalized}"
+                )
+                if self._event_bus:
+                    self._event_bus.publish(
+                        Event(
+                            type=SystemEvent.MODEL_ERROR,
+                            source="model_client",
+                            data={
+                                "model": model,
+                                "provider": self.config.provider,
+                                "context": context,
+                                "status": "retrying",
+                                "attempt": attempt + 1,
+                                "max_attempts": max_attempts,
+                                "error": str(normalized),
+                                "status_code": normalized.status_code,
+                                "endpoint": normalized.endpoint,
+                            },
+                        )
+                    )
+                if delay:
+                    await asyncio.sleep(delay)
+                    delay *= backoff
 
     async def chat(
         self,
@@ -140,15 +201,16 @@ class ModelClient:
 
         try:
             logger.debug(f"非流式调用模型，消息数: {len(messages)}")
-            response = await asyncio.wait_for(
-                self._provider.chat(
+            response = await self._call_with_retry(
+                lambda: self._provider.chat(
                     model=call_model,
                     messages=messages,
                     tools=tools,
                     options=call_options,
                     **kwargs,
                 ),
-                timeout=self.config.timeout,
+                context="chat",
+                model=call_model,
             )
             logger.debug(f"模型响应完成，长度: {len(response.message.content or '')}")
             return response
@@ -164,15 +226,16 @@ class ModelClient:
             raise ModelError(error_msg)
 
         except Exception as e:
-            error_msg = f"模型调用失败: {e}"
+            normalized = (
+                e
+                if isinstance(e, ModelAPIError)
+                else normalize_model_error(e, provider=self.config.provider, model=call_model)
+            )
+            error_msg = f"模型调用失败: {normalized}"
             logger.opt(colors=False).error(error_msg)
 
-            error_str = str(e)
-            if "502" in error_str:
-                logger.warning("检测到 502 错误，可能是代理或连接问题")
-
             self._publish_error(
-                e if isinstance(e, ModelError) else ModelError(error_msg),
+                normalized,
                 {"context": "chat", "message_count": len(messages)},
             )
             raise ModelError(error_msg) from e
@@ -211,15 +274,40 @@ class ModelClient:
 
         try:
             logger.debug(f"流式调用模型，消息数: {len(messages)}")
-            async for chunk in self._provider.chat_stream(
-                model=call_model,
-                messages=messages,
-                tools=tools,
-                options=call_options,
-                extra_body=extra_body,
-                **kwargs,
-            ): # type: ignore
-                yield chunk
+            max_attempts = max(1, self.config.retry_max_attempts)
+            delay = max(0.0, self.config.retry_initial_delay)
+            backoff = max(1.0, self.config.retry_backoff_factor)
+
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    async for chunk in self._provider.chat_stream(
+                        model=call_model,
+                        messages=messages,
+                        tools=tools,
+                        options=call_options,
+                        extra_body=extra_body,
+                        **kwargs,
+                    ):  # type: ignore
+                        yield chunk
+                    break
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    normalized = normalize_model_error(
+                        e,
+                        provider=self.config.provider,
+                        model=call_model,
+                        endpoint=getattr(self._provider, "endpoint", None),
+                    )
+                    if attempt >= max_attempts or not is_retryable_error(normalized):
+                        raise normalized from e
+                    logger.warning(
+                        f"流式模型 API 调用失败，准备重试 ({attempt + 1}/{max_attempts})，"
+                        f"status={normalized.status_code}, error={normalized}"
+                    )
+                    if delay:
+                        await asyncio.sleep(delay)
+                        delay *= backoff
 
         except asyncio.TimeoutError:
             error_msg = f"流式调用超时 ({self.config.timeout}s)"
@@ -230,11 +318,16 @@ class ModelClient:
             raise ModelError(error_msg)
 
         except Exception as e:
-            error_msg = f"流式模型调用失败: {e}"
+            normalized = (
+                e
+                if isinstance(e, ModelAPIError)
+                else normalize_model_error(e, provider=self.config.provider, model=call_model)
+            )
+            error_msg = f"流式模型调用失败: {normalized}"
             logger.opt(colors=False).error(error_msg)
 
             self._publish_error(
-                e if isinstance(e, ModelError) else ModelError(error_msg),
+                normalized,
                 {
                     "context": "chat_stream",
                     "message_count": len(messages),
@@ -325,8 +418,9 @@ class ModelClient:
             ) from e
 
         except Exception as e:
-            logger.error(f"embeddings 调用失败: {e}")
-            raise ModelError(f"embeddings 调用失败: {e}") from e
+            normalized = normalize_model_error(e, provider=self.config.provider, model=model)
+            logger.error(f"embeddings 调用失败: {normalized}")
+            raise ModelError(f"embeddings 调用失败: {normalized}") from e
 
     async def embeddings_batch(
         self,

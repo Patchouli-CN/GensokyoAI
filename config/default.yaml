@@ -12,7 +12,8 @@ debug_silent_output: false
 model:
   provider: "ollama"    # LLM Provider: ollama / openai / deepseek / openai_responses / gemini / claude
   name: "qwen3.5:9b"
-  base_url: null        # null 表示使用 Provider 默认地址（ollama: http://127.0.0.1:11434, deepseek: https://api.deepseek.com）
+  base_url: null        # null 表示使用 Provider 默认地址；也兼容填入完整 endpoint（如 /v1/chat/completions）
+  api_path: null        # 自定义 API path；OpenAI 默认 /chat/completions，Responses 默认 /responses
   api_key: null         # API 密钥（OpenAI/Gemini/Claude/DeepSeek 等需要，ollama 不需要）
   stream: true
   think: false
@@ -23,6 +24,9 @@ model:
   max_tokens: 2048
   timeout: 60
   use_proxy: false      # 是否使用代理，默认不使用，localhost 直连
+  retry_max_attempts: 3       # 仅对 500/502/503/504 等临时服务端错误自动重试
+  retry_initial_delay: 1.0    # 首次重试前等待秒数
+  retry_backoff_factor: 2.0   # 指数退避倍率
 
 # Embedding 模型配置（独立于主聊天模型，避免误用聊天模型调用 embeddings）
 # 未配置 name 时，ModelClient.embeddings() 会明确报错，不会再默认使用 model.name。
@@ -49,14 +53,16 @@ embedding:
 #   provider: "openai"
 #   name: "gpt-4o"
 #   api_key: "sk-..."
-#   base_url: null              # 默认 https://api.openai.com/v1
+#   base_url: null              # 默认 https://api.openai.com/v1；也可填 https://api.openai.com/v1/chat/completions
+#   api_path: null              # 默认 /chat/completions；自定义代理可设置为 /custom/path
 #
 # --- OpenAI Responses API（仅限 OpenAI 官方，推理性能更优） ---
 # model:
 #   provider: "openai_responses"
 #   name: "gpt-5"
 #   api_key: "sk-..."
-#   base_url: null              # 默认 https://api.openai.com/v1
+#   base_url: null              # 默认 https://api.openai.com/v1；Responses path 默认 /responses
+#   api_path: null              # 如服务商使用自定义 Responses 路径，可在这里覆盖
 #
 # --- DeepSeek（推荐使用独立 Provider，支持 thinking/reasoning_content 回传）---
 # model:
@@ -80,6 +86,21 @@ embedding:
 #   name: "Qwen/Qwen2.5-72B-Instruct"
 #   api_key: "sk-..."
 #   base_url: "https://api.siliconflow.cn/v1"
+#
+# --- OpenAI 兼容（OpenRouter）---
+# model:
+#   provider: "openai"
+#   name: "openai/gpt-4o"
+#   api_key: "sk-or-..."
+#   base_url: "https://openrouter.ai/api"  # 会自动规范化为 https://openrouter.ai/api/v1
+#
+# --- 自定义 OpenAI 兼容代理路径 ---
+# model:
+#   provider: "openai"
+#   name: "custom-model"
+#   api_key: "sk-..."
+#   base_url: "https://proxy.example.com"
+#   api_path: "/custom/chat/completions"
 #
 # --- Claude ---
 # model:

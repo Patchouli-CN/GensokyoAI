@@ -25,6 +25,7 @@ class ModelConfig(Struct):
     provider: str = "ollama"  # LLM Provider: ollama / openai / deepseek / gemini / claude
     name: str = "qwen3.5:9b"
     base_url: str | None = None
+    api_path: str | None = None
     api_key: str | None = None  # API 密钥（OpenAI/Gemini/Claude 等需要）
     stream: bool = True
     think: bool = False
@@ -35,6 +36,9 @@ class ModelConfig(Struct):
     max_tokens: int = 2048
     timeout: int = 60
     use_proxy: bool = False  # 是否使用代理
+    retry_max_attempts: int = 3
+    retry_initial_delay: float = 1.0
+    retry_backoff_factor: float = 2.0
 
 
 class EmbeddingConfig(Struct):
@@ -253,6 +257,7 @@ class ConfigLoader:
             provider=override.provider if override.provider != "ollama" else base.provider,
             name=override.name if override.name != "qwen3.5:9b" else base.name,
             base_url=override.base_url or base.base_url,
+            api_path=override.api_path or base.api_path,
             api_key=override.api_key or base.api_key,
             stream=override.stream,
             think=override.think,
@@ -269,6 +274,15 @@ class ConfigLoader:
             use_proxy=override.use_proxy
             if override.use_proxy != base.use_proxy
             else base.use_proxy,
+            retry_max_attempts=override.retry_max_attempts
+            if override.retry_max_attempts != 3
+            else base.retry_max_attempts,
+            retry_initial_delay=override.retry_initial_delay
+            if override.retry_initial_delay != 1.0
+            else base.retry_initial_delay,
+            retry_backoff_factor=override.retry_backoff_factor
+            if override.retry_backoff_factor != 2.0
+            else base.retry_backoff_factor,
         )
 
     def _merge_embedding(self, base: EmbeddingConfig, override: EmbeddingConfig) -> EmbeddingConfig:
@@ -380,6 +394,14 @@ class ConfigLoader:
             config.model.api_key = os.getenv("GENSOKYOAI_API_KEY")  # type: ignore
         if os.getenv("GENSOKYOAI_BASE_URL"):
             config.model.base_url = os.getenv("GENSOKYOAI_BASE_URL")  # type: ignore
+        if os.getenv("GENSOKYOAI_API_PATH"):
+            config.model.api_path = os.getenv("GENSOKYOAI_API_PATH")  # type: ignore
+        if os.getenv("GENSOKYOAI_RETRY_MAX_ATTEMPTS"):
+            config.model.retry_max_attempts = int(os.getenv("GENSOKYOAI_RETRY_MAX_ATTEMPTS"))  # type: ignore
+        if os.getenv("GENSOKYOAI_RETRY_INITIAL_DELAY"):
+            config.model.retry_initial_delay = float(os.getenv("GENSOKYOAI_RETRY_INITIAL_DELAY"))  # type: ignore
+        if os.getenv("GENSOKYOAI_RETRY_BACKOFF_FACTOR"):
+            config.model.retry_backoff_factor = float(os.getenv("GENSOKYOAI_RETRY_BACKOFF_FACTOR"))  # type: ignore
         if os.getenv("GENSOKYOAI_THINKING_ENABLED"):
             config.model.thinking_enabled = os.getenv("GENSOKYOAI_THINKING_ENABLED").lower() == "true"  # type: ignore
         if os.getenv("GENSOKYOAI_REASONING_EFFORT"):
