@@ -103,6 +103,7 @@ class BackgroundManager:
     def submit(self, task: BackgroundTask) -> bool:
         """提交任务到队列"""
         if not self._accepting_tasks:
+
             async def _update_rejected():
                 async with self._stats_lock:
                     self._stats["dropped"] += 1

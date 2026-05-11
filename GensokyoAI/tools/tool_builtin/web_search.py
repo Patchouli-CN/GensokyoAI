@@ -60,7 +60,11 @@ async def web_search(
                 user_message="联网搜索执行失败。",
                 recoverable=True,
                 action_hint="请稍后重试；如果持续失败，请检查网络、代理或搜索 Provider 配置。",
-                details={"query": query, "provider": provider or _config.provider, "exception_type": type(e).__name__},
+                details={
+                    "query": query,
+                    "provider": provider or _config.provider,
+                    "exception_type": type(e).__name__,
+                },
             )
         ) from e
 

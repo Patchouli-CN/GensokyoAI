@@ -27,7 +27,9 @@ class RetryableProvider(BaseProvider):
             done=True,
         )
 
-    async def chat_stream(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
+    async def chat_stream(
+        self, model: str, messages: list[dict], tools=None, options=None, **kwargs
+    ):
         if False:
             yield None
 
@@ -42,7 +44,9 @@ class NonRetryableProvider(BaseProvider):
         error.response_body = "bad params"
         raise error
 
-    async def chat_stream(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
+    async def chat_stream(
+        self, model: str, messages: list[dict], tools=None, options=None, **kwargs
+    ):
         if False:
             yield None
 
@@ -63,7 +67,9 @@ class Retryable429Provider(BaseProvider):
             done=True,
         )
 
-    async def chat_stream(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
+    async def chat_stream(
+        self, model: str, messages: list[dict], tools=None, options=None, **kwargs
+    ):
         if False:
             yield None
 
@@ -78,7 +84,9 @@ class RetryableEmbeddingProvider(BaseProvider):
     async def chat(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
         raise NotImplementedError
 
-    async def chat_stream(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
+    async def chat_stream(
+        self, model: str, messages: list[dict], tools=None, options=None, **kwargs
+    ):
         if False:
             yield None
 
@@ -100,7 +108,9 @@ class FailingEmbeddingProvider(BaseProvider):
     async def chat(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
         raise NotImplementedError
 
-    async def chat_stream(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
+    async def chat_stream(
+        self, model: str, messages: list[dict], tools=None, options=None, **kwargs
+    ):
         if False:
             yield None
 
@@ -124,7 +134,9 @@ class OAuth401Provider(BaseProvider):
             raise error
         return SimpleNamespace(message=SimpleNamespace(content="oauth ok"), model=model, done=True)
 
-    async def chat_stream(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
+    async def chat_stream(
+        self, model: str, messages: list[dict], tools=None, options=None, **kwargs
+    ):
         if False:
             yield None
 
@@ -213,7 +225,9 @@ class ModelClientRetryTests(unittest.TestCase):
                 retry_max_attempts=2,
                 retry_initial_delay=0,
             ),
-            embedding_config=EmbeddingConfig(provider="retryable_embedding_test", name="embed-model"),
+            embedding_config=EmbeddingConfig(
+                provider="retryable_embedding_test", name="embed-model"
+            ),
         )
 
         response = asyncio.run(client.embeddings("hello"))
@@ -244,7 +258,6 @@ class ModelClientRetryTests(unittest.TestCase):
         self.assertEqual(data["prompt_length"], 5)
         self.assertEqual(data["provider"], "failing_embedding_test")
         self.assertEqual(data["model"], "embed-model")
-
 
     def test_oauth_401_refreshes_once_and_retries(self):
         OAuth401Provider.calls = 0

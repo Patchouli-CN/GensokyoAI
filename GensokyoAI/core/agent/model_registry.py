@@ -62,7 +62,9 @@ class ModelRegistryService:
         """列出指定配置对应 provider 的模型元信息。"""
         cache_key = self._cache_key(config)
         if not refresh and cache_key in self._cache:
-            return self._apply_overrides(self._copy_models(self._cache[cache_key]), config, overrides)
+            return self._apply_overrides(
+                self._copy_models(self._cache[cache_key]), config, overrides
+            )
 
         try:
             provider = self._provider_builder(config)
@@ -72,12 +74,16 @@ class ModelRegistryService:
             provider_models = []
 
         if provider_models:
-            models = self._provider_models(provider_models, provider_registry_id=self._model_registry_id(config))
+            models = self._provider_models(
+                provider_models, provider_registry_id=self._model_registry_id(config)
+            )
             self._cache[cache_key] = self._copy_models(models)
             return self._apply_overrides(models, config, overrides)
 
         if cache_key in self._cache:
-            return self._apply_overrides(self._copy_models(self._cache[cache_key]), config, overrides)
+            return self._apply_overrides(
+                self._copy_models(self._cache[cache_key]), config, overrides
+            )
 
         fallback = self._fallback_models(config)
         self._cache[cache_key] = self._copy_models(fallback)
@@ -151,10 +157,14 @@ class ModelRegistryService:
     @staticmethod
     def _heuristic_capabilities(provider: str, model_id: str) -> set[str]:
         definition = ProviderFactory.get_provider_definition(provider)
-        capabilities = ProviderCapability.normalize(definition.capabilities) if definition else {
-            ProviderCapability.CHAT,
-            ProviderCapability.STREAM,
-        }
+        capabilities = (
+            ProviderCapability.normalize(definition.capabilities)
+            if definition
+            else {
+                ProviderCapability.CHAT,
+                ProviderCapability.STREAM,
+            }
+        )
         normalized = model_id.lower()
         if any(marker in normalized for marker in ("vision", "gpt-4o", "gemini", "claude-3")):
             capabilities.add(ProviderCapability.VISION)
@@ -196,7 +206,9 @@ class ModelRegistryService:
             copied = self._copy_model(model)
             capabilities = ProviderCapability.normalize(copied.capabilities)
             capabilities.update(ProviderCapability.normalize(config.model_capabilities_add or []))
-            capabilities.difference_update(ProviderCapability.normalize(config.model_capabilities_remove or []))
+            capabilities.difference_update(
+                ProviderCapability.normalize(config.model_capabilities_remove or [])
+            )
 
             override = self._find_override(normalized_overrides, copied.id)
             if override:
@@ -207,8 +219,14 @@ class ModelRegistryService:
                 if override.owned_by is not None:
                     copied.owned_by = override.owned_by
                 capabilities.update(ProviderCapability.normalize(override.capabilities_add))
-                capabilities.difference_update(ProviderCapability.normalize(override.capabilities_remove))
-                copied.metadata = {**dict(copied.metadata), **dict(override.metadata), "overridden": True}
+                capabilities.difference_update(
+                    ProviderCapability.normalize(override.capabilities_remove)
+                )
+                copied.metadata = {
+                    **dict(copied.metadata),
+                    **dict(override.metadata),
+                    "overridden": True,
+                }
 
             copied.capabilities = sorted(capabilities)
             result.append(copied)
@@ -220,7 +238,9 @@ class ModelRegistryService:
                 continue
             capabilities = ProviderCapability.normalize(override.capabilities_add)
             capabilities.update(ProviderCapability.normalize(config.model_capabilities_add or []))
-            capabilities.difference_update(ProviderCapability.normalize(config.model_capabilities_remove or []))
+            capabilities.difference_update(
+                ProviderCapability.normalize(config.model_capabilities_remove or [])
+            )
             result.append(
                 ModelInfo(
                     id=override.id,
@@ -228,7 +248,11 @@ class ModelRegistryService:
                     context_window=override.context_window,
                     capabilities=sorted(capabilities),
                     owned_by=override.owned_by,
-                    metadata={**dict(override.metadata), "overridden": True, "source": "user_override"},
+                    metadata={
+                        **dict(override.metadata),
+                        "overridden": True,
+                        "source": "user_override",
+                    },
                 )
             )
         return result
@@ -248,8 +272,12 @@ class ModelRegistryService:
                     id=str(value.get("id") or model_id),
                     name=value.get("name"),
                     context_window=value.get("context_window"),
-                    capabilities_add=frozenset(ProviderCapability.normalize(value.get("capabilities_add") or [])),
-                    capabilities_remove=frozenset(ProviderCapability.normalize(value.get("capabilities_remove") or [])),
+                    capabilities_add=frozenset(
+                        ProviderCapability.normalize(value.get("capabilities_add") or [])
+                    ),
+                    capabilities_remove=frozenset(
+                        ProviderCapability.normalize(value.get("capabilities_remove") or [])
+                    ),
                     owned_by=value.get("owned_by"),
                     metadata=dict(value.get("metadata") or {}),
                 )

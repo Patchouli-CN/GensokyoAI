@@ -143,7 +143,6 @@ class SessionPersistenceIndexTests(unittest.TestCase):
             self.assertFalse(session_file.exists())
             self.assertNotIn(session.session_id, persistence._session_index)
 
-
     def test_save_session_creates_backup_before_overwrite(self):
         with tempfile.TemporaryDirectory() as tmp:
             persistence = SessionPersistence(Path(tmp))
@@ -187,7 +186,9 @@ class SessionPersistenceIndexTests(unittest.TestCase):
             persistence.save_session(session)
             session_file = Path(tmp) / "marisa" / f"{session.session_id}.json"
             session_file.write_text("{ broken json", encoding="utf-8")
-            session_file.with_name(f"{session_file.name}.bak").write_text("{ also broken", encoding="utf-8")
+            session_file.with_name(f"{session_file.name}.bak").write_text(
+                "{ also broken", encoding="utf-8"
+            )
 
             with self.assertRaises(json.JSONDecodeError):
                 persistence.load_session("marisa", session.session_id)
@@ -230,7 +231,7 @@ class PackagingConfigurationTests(unittest.TestCase):
         requirements = self._requirements_entries()
 
         self.assertIn("aiohttp>=3.9", requirements)
-        self.assertIn("ayafileio>=1.1.4", requirements)
+        self.assertIn("ayafileio>=1.1.5", requirements)
         self.assertNotIn("ollama", requirements)
         self.assertNotIn("openai", requirements)
         self.assertNotIn("anthropic", requirements)
@@ -342,7 +343,9 @@ class RuntimeRpcDispatchTests(unittest.TestCase):
         self.assertEqual(legacy_init["replacement"], "agent.init")
         self.assertEqual(legacy_init["remove_after"], "2.0.0")
 
-        runtime_info = next(item for item in info["method_specs"] if item["method"] == "runtime.info")
+        runtime_info = next(
+            item for item in info["method_specs"] if item["method"] == "runtime.info"
+        )
         self.assertEqual(runtime_info["namespace"], "runtime")
         self.assertFalse(runtime_info["legacy"])
         self.assertFalse(runtime_info["deprecated"])
@@ -362,7 +365,9 @@ class RuntimeRpcDispatchTests(unittest.TestCase):
             resolve_rpc_handler(service, "agent.send_message_stream").__name__,
             "send_message_stream",
         )
-        self.assertEqual(resolve_rpc_handler(service, "session.current").__name__, "current_session")
+        self.assertEqual(
+            resolve_rpc_handler(service, "session.current").__name__, "current_session"
+        )
         self.assertEqual(resolve_rpc_handler(service, "session.delete").__name__, "delete_session")
         self.assertEqual(resolve_rpc_handler(service, "session.export").__name__, "export_session")
         self.assertEqual(resolve_rpc_handler(service, "session.rename").__name__, "rename_session")
@@ -417,7 +422,9 @@ class RuntimeRpcDispatchTests(unittest.TestCase):
                 )
 
         async def run():
-            return await dispatch_rpc(ToolFailingService(), "runtime.info", {}, structured_errors=True)
+            return await dispatch_rpc(
+                ToolFailingService(), "runtime.info", {}, structured_errors=True
+            )
 
         response = asyncio.run(run())
 
@@ -505,7 +512,12 @@ class FakeRuntimeSemanticMemory:
         self.deleted = False
 
     def list_memories(self, **kwargs):
-        return {"items": [self.item], "total": 1, "limit": kwargs.get("limit"), "offset": kwargs.get("offset")}
+        return {
+            "items": [self.item],
+            "total": 1,
+            "limit": kwargs.get("limit"),
+            "offset": kwargs.get("offset"),
+        }
 
     async def search_async(self, **kwargs):
         return [{**self.item, "score": 0.9, "matched_by": ["memory_keyword"]}]
@@ -516,7 +528,10 @@ class FakeRuntimeSemanticMemory:
     async def update_memory(self, memory_id, **kwargs):
         if memory_id != "memory-1" or self.deleted:
             return None
-        self.item = {**self.item, **{key: value for key, value in kwargs.items() if value is not None}}
+        self.item = {
+            **self.item,
+            **{key: value for key, value in kwargs.items() if value is not None},
+        }
         return self.item
 
     async def delete_memory(self, memory_id):
@@ -539,7 +554,9 @@ class RuntimeMemoryRpcTests(unittest.TestCase):
             listed = await service.handle("memory.list", {"limit": 10})
             searched = await service.handle("memory.search", {"query": "喝茶"})
             fetched = await service.handle("memory.get", {"memory_id": "memory-1"})
-            updated = await service.handle("memory.update", {"memory_id": "memory-1", "importance": 0.9})
+            updated = await service.handle(
+                "memory.update", {"memory_id": "memory-1", "importance": 0.9}
+            )
             graph = await service.handle("memory.graph")
             deleted = await service.handle("memory.delete", {"memory_id": "memory-1"})
             missing = await service.handle("memory.get", {"memory_id": "memory-1"})

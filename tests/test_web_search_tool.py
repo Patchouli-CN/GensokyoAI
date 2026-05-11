@@ -156,7 +156,9 @@ class WebSearchToolTests(unittest.TestCase):
         self.assertIn("config", result.errors)
 
     def test_service_ranks_deduplicates_and_caches_mixed_results(self):
-        config = WebSearchToolConfig(enabled=True, provider="mixed", max_results=5, cache_ttl_seconds=60)
+        config = WebSearchToolConfig(
+            enabled=True, provider="mixed", max_results=5, cache_ttl_seconds=60
+        )
         service = WebSearchService(config)
         calls = {"count": 0}
 
@@ -167,7 +169,9 @@ class WebSearchToolTests(unittest.TestCase):
                     provider="bing",
                     items=[
                         SearchItem("Brief", "https://example.test/b", "short", "bing"),
-                        SearchItem("Duplicate", "https://example.test/a?utm_source=x", "duplicate", "bing"),
+                        SearchItem(
+                            "Duplicate", "https://example.test/a?utm_source=x", "duplicate", "bing"
+                        ),
                     ],
                 )
             return ProviderSearchResult(
@@ -182,8 +186,14 @@ class WebSearchToolTests(unittest.TestCase):
                 ],
             )
 
-        with patch("GensokyoAI.tools.web_search.providers.bing.BingSearchProvider.search", fake_search), patch(
-            "GensokyoAI.tools.web_search.providers.api.GenericAPISearchProvider.search", fake_search
+        with (
+            patch(
+                "GensokyoAI.tools.web_search.providers.bing.BingSearchProvider.search", fake_search
+            ),
+            patch(
+                "GensokyoAI.tools.web_search.providers.api.GenericAPISearchProvider.search",
+                fake_search,
+            ),
         ):
             first = asyncio.run(service.search("query", provider="mixed", max_results=5))
             second = asyncio.run(service.search("query", provider="mixed", max_results=5))

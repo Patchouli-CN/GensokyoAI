@@ -33,7 +33,9 @@ def _schema(name: str) -> dict:
 
 
 class FakeExternalSource:
-    def __init__(self, source_id="server", *, fail_list=False, metadata=None, result=None, delay=0.0):
+    def __init__(
+        self, source_id="server", *, fail_list=False, metadata=None, result=None, delay=0.0
+    ):
         self.source_id = source_id
         self.fail_list = fail_list
         self.metadata = metadata or {"transport": "fake"}
@@ -151,7 +153,9 @@ class ExternalToolManagerContractTests(unittest.TestCase):
     def test_manager_denies_risky_external_tool_permissions(self):
         manager = ExternalToolManager()
         manager.register_source(
-            FakeExternalSource("server", metadata={"permissions": ["filesystem"], "transport": "fake"})
+            FakeExternalSource(
+                "server", metadata={"permissions": ["filesystem"], "transport": "fake"}
+            )
         )
 
         async def run():
@@ -188,9 +192,11 @@ class ExternalToolManagerContractTests(unittest.TestCase):
         )
         manager.register_source(FakeExternalSource("server", delay=0.05))
 
-        result = asyncio.run(ToolExecutor(ToolRegistry(), external_tool_manager=manager).execute(
-            {"id": "call-1", "name": "external__server__search", "arguments": {}}
-        ))
+        result = asyncio.run(
+            ToolExecutor(ToolRegistry(), external_tool_manager=manager).execute(
+                {"id": "call-1", "name": "external__server__search", "arguments": {}}
+            )
+        )
 
         self.assertTrue(result["is_error"])
         self.assertEqual(result["error"]["error_code"], "external_tool.timeout")
@@ -214,7 +220,9 @@ class ExternalToolRuntimeAndBuildTests(unittest.TestCase):
         self.assertIn("external_tool_status", legacy_rpc_methods())
         self.assertEqual(status["source_count"], 1)
         self.assertEqual(status["tool_count"], 1)
-        self.assertEqual(status["sources"][0]["tools"][0]["namespaced_name"], "external__server__search")
+        self.assertEqual(
+            status["sources"][0]["tools"][0]["namespaced_name"], "external__server__search"
+        )
         self.assertNotIn("tools", legacy["sources"][0])
         self.assertIn("external_tools", info)
 
@@ -312,7 +320,10 @@ class ExternalToolRuntimeAndBuildTests(unittest.TestCase):
         self.assertEqual(tools[0].namespaced_name, "external__mcpserver__lookup")
         self.assertEqual(tools[0].permissions, {"read-only"})
         self.assertEqual(result["content"][0]["text"], "hello")
-        self.assertEqual([request[0] for request in transport.requests], ["initialize", "tools/list", "tools/call"])
+        self.assertEqual(
+            [request[0] for request in transport.requests],
+            ["initialize", "tools/list", "tools/call"],
+        )
 
 
 if __name__ == "__main__":

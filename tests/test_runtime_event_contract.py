@@ -36,7 +36,9 @@ class _RuntimeContractProvider(BaseProvider):
             raise error
         return UnifiedResponse(message=UnifiedMessage(content="answer"), model=model, done=True)
 
-    async def chat_stream(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
+    async def chat_stream(
+        self, model: str, messages: list[dict], tools=None, options=None, **kwargs
+    ):
         yield StreamChunk(content="hello")
         yield StreamChunk(type="finish", finish_reason="stop")
 
@@ -107,7 +109,9 @@ class RuntimeEventContractTests(unittest.TestCase):
         self.assertIn(SystemEvent.MODEL_COMPLETED, event_types)
         self.assertNotIn(SystemEvent.MODEL_FAILED, event_types)
 
-        started = next(event for event in event_bus.events if event.type == SystemEvent.MODEL_REQUEST_STARTED)
+        started = next(
+            event for event in event_bus.events if event.type == SystemEvent.MODEL_REQUEST_STARTED
+        )
         self.assertEqual(started.data["context"], "chat")
         self.assertEqual(started.data["provider"], "test")
 
@@ -147,7 +151,9 @@ class RuntimeEventContractTests(unittest.TestCase):
         event_types = [event.type for event in event_bus.events]
         self.assertIn(SystemEvent.BACKGROUND_WORKER_STARTED, event_types)
         self.assertIn(SystemEvent.BACKGROUND_WORKER_IDLE, event_types)
-        idle = next(event for event in event_bus.events if event.type == SystemEvent.BACKGROUND_WORKER_IDLE)
+        idle = next(
+            event for event in event_bus.events if event.type == SystemEvent.BACKGROUND_WORKER_IDLE
+        )
         self.assertEqual(idle.data["worker_id"], 0)
 
 

@@ -178,9 +178,11 @@ class DeepSeekReasoningFlowTests(unittest.TestCase):
         self.assertEqual(context[2]["role"], "assistant")
         self.assertEqual(context[2]["reasoning_content"], "工具结果整合思考。")
 
-        next_turn_messages = [{"role": "system", "content": "sys"}] + context + [
-            {"role": "user", "content": "可以可以！"}
-        ]
+        next_turn_messages = (
+            [{"role": "system", "content": "sys"}]
+            + context
+            + [{"role": "user", "content": "可以可以！"}]
+        )
         assistant_messages = [m for m in next_turn_messages if m["role"] == "assistant"]
         self.assertTrue(assistant_messages)
         self.assertTrue(all("reasoning_content" in m for m in assistant_messages))

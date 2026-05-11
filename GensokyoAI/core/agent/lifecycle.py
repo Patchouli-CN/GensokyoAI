@@ -164,7 +164,7 @@ class LifecycleManager:
             try:
                 # 使用 asyncio.shield 防止任务被意外取消导致状态异常
                 await asyncio.shield(self._bg_task)
-            except (asyncio.CancelledError, asyncio.InvalidStateError):
+            except asyncio.CancelledError, asyncio.InvalidStateError:
                 pass
             except Exception as e:
                 logger.debug(f"后台任务关闭时出现异常: {e}")

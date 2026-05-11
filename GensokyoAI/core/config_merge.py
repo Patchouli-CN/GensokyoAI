@@ -35,7 +35,11 @@ class ConfigMerger:
 
         def choose(field_name: str, legacy_value: Any) -> Any:
             if provided is not None:
-                return getattr(override, field_name) if field_name in provided else getattr(base, field_name)
+                return (
+                    getattr(override, field_name)
+                    if field_name in provided
+                    else getattr(base, field_name)
+                )
             return legacy_value
 
         # 日志配置 - override 优先
@@ -76,11 +80,17 @@ class ConfigMerger:
 
         def choose(field_name: str, legacy_value: Any) -> Any:
             if provided is not None:
-                return getattr(override, field_name) if field_name in provided else getattr(base, field_name)
+                return (
+                    getattr(override, field_name)
+                    if field_name in provided
+                    else getattr(base, field_name)
+                )
             return legacy_value
 
         return ModelConfig(
-            provider=choose("provider", override.provider if override.provider != "ollama" else base.provider),
+            provider=choose(
+                "provider", override.provider if override.provider != "ollama" else base.provider
+            ),
             name=choose("name", override.name if override.name != "qwen3.5:9b" else base.name),
             base_url=choose("base_url", override.base_url or base.base_url),
             api_path=choose("api_path", override.api_path or base.api_path),
@@ -105,7 +115,9 @@ class ConfigMerger:
                 "web_search_user_location",
                 override.web_search_user_location or base.web_search_user_location,
             ),
-            web_search_allow_fallback=choose("web_search_allow_fallback", override.web_search_allow_fallback),
+            web_search_allow_fallback=choose(
+                "web_search_allow_fallback", override.web_search_allow_fallback
+            ),
             web_search_metadata=choose(
                 "web_search_metadata",
                 override.web_search_metadata or base.web_search_metadata,
@@ -118,7 +130,9 @@ class ConfigMerger:
                 if override.thinking_enabled is not None
                 else base.thinking_enabled,
             ),
-            reasoning_effort=choose("reasoning_effort", override.reasoning_effort or base.reasoning_effort),
+            reasoning_effort=choose(
+                "reasoning_effort", override.reasoning_effort or base.reasoning_effort
+            ),
             temperature=choose(
                 "temperature",
                 override.temperature if override.temperature != 0.7 else base.temperature,
@@ -135,7 +149,9 @@ class ConfigMerger:
             ),
             retry_max_attempts=choose(
                 "retry_max_attempts",
-                override.retry_max_attempts if override.retry_max_attempts != 3 else base.retry_max_attempts,
+                override.retry_max_attempts
+                if override.retry_max_attempts != 3
+                else base.retry_max_attempts,
             ),
             retry_initial_delay=choose(
                 "retry_initial_delay",
@@ -161,7 +177,11 @@ class ConfigMerger:
 
         def choose(field_name: str, legacy_value: Any) -> Any:
             if provided is not None:
-                return getattr(override, field_name) if field_name in provided else getattr(base, field_name)
+                return (
+                    getattr(override, field_name)
+                    if field_name in provided
+                    else getattr(base, field_name)
+                )
             return legacy_value
 
         return EmbeddingConfig(
@@ -170,7 +190,9 @@ class ConfigMerger:
             base_url=choose("base_url", override.base_url or base.base_url),
             api_key=choose("api_key", override.api_key or base.api_key),
             dimensions=choose("dimensions", override.dimensions or base.dimensions),
-            encoding_format=choose("encoding_format", override.encoding_format or base.encoding_format),
+            encoding_format=choose(
+                "encoding_format", override.encoding_format or base.encoding_format
+            ),
             timeout=choose("timeout", override.timeout or base.timeout),
             use_proxy=choose(
                 "use_proxy",
@@ -184,17 +206,25 @@ class ConfigMerger:
 
         def choose(field_name: str, legacy_value: Any) -> Any:
             if provided is not None:
-                return getattr(override, field_name) if field_name in provided else getattr(base, field_name)
+                return (
+                    getattr(override, field_name)
+                    if field_name in provided
+                    else getattr(base, field_name)
+                )
             return legacy_value
 
         return MemoryConfig(
             working_max_turns=choose(
                 "working_max_turns",
-                override.working_max_turns if override.working_max_turns != 20 else base.working_max_turns,
+                override.working_max_turns
+                if override.working_max_turns != 20
+                else base.working_max_turns,
             ),
             episodic_threshold=choose(
                 "episodic_threshold",
-                override.episodic_threshold if override.episodic_threshold != 50 else base.episodic_threshold,
+                override.episodic_threshold
+                if override.episodic_threshold != 50
+                else base.episodic_threshold,
             ),
             episodic_summary_model=choose(
                 "episodic_summary_model",
@@ -204,7 +234,9 @@ class ConfigMerger:
             ),
             episodic_keep_recent=choose(
                 "episodic_keep_recent",
-                override.episodic_keep_recent if override.episodic_keep_recent != 10 else base.episodic_keep_recent,
+                override.episodic_keep_recent
+                if override.episodic_keep_recent != 10
+                else base.episodic_keep_recent,
             ),
             semantic_enabled=choose("semantic_enabled", override.semantic_enabled),
             semantic_top_k=choose(
@@ -220,7 +252,9 @@ class ConfigMerger:
             auto_memory_enabled=choose("auto_memory_enabled", override.auto_memory_enabled),
             auto_memory_model=choose(
                 "auto_memory_model",
-                override.auto_memory_model if override.auto_memory_model != "qwen3.5:9b" else base.auto_memory_model,
+                override.auto_memory_model
+                if override.auto_memory_model != "qwen3.5:9b"
+                else base.auto_memory_model,
             ),
             topic_generation=self._merge_topic_generation(
                 base.topic_generation,
@@ -238,17 +272,25 @@ class ConfigMerger:
 
         def choose(field_name: str, legacy_value: Any) -> Any:
             if provided is not None:
-                return getattr(override, field_name) if field_name in provided else getattr(base, field_name)
+                return (
+                    getattr(override, field_name)
+                    if field_name in provided
+                    else getattr(base, field_name)
+                )
             return legacy_value
 
         return TopicGenerationConfig(
             name_max_length=choose(
                 "name_max_length",
-                override.name_max_length if override.name_max_length != 10 else base.name_max_length,
+                override.name_max_length
+                if override.name_max_length != 10
+                else base.name_max_length,
             ),
             summary_max_length=choose(
                 "summary_max_length",
-                override.summary_max_length if override.summary_max_length != 100 else base.summary_max_length,
+                override.summary_max_length
+                if override.summary_max_length != 100
+                else base.summary_max_length,
             ),
         )
 
@@ -275,7 +317,11 @@ class ConfigMerger:
 
         def choose(field_name: str, legacy_value: Any) -> Any:
             if provided is not None:
-                return getattr(override, field_name) if field_name in provided else getattr(base, field_name)
+                return (
+                    getattr(override, field_name)
+                    if field_name in provided
+                    else getattr(base, field_name)
+                )
             return legacy_value
 
         return WebSearchAPIConfig(
@@ -284,14 +330,20 @@ class ConfigMerger:
             api_key=choose("api_key", override.api_key or base.api_key),
             api_key_header=choose(
                 "api_key_header",
-                override.api_key_header if override.api_key_header != "Authorization" else base.api_key_header,
+                override.api_key_header
+                if override.api_key_header != "Authorization"
+                else base.api_key_header,
             ),
             api_key_prefix=choose(
                 "api_key_prefix",
-                override.api_key_prefix if override.api_key_prefix != "Bearer " else base.api_key_prefix,
+                override.api_key_prefix
+                if override.api_key_prefix != "Bearer "
+                else base.api_key_prefix,
             ),
             headers=choose("headers", override.headers or base.headers),
-            request_template=choose("request_template", override.request_template or base.request_template),
+            request_template=choose(
+                "request_template", override.request_template or base.request_template
+            ),
             query_params=choose("query_params", override.query_params or base.query_params),
             results_path=choose(
                 "results_path",
@@ -325,28 +377,47 @@ class ConfigMerger:
 
         def choose(field_name: str, legacy_value: Any) -> Any:
             if provided is not None:
-                return getattr(override, field_name) if field_name in provided else getattr(base, field_name)
+                return (
+                    getattr(override, field_name)
+                    if field_name in provided
+                    else getattr(base, field_name)
+                )
             return legacy_value
 
         default_user_agent = WebSearchToolConfig().user_agent
         return WebSearchToolConfig(
-            enabled=choose("enabled", override.enabled if override.enabled != base.enabled else base.enabled),
-            provider=choose("provider", override.provider if override.provider != "bing" else base.provider),
-            max_results=choose("max_results", override.max_results if override.max_results != 10 else base.max_results),
+            enabled=choose(
+                "enabled", override.enabled if override.enabled != base.enabled else base.enabled
+            ),
+            provider=choose(
+                "provider", override.provider if override.provider != "bing" else base.provider
+            ),
+            max_results=choose(
+                "max_results",
+                override.max_results if override.max_results != 10 else base.max_results,
+            ),
             timeout=choose("timeout", override.timeout if override.timeout != 10 else base.timeout),
             cache_ttl_seconds=choose(
                 "cache_ttl_seconds",
-                override.cache_ttl_seconds if override.cache_ttl_seconds != 300 else base.cache_ttl_seconds,
+                override.cache_ttl_seconds
+                if override.cache_ttl_seconds != 300
+                else base.cache_ttl_seconds,
             ),
             user_agent=choose(
                 "user_agent",
-                override.user_agent if override.user_agent != default_user_agent else base.user_agent,
+                override.user_agent
+                if override.user_agent != default_user_agent
+                else base.user_agent,
             ),
             trigger_strategy=choose(
                 "trigger_strategy",
-                override.trigger_strategy if override.trigger_strategy != "explicit" else base.trigger_strategy,
+                override.trigger_strategy
+                if override.trigger_strategy != "explicit"
+                else base.trigger_strategy,
             ),
-            freshness_keywords=choose("freshness_keywords", override.freshness_keywords or base.freshness_keywords),
+            freshness_keywords=choose(
+                "freshness_keywords", override.freshness_keywords or base.freshness_keywords
+            ),
             prefer_for_characters=choose(
                 "prefer_for_characters",
                 override.prefer_for_characters or base.prefer_for_characters,
@@ -362,7 +433,9 @@ class ConfigMerger:
             ),
             snippet_max_length=choose(
                 "snippet_max_length",
-                override.snippet_max_length if override.snippet_max_length != 200 else base.snippet_max_length,
+                override.snippet_max_length
+                if override.snippet_max_length != 200
+                else base.snippet_max_length,
             ),
             api=self._merge_web_search_api(base.api, override.api),
         )
@@ -373,16 +446,26 @@ class ConfigMerger:
 
         def choose(field_name: str, legacy_value: Any) -> Any:
             if provided is not None:
-                return getattr(override, field_name) if field_name in provided else getattr(base, field_name)
+                return (
+                    getattr(override, field_name)
+                    if field_name in provided
+                    else getattr(base, field_name)
+                )
             return legacy_value
 
         return ToolConfig(
-            enabled=choose("enabled", override.enabled if override.enabled != base.enabled else base.enabled),
+            enabled=choose(
+                "enabled", override.enabled if override.enabled != base.enabled else base.enabled
+            ),
             builtin_tools=choose(
                 "builtin_tools",
-                override.builtin_tools if override.builtin_tools != base.builtin_tools else base.builtin_tools,
+                override.builtin_tools
+                if override.builtin_tools != base.builtin_tools
+                else base.builtin_tools,
             ),
-            custom_tools_path=choose("custom_tools_path", override.custom_tools_path or base.custom_tools_path),
+            custom_tools_path=choose(
+                "custom_tools_path", override.custom_tools_path or base.custom_tools_path
+            ),
             web_search=self._merge_web_search_tool(base.web_search, override.web_search),
         )
 
@@ -393,13 +476,26 @@ class ConfigMerger:
 
         def choose(field_name: str, legacy_value: Any) -> Any:
             if provided is not None:
-                return getattr(override, field_name) if field_name in provided else getattr(base, field_name)
+                return (
+                    getattr(override, field_name)
+                    if field_name in provided
+                    else getattr(base, field_name)
+                )
             return legacy_value
 
         return SessionConfig(
-            auto_save=choose("auto_save", override.auto_save if override.auto_save != base.auto_save else base.auto_save),
-            save_path=choose("save_path", override.save_path if override.save_path != default_path else base.save_path),
-            max_sessions=choose("max_sessions", override.max_sessions if override.max_sessions != 100 else base.max_sessions),
+            auto_save=choose(
+                "auto_save",
+                override.auto_save if override.auto_save != base.auto_save else base.auto_save,
+            ),
+            save_path=choose(
+                "save_path",
+                override.save_path if override.save_path != default_path else base.save_path,
+            ),
+            max_sessions=choose(
+                "max_sessions",
+                override.max_sessions if override.max_sessions != 100 else base.max_sessions,
+            ),
         )
 
     def _merge_think_engine(
@@ -410,22 +506,34 @@ class ConfigMerger:
 
         def choose(field_name: str, legacy_value: Any) -> Any:
             if provided is not None:
-                return getattr(override, field_name) if field_name in provided else getattr(base, field_name)
+                return (
+                    getattr(override, field_name)
+                    if field_name in provided
+                    else getattr(base, field_name)
+                )
             return legacy_value
 
         return ThinkEngineConfig(
-            enabled=choose("enabled", override.enabled if override.enabled != base.enabled else base.enabled),
+            enabled=choose(
+                "enabled", override.enabled if override.enabled != base.enabled else base.enabled
+            ),
             think_interval_minutes=choose(
                 "think_interval_minutes",
-                override.think_interval_minutes if override.think_interval_minutes != 5 else base.think_interval_minutes,
+                override.think_interval_minutes
+                if override.think_interval_minutes != 5
+                else base.think_interval_minutes,
             ),
             random_walk_steps_min=choose(
                 "random_walk_steps_min",
-                override.random_walk_steps_min if override.random_walk_steps_min != 2 else base.random_walk_steps_min,
+                override.random_walk_steps_min
+                if override.random_walk_steps_min != 2
+                else base.random_walk_steps_min,
             ),
             random_walk_steps_max=choose(
                 "random_walk_steps_max",
-                override.random_walk_steps_max if override.random_walk_steps_max != 5 else base.random_walk_steps_max,
+                override.random_walk_steps_max
+                if override.random_walk_steps_max != 5
+                else base.random_walk_steps_max,
             ),
             emotional_trigger_threshold=choose(
                 "emotional_trigger_threshold",
@@ -441,11 +549,15 @@ class ConfigMerger:
             ),
             think_temperature=choose(
                 "think_temperature",
-                override.think_temperature if override.think_temperature != 0.7 else base.think_temperature,
+                override.think_temperature
+                if override.think_temperature != 0.7
+                else base.think_temperature,
             ),
             think_max_tokens=choose(
                 "think_max_tokens",
-                override.think_max_tokens if override.think_max_tokens != 200 else base.think_max_tokens,
+                override.think_max_tokens
+                if override.think_max_tokens != 200
+                else base.think_max_tokens,
             ),
             initiative_temperature=choose(
                 "initiative_temperature",

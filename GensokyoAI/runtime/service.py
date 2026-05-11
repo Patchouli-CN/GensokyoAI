@@ -307,8 +307,7 @@ class RuntimeService:
                 raise ValueError(f"Session does not exist: {session_id}")
             next_current = agent.session_manager.get_current_session()
             remaining_sessions = [
-                self._session_payload(session)
-                for session in agent.session_manager.list_sessions()
+                self._session_payload(session) for session in agent.session_manager.list_sessions()
             ]
             return {
                 "deleted": True,
@@ -545,11 +544,15 @@ class RuntimeService:
             threshold=threshold,
             include_embedding=include_embedding,
         )
-        diagnostics = items[0].get("diagnostics", {}) if items else {
-            "embedding_requested": include_embedding,
-            "embedding_used": False,
-            "threshold": threshold,
-        }
+        diagnostics = (
+            items[0].get("diagnostics", {})
+            if items
+            else {
+                "embedding_requested": include_embedding,
+                "embedding_used": False,
+                "threshold": threshold,
+            }
+        )
         return {
             "query": query,
             "items": items,
@@ -714,7 +717,9 @@ class RuntimeService:
         try:
             return agent.semantic_memory
         except Exception as error:
-            raise RuntimeError("Semantic memory is not available for the current session") from error
+            raise RuntimeError(
+                "Semantic memory is not available for the current session"
+            ) from error
 
     def _resolve_optional(self, value: str | None) -> Path | None:
         if not value:

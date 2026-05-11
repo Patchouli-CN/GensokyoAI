@@ -28,9 +28,7 @@ class RequestUtilsTests(unittest.TestCase):
         self.assertEqual(endpoint.api_path, "/chat/completions")
 
     def test_normalize_openai_full_endpoint(self):
-        endpoint = normalize_openai_api_host_and_path(
-            "https://api.openai.com/v1/chat/completions"
-        )
+        endpoint = normalize_openai_api_host_and_path("https://api.openai.com/v1/chat/completions")
         self.assertEqual(endpoint.api_host, "https://api.openai.com/v1")
         self.assertEqual(endpoint.api_path, "/chat/completions")
 
@@ -50,7 +48,6 @@ class RequestUtilsTests(unittest.TestCase):
         endpoint = normalize_openai_responses_host_and_path("https://api.openai.com")
         self.assertEqual(endpoint.api_host, "https://api.openai.com/v1")
         self.assertEqual(endpoint.api_path, "/responses")
-
 
     def test_post_sse_reports_invalid_json_with_event_diagnostics(self):
         mock_readline = AsyncMock()
@@ -73,7 +70,10 @@ class RequestUtilsTests(unittest.TestCase):
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("GensokyoAI.utils.request_utils.aiohttp.ClientSession", return_value=mock_session):
+        with patch(
+            "GensokyoAI.utils.request_utils.aiohttp.ClientSession", return_value=mock_session
+        ):
+
             async def collect():
                 async for _ in post_sse("https://api.example.test/sse", {}, {}, 1):
                     pass

@@ -213,7 +213,6 @@ class ToolBuildServiceTests(unittest.TestCase):
         self.assertIn("test: instruction", builder.system_prompt)
         self.assertNotIn("Provider 内置联网搜索", builder.system_prompt)
 
-
     def test_agent_publishes_tool_selected_event_payload(self):
         event_bus = EventBus(enable_trace=False)
         events = []
@@ -247,7 +246,6 @@ class ToolBuildServiceTests(unittest.TestCase):
         self.assertTrue(data["model_supports_tools"])
         self.assertTrue(data["has_instructions"])
         self.assertEqual(data["disabled_reasons"], {"web_search": "not_in_builtin_tools"})
-
 
     def test_agent_build_tools_uses_model_registry_capabilities_over_provider_capabilities(self):
         agent = Agent.__new__(Agent)

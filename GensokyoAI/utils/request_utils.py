@@ -148,7 +148,9 @@ def normalize_search_url(url: str) -> str:
                 if not key.lower().startswith("utm_")
             ]
         )
-        return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), parts.path.rstrip("/"), query, ""))
+        return urlunsplit(
+            (parts.scheme.lower(), parts.netloc.lower(), parts.path.rstrip("/"), query, "")
+        )
     except Exception:
         return url
 
@@ -282,7 +284,9 @@ def merge_headers(*headers: dict[str, Any] | None) -> dict[str, str]:
     return merged
 
 
-async def post_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeout: float | None = None) -> dict[str, Any]:
+async def post_json(
+    url: str, payload: dict[str, Any], headers: dict[str, str], timeout: float | None = None
+) -> dict[str, Any]:
     """异步执行 JSON POST；用于 SDK 无法表达任意 api_path 的场景。"""
     request_headers = {"Content-Type": "application/json", **headers}
     timeout_obj = aiohttp.ClientTimeout(total=timeout)
@@ -318,7 +322,9 @@ def _preview_text(value: str, limit: int = 500) -> str:
     return compact[:limit] + "..."
 
 
-async def post_sse(url: str, payload: dict[str, Any], headers: dict[str, str], timeout: float | None = None) -> AsyncIterator[dict[str, Any]]:
+async def post_sse(
+    url: str, payload: dict[str, Any], headers: dict[str, str], timeout: float | None = None
+) -> AsyncIterator[dict[str, Any]]:
     """异步执行 SSE POST，并逐条产出 JSON data。"""
     request_headers = {"Content-Type": "application/json", "Accept": "text/event-stream", **headers}
     timeout_obj = aiohttp.ClientTimeout(total=timeout)

@@ -163,7 +163,9 @@ class ThinkEngine:
             thought = response.message.content
             if thought:
                 if self.debug_silent_output:
-                    logger.info(f"💭 [ThinkEngine] {self.character_name} 内心独白: {thought[:100]}...")
+                    logger.info(
+                        f"💭 [ThinkEngine] {self.character_name} 内心独白: {thought[:100]}..."
+                    )
                 else:
                     logger.debug(
                         f"💭 [ThinkEngine] {self.character_name} 产生静默思考（调试输出关闭，内容已隐藏）"

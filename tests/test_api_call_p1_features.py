@@ -45,7 +45,9 @@ class _EmbeddingsProvider(BaseProvider):
     async def chat(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
         raise NotImplementedError
 
-    async def chat_stream(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
+    async def chat_stream(
+        self, model: str, messages: list[dict], tools=None, options=None, **kwargs
+    ):
         if False:
             yield None
 
@@ -54,7 +56,9 @@ class _NoEmbeddingsProvider(BaseProvider):
     async def chat(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
         raise NotImplementedError
 
-    async def chat_stream(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
+    async def chat_stream(
+        self, model: str, messages: list[dict], tools=None, options=None, **kwargs
+    ):
         if False:
             yield None
 
@@ -67,13 +71,17 @@ class _ImageProvider(BaseProvider):
     async def chat(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
         raise NotImplementedError
 
-    async def chat_stream(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
+    async def chat_stream(
+        self, model: str, messages: list[dict], tools=None, options=None, **kwargs
+    ):
         if False:
             yield None
 
     async def image_generation(self, request: ImageGenerationRequest, **kwargs):
         return ImageGenerationResult(
-            images=[GeneratedImage(url="https://example.test/image.png", revised_prompt=request.prompt)],
+            images=[
+                GeneratedImage(url="https://example.test/image.png", revised_prompt=request.prompt)
+            ],
             model=request.model or "image-model",
         )
 
@@ -90,7 +98,9 @@ class _TimingProvider(BaseProvider):
             done=True,
         )
 
-    async def chat_stream(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
+    async def chat_stream(
+        self, model: str, messages: list[dict], tools=None, options=None, **kwargs
+    ):
         yield StreamChunk(type="reasoning", reasoning_content="思考")
         yield StreamChunk(content="回答")
         yield StreamChunk(type="finish", finish_reason="stop", usage={"total_tokens": 3})
@@ -105,7 +115,9 @@ class _FailOnceStreamProvider(BaseProvider):
     async def chat(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
         raise NotImplementedError
 
-    async def chat_stream(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
+    async def chat_stream(
+        self, model: str, messages: list[dict], tools=None, options=None, **kwargs
+    ):
         self.__class__.calls += 1
         if self.__class__.calls == 1:
             error = RuntimeError("temporary")
@@ -144,7 +156,9 @@ class _SlowFirstChunkProvider(BaseProvider):
     async def chat(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
         raise NotImplementedError
 
-    async def chat_stream(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
+    async def chat_stream(
+        self, model: str, messages: list[dict], tools=None, options=None, **kwargs
+    ):
         await asyncio.sleep(0.05)
         yield StreamChunk(content="late")
 
@@ -232,7 +246,9 @@ class P1ApiCallFeatureTests(unittest.TestCase):
                     "role": "user",
                     "content": [
                         MessageContentPart(type="text", text="描述"),
-                        MessageContentPart(type="image", image=ImageInput(url="https://example.test/a.png")),
+                        MessageContentPart(
+                            type="image", image=ImageInput(url="https://example.test/a.png")
+                        ),
                     ],
                 },
             ]
@@ -254,7 +270,9 @@ class P1ApiCallFeatureTests(unittest.TestCase):
                     "role": "user",
                     "content": [
                         MessageContentPart(type="text", text="描述"),
-                        MessageContentPart(type="image", image=ImageInput(data="ZmFrZQ==", mime_type="image/png")),
+                        MessageContentPart(
+                            type="image", image=ImageInput(data="ZmFrZQ==", mime_type="image/png")
+                        ),
                     ],
                 },
             ]
@@ -276,7 +294,9 @@ class P1ApiCallFeatureTests(unittest.TestCase):
                     "role": "user",
                     "content": [
                         MessageContentPart(type="text", text="描述"),
-                        MessageContentPart(type="image", image=ImageInput(data="ZmFrZQ==", mime_type="image/png")),
+                        MessageContentPart(
+                            type="image", image=ImageInput(data="ZmFrZQ==", mime_type="image/png")
+                        ),
                     ],
                 },
             ]
@@ -303,10 +323,24 @@ class P1ApiCallFeatureTests(unittest.TestCase):
         checks = [
             (OpenAIProvider, {ProviderCapability.EMBEDDINGS, ProviderCapability.CUSTOM_ENDPOINT}),
             (OpenRouterProvider, {ProviderCapability.TOOLS, ProviderCapability.CUSTOM_ENDPOINT}),
-            (OpenAIResponsesProvider, {ProviderCapability.RESPONSES_API, ProviderCapability.REASONING, ProviderCapability.WEB_SEARCH}),
+            (
+                OpenAIResponsesProvider,
+                {
+                    ProviderCapability.RESPONSES_API,
+                    ProviderCapability.REASONING,
+                    ProviderCapability.WEB_SEARCH,
+                },
+            ),
             (DeepSeekProvider, {ProviderCapability.REASONING}),
             (OllamaProvider, {ProviderCapability.EMBEDDINGS}),
-            (GeminiProvider, {ProviderCapability.VISION, ProviderCapability.EMBEDDINGS, ProviderCapability.WEB_SEARCH}),
+            (
+                GeminiProvider,
+                {
+                    ProviderCapability.VISION,
+                    ProviderCapability.EMBEDDINGS,
+                    ProviderCapability.WEB_SEARCH,
+                },
+            ),
             (ClaudeProvider, {ProviderCapability.REASONING, ProviderCapability.VISION}),
         ]
         for provider_cls, expected in checks:
@@ -512,7 +546,10 @@ class P1ApiCallFeatureTests(unittest.TestCase):
         client.config = ModelConfig()
         client._embedding_config = EmbeddingConfig(name="embed-model")
         client._embedding_provider = _EmbeddingsProvider(ModelConfig())
-        client._get_embedding_provider = lambda: (client._embedding_provider, ModelConfig(name="embed-model"))
+        client._get_embedding_provider = lambda: (
+            client._embedding_provider,
+            ModelConfig(name="embed-model"),
+        )
         self.assertTrue(client.supports_embeddings)
 
     def test_openai_extra_headers_passed_to_sdk(self):
@@ -664,13 +701,14 @@ class P1ApiCallFeatureTests(unittest.TestCase):
         client._event_bus = None
 
         async def collect():
-            return [chunk async for chunk in client.chat_stream([{"role": "user", "content": "hi"}])]
+            return [
+                chunk async for chunk in client.chat_stream([{"role": "user", "content": "hi"}])
+            ]
 
         chunks = asyncio.run(collect())
         self.assertEqual(chunks[0].type, "status")
         self.assertEqual(chunks[0].status, "retrying")
         self.assertEqual(chunks[1].content, "ok")
-
 
     def test_chat_publishes_timing_event(self):
         event_bus = _CollectingEventBus()
@@ -700,7 +738,9 @@ class P1ApiCallFeatureTests(unittest.TestCase):
         client._event_bus = event_bus
 
         async def collect():
-            return [chunk async for chunk in client.chat_stream([{"role": "user", "content": "hi"}])]
+            return [
+                chunk async for chunk in client.chat_stream([{"role": "user", "content": "hi"}])
+            ]
 
         chunks = asyncio.run(collect())
         finish = chunks[-1]
@@ -725,8 +765,13 @@ class P1ApiCallFeatureTests(unittest.TestCase):
         client = ModelClient.__new__(ModelClient)
         client.config = ModelConfig(provider="test", name="chat-model", retry_initial_delay=0)
         client._embedding_config = EmbeddingConfig(provider="test", name="embed-model")
-        client._embedding_provider = _TimingProvider(ModelConfig(provider="test", name="embed-model"))
-        client._get_embedding_provider = lambda: (client._embedding_provider, client._embedding_provider.config)
+        client._embedding_provider = _TimingProvider(
+            ModelConfig(provider="test", name="embed-model")
+        )
+        client._get_embedding_provider = lambda: (
+            client._embedding_provider,
+            client._embedding_provider.config,
+        )
         client._event_bus = event_bus
 
         response = asyncio.run(client.embeddings("hello"))
@@ -743,12 +788,16 @@ class P1ApiCallFeatureTests(unittest.TestCase):
     def test_stream_timeout_publishes_structured_event(self):
         event_bus = _CollectingEventBus()
         client = ModelClient.__new__(ModelClient)
-        client.config = ModelConfig(provider="test", name="test", timeout=0.01, retry_max_attempts=1)
+        client.config = ModelConfig(
+            provider="test", name="test", timeout=0.01, retry_max_attempts=1
+        )
         client._provider = _SlowFirstChunkProvider(client.config)
         client._event_bus = event_bus
 
         async def collect():
-            return [chunk async for chunk in client.chat_stream([{"role": "user", "content": "hi"}])]
+            return [
+                chunk async for chunk in client.chat_stream([{"role": "user", "content": "hi"}])
+            ]
 
         with self.assertRaises(TimeoutError):
             asyncio.run(collect())
@@ -809,7 +858,10 @@ class P1ApiCallFeatureTests(unittest.TestCase):
         provider._client = SimpleNamespace(messages=_FakeClaudeMessages())
 
         async def collect():
-            return [chunk async for chunk in provider.chat_stream("test", [{"role": "user", "content": "hi"}])]
+            return [
+                chunk
+                async for chunk in provider.chat_stream("test", [{"role": "user", "content": "hi"}])
+            ]
 
         chunks = asyncio.run(collect())
         self.assertEqual(chunks[0].type, "tool_call")
@@ -838,12 +890,13 @@ class P1ApiCallFeatureTests(unittest.TestCase):
 
         provider = OpenAIProvider.__new__(OpenAIProvider)
         BaseProvider.__init__(provider, ModelConfig(provider="openai", name="test"))
-        provider._client = SimpleNamespace(
-            chat=SimpleNamespace(completions=_FakeChatCompletions())
-        )
+        provider._client = SimpleNamespace(chat=SimpleNamespace(completions=_FakeChatCompletions()))
 
         async def collect():
-            return [chunk async for chunk in provider.chat_stream("test", [{"role": "user", "content": "hi"}])]
+            return [
+                chunk
+                async for chunk in provider.chat_stream("test", [{"role": "user", "content": "hi"}])
+            ]
 
         chunks = asyncio.run(collect())
         self.assertEqual(chunks[0].type, "tool_call")
@@ -862,13 +915,17 @@ class P1ApiCallFeatureTests(unittest.TestCase):
 
         provider = OpenAIResponsesProvider.__new__(OpenAIResponsesProvider)
         BaseProvider.__init__(provider, ModelConfig(provider="openai_responses", name="test"))
-        provider._endpoint = SimpleNamespace(api_host="https://api.openai.com/v1", api_path="/responses")
+        provider._endpoint = SimpleNamespace(
+            api_host="https://api.openai.com/v1", api_path="/responses"
+        )
         provider._client = SimpleNamespace(responses=_FakeResponses())
 
         async def collect_until_error():
             chunks = []
             with self.assertRaises(Exception) as ctx:
-                async for chunk in provider.chat_stream("test", [{"role": "user", "content": "hi"}]):
+                async for chunk in provider.chat_stream(
+                    "test", [{"role": "user", "content": "hi"}]
+                ):
                     chunks.append(chunk)
             return chunks, ctx.exception
 
@@ -906,16 +963,20 @@ class P1ApiCallFeatureTests(unittest.TestCase):
 
         provider = OpenAIResponsesProvider.__new__(OpenAIResponsesProvider)
         BaseProvider.__init__(provider, ModelConfig(provider="openai_responses", name="test"))
-        provider._endpoint = SimpleNamespace(api_host="https://api.openai.com/v1", api_path="/responses")
+        provider._endpoint = SimpleNamespace(
+            api_host="https://api.openai.com/v1", api_path="/responses"
+        )
         provider._client = SimpleNamespace(responses=_FakeResponses())
 
         async def collect():
-            return [chunk async for chunk in provider.chat_stream("test", [{"role": "user", "content": "hi"}])]
+            return [
+                chunk
+                async for chunk in provider.chat_stream("test", [{"role": "user", "content": "hi"}])
+            ]
 
         chunks = asyncio.run(collect())
         self.assertEqual(chunks[0].type, "tool_call")
         self.assertEqual(chunks[0].tool_info["raw_arguments"], {0: '{"bad"'})
-
 
     def test_model_client_build_options_web_search_default_off(self):
         client = ModelClient.__new__(ModelClient)
@@ -1014,7 +1075,9 @@ class P1ApiCallFeatureTests(unittest.TestCase):
                     grounding_metadata=SimpleNamespace(
                         grounding_chunks=[
                             SimpleNamespace(
-                                web=SimpleNamespace(uri="https://example.test/g", title="Gemini Ref")
+                                web=SimpleNamespace(
+                                    uri="https://example.test/g", title="Gemini Ref"
+                                )
                             )
                         ]
                     ),
@@ -1042,7 +1105,6 @@ class P1ApiCallFeatureTests(unittest.TestCase):
         self.assertEqual(config.model.web_search_context_size, "high")
         self.assertFalse(config.model.web_search_allow_fallback)
 
-
     def test_openai_custom_api_path_uses_http_post_json(self):
         async def fake_post_json(url, payload, headers, timeout=None):
             self.assertEqual(url, "https://proxy.example.com/custom/chat")
@@ -1064,7 +1126,9 @@ class P1ApiCallFeatureTests(unittest.TestCase):
                 api_key="sk-test",
             ),
         )
-        provider._endpoint = SimpleNamespace(api_host="https://proxy.example.com", api_path="/custom/chat")
+        provider._endpoint = SimpleNamespace(
+            api_host="https://proxy.example.com", api_path="/custom/chat"
+        )
         provider._client = None
 
         async def call():
@@ -1099,11 +1163,16 @@ class P1ApiCallFeatureTests(unittest.TestCase):
                 api_key="sk-test",
             ),
         )
-        provider._endpoint = SimpleNamespace(api_host="https://proxy.example.com", api_path="/custom/generate")
+        provider._endpoint = SimpleNamespace(
+            api_host="https://proxy.example.com", api_path="/custom/generate"
+        )
         provider._client = None
 
         async def call():
-            with patch("GensokyoAI.core.agent.providers.openai_responses_provider.post_json", fake_post_json):
+            with patch(
+                "GensokyoAI.core.agent.providers.openai_responses_provider.post_json",
+                fake_post_json,
+            ):
                 return await provider.chat("test", [{"role": "user", "content": "hi"}])
 
         response = asyncio.run(call())

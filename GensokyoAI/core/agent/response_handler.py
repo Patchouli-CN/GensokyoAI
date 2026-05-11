@@ -96,7 +96,9 @@ class ResponseHandler:
             self._working_memory.add_message(
                 role="assistant",
                 content=(
-                    tool_calls_message.content if isinstance(tool_calls_message.content, str) else ""
+                    tool_calls_message.content
+                    if isinstance(tool_calls_message.content, str)
+                    else ""
                 ),
                 tool_calls=tool_calls_message.tool_calls,
                 reasoning_content=tool_calls_message.reasoning_content,
@@ -184,12 +186,14 @@ class ResponseHandler:
         messages: list,
         tools: list | None,
         context: str,
-        extra_body: dict | None = None,   # 新增参数
+        extra_body: dict | None = None,  # 新增参数
     ) -> AsyncIterator[StreamChunk]:
         """带容错的流式调用"""
         try:
             async for chunk in self._model_client.chat_stream(
-                messages, tools, extra_body=extra_body    # 传进去
+                messages,
+                tools,
+                extra_body=extra_body,  # 传进去
             ):
                 yield chunk
         except Exception as e:

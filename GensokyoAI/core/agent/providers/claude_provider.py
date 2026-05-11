@@ -315,7 +315,9 @@ class ClaudeProvider(BaseProvider):
 
         blocks: list[dict] = []
         for part in content:
-            part_type = part.get("type") if isinstance(part, dict) else getattr(part, "type", "text")
+            part_type = (
+                part.get("type") if isinstance(part, dict) else getattr(part, "type", "text")
+            )
             if part_type == "text":
                 text = part.get("text") if isinstance(part, dict) else getattr(part, "text", None)
                 if text is not None:
@@ -357,7 +359,9 @@ class ClaudeProvider(BaseProvider):
                 if content:
                     if isinstance(content, list):
                         system_parts.extend(
-                            block.get("text", "") for block in content if block.get("type") == "text"
+                            block.get("text", "")
+                            for block in content
+                            if block.get("type") == "text"
                         )
                     else:
                         system_parts.append(str(content))
@@ -375,7 +379,12 @@ class ClaudeProvider(BaseProvider):
                 claude_messages.append({"role": "user", "content": content})
             else:
                 # Claude 只接受 user/assistant；未知角色降级为 user 文本。
-                claude_messages.append({"role": "user", "content": content if isinstance(content, list) else str(content)})
+                claude_messages.append(
+                    {
+                        "role": "user",
+                        "content": content if isinstance(content, list) else str(content),
+                    }
+                )
 
         flush_tool_results()
 

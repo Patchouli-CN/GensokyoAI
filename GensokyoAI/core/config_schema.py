@@ -38,7 +38,9 @@ class AuthConfig(Struct):
 class ModelConfig(Struct):
     """模型配置"""
 
-    provider: str = "ollama"  # LLM Provider: ollama / openai / openrouter / deepseek / gemini / claude
+    provider: str = (
+        "ollama"  # LLM Provider: ollama / openai / openrouter / deepseek / gemini / claude
+    )
     name: str = "qwen3.5:9b"
     base_url: str | None = None
     api_path: str | None = None
@@ -128,7 +130,9 @@ class WebSearchAPIConfig(Struct):
     api_key_header: str = "Authorization"
     api_key_prefix: str = "Bearer "
     headers: dict[str, str] = field(default_factory=dict)
-    request_template: dict[str, Any] = field(default_factory=lambda: {"query": "{query}", "count": "{max_results}"})
+    request_template: dict[str, Any] = field(
+        default_factory=lambda: {"query": "{query}", "count": "{max_results}"}
+    )
     query_params: dict[str, Any] = field(default_factory=dict)
     results_path: str = "results"
     title_path: str = "title"

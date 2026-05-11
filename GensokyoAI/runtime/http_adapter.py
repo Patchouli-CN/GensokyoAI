@@ -137,7 +137,9 @@ async def handle_rpc(request: web.Request) -> web.Response:
 async def handle_events(request: web.Request) -> web.StreamResponse:
     _validate_runtime_request(request)
     service = request.app[RUNTIME_SERVICE_APP_KEY]
-    subscription = await service.create_event_subscription(**_event_subscription_params_from_request(request))
+    subscription = await service.create_event_subscription(
+        **_event_subscription_params_from_request(request)
+    )
     subscription_id = subscription["subscription_id"]
     queue = subscription["queue"]
     response = web.StreamResponse(
@@ -158,7 +160,7 @@ async def handle_events(request: web.Request) -> web.StreamResponse:
                 await response.drain()
             finally:
                 queue.task_done()
-    except (asyncio.CancelledError, ConnectionResetError, RuntimeError):
+    except asyncio.CancelledError, ConnectionResetError, RuntimeError:
         pass
     finally:
         with contextlib.suppress(Exception):
@@ -213,7 +215,9 @@ async def _handle_ws_text(
         payload = json.loads(data)
         request_id, method, params = parse_rpc_payload(payload)
         if method == "agent.send_message_stream":
-            await _start_streaming_rpc_task(ws, service, request_id, params, send_lock, stream_tasks)
+            await _start_streaming_rpc_task(
+                ws, service, request_id, params, send_lock, stream_tasks
+            )
             return
         if method == "runtime.cancel_stream":
             result = await _cancel_streaming_rpc_task(params, stream_tasks)
@@ -496,7 +500,7 @@ def _validate_auth_token(request: web.Request, security: RuntimeHttpSecurityConf
     candidates = []
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
-        candidates.append(auth_header[len("Bearer "):].strip())
+        candidates.append(auth_header[len("Bearer ") :].strip())
     header_token = request.headers.get("X-Runtime-Token")
     if header_token:
         candidates.append(header_token.strip())

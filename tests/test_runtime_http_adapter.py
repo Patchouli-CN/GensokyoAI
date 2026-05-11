@@ -74,7 +74,9 @@ class FakeHttpRuntimeService:
             "categories": categories,
             "queue_size": queue_size,
         }
-        return await self.real_service.create_event_subscription(event_types, categories, queue_size)
+        return await self.real_service.create_event_subscription(
+            event_types, categories, queue_size
+        )
 
     async def close_event_subscription(self, subscription_id):
         return await self.real_service.close_event_subscription(subscription_id)
@@ -359,9 +361,7 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
 
     @unittest_run_loop
     async def test_sse_events_endpoint_receives_filtered_event_and_cleans_up(self):
-        response = await self.client.get(
-            "/events?event_types=tool.call.started&queue_size=2"
-        )
+        response = await self.client.get("/events?event_types=tool.call.started&queue_size=2")
         self.assertEqual(response.status, 200)
         self.assertEqual(response.headers["Content-Type"], "text/event-stream")
 
@@ -369,7 +369,9 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
             if self.fake_service.event_bus.stats["subscriber_count"] == 1:
                 break
             await asyncio.sleep(0.01)
-        self.assertEqual(self.fake_service.last_subscription_params["event_types"], ["tool.call.started"])
+        self.assertEqual(
+            self.fake_service.last_subscription_params["event_types"], ["tool.call.started"]
+        )
         self.assertEqual(self.fake_service.last_subscription_params["queue_size"], 2)
 
         await self.fake_service.event_bus._process_event(
@@ -398,7 +400,7 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
 
         self.assertEqual(event_line.decode(), "event: runtime.event\n")
         self.assertTrue(data_line.decode().startswith("data: "))
-        payload = json.loads(data_line.decode()[len("data: "):])
+        payload = json.loads(data_line.decode()[len("data: ") :])
         self.assertEqual(payload["type"], "tool.call.started")
         self.assertEqual(payload["data"], {"name": "search"})
         self.assertEqual(blank_line.decode(), "\n")
@@ -406,7 +408,9 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
 
     @unittest_run_loop
     async def test_rpc_requires_token_when_auth_enabled(self):
-        server = TestServer(create_app(service=cast(Any, FakeHttpRuntimeService()), auth_token="secret"))
+        server = TestServer(
+            create_app(service=cast(Any, FakeHttpRuntimeService()), auth_token="secret")
+        )
         client = TestClient(server)
         await client.start_server()
         try:

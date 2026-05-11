@@ -14,7 +14,9 @@ class DummyRegistryProvider(BaseProvider):
     async def chat(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
         raise NotImplementedError
 
-    async def chat_stream(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
+    async def chat_stream(
+        self, model: str, messages: list[dict], tools=None, options=None, **kwargs
+    ):
         raise NotImplementedError
         yield
 

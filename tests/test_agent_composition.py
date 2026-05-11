@@ -7,8 +7,11 @@ from unittest.mock import patch
 
 from GensokyoAI.core.agent import Agent
 from GensokyoAI.core.agent.composition import AgentComposition
+from GensokyoAI.core.agent.providers import ProviderFactory
+from GensokyoAI.core.agent.providers.base import BaseProvider
 from GensokyoAI.core.agent.runtime_context import AgentRuntimeContext
-from GensokyoAI.core.config import AppConfig, CharacterConfig, SessionConfig
+from GensokyoAI.core.agent.types import UnifiedResponse
+from GensokyoAI.core.config import AppConfig, CharacterConfig, ModelConfig, SessionConfig
 from GensokyoAI.core.events import SystemEvent
 from GensokyoAI.memory.semantic import SemanticMemoryManager
 from GensokyoAI.memory.working import WorkingMemoryManager
@@ -17,10 +20,26 @@ from GensokyoAI.tools.executor import ToolExecutor
 from GensokyoAI.tools.registry import ToolRegistry
 
 
+class _CompositionProvider(BaseProvider):
+    async def chat(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
+        return UnifiedResponse(model=model)
+
+    async def chat_stream(
+        self, model: str, messages: list[dict], tools=None, options=None, **kwargs
+    ):
+        if False:
+            yield None
+
+
 class AgentCompositionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        ProviderFactory.register("composition_test", _CompositionProvider)
+
     def _make_config(self, tmp: str) -> AppConfig:
         return AppConfig(
             character=CharacterConfig(name="Reimu", system_prompt="你是灵梦。"),
+            model=ModelConfig(provider="composition_test", name="test-model"),
             session=SessionConfig(save_path=Path(tmp)),
         )
 

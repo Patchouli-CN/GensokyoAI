@@ -61,7 +61,9 @@ class DeepSeekProvider(OpenAIProvider):
         AsyncOpenAI = openai_module.AsyncOpenAI
 
         base_url = normalize_deepseek_api_host(self.config.base_url or self.DEFAULT_BASE_URL)
-        self._endpoint = type("Endpoint", (), {"api_host": base_url, "api_path": "/chat/completions"})()
+        self._endpoint = type(
+            "Endpoint", (), {"api_host": base_url, "api_path": "/chat/completions"}
+        )()
         kwargs = {}
         if self.config.api_key:
             kwargs["api_key"] = self.config.api_key

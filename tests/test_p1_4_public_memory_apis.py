@@ -98,7 +98,9 @@ class TopicAwareStorePublicApiTests(unittest.TestCase):
             listed = store.list_memories(topic_name="偏好")
             searched = store.search(query_text="热茶", threshold=0.1, top_k=3)
             fetched = store.get_memory(memory_id)
-            updated = asyncio.run(store.update_memory(memory_id, importance=0.9, tags=["偏好", "饮品"]))
+            updated = asyncio.run(
+                store.update_memory(memory_id, importance=0.9, tags=["偏好", "饮品"])
+            )
             graph = store.get_topic_graph()
             deleted = asyncio.run(store.delete_memory(memory_id))
 

@@ -295,7 +295,9 @@ class GeminiProvider(BaseProvider):
 
         parts: list[dict] = []
         for part in content:
-            part_type = part.get("type") if isinstance(part, dict) else getattr(part, "type", "text")
+            part_type = (
+                part.get("type") if isinstance(part, dict) else getattr(part, "type", "text")
+            )
             if part_type == "text":
                 text = part.get("text") if isinstance(part, dict) else getattr(part, "text", None)
                 if text is not None:
@@ -470,7 +472,10 @@ class GeminiProvider(BaseProvider):
         if not self._web_search_enabled(options):
             return
         for tool in tools:
-            if getattr(tool, "google_search", None) is not None or getattr(tool, "google_search_retrieval", None) is not None:
+            if (
+                getattr(tool, "google_search", None) is not None
+                or getattr(tool, "google_search_retrieval", None) is not None
+            ):
                 return
         try:
             tools.append(genai_types.Tool(google_search=genai_types.GoogleSearch()))
@@ -493,7 +498,9 @@ class GeminiProvider(BaseProvider):
             enabled=enabled,
             strategy=str(web_search.get("strategy", "off")),
             provider=self.config.provider,
-            status="completed" if references else ("enabled_no_references" if enabled else "references_only"),
+            status="completed"
+            if references
+            else ("enabled_no_references" if enabled else "references_only"),
             metadata={"reference_count": len(references)},
         )
 

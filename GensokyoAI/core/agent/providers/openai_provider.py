@@ -155,7 +155,9 @@ class OpenAIProvider(BaseProvider):
 
         converted: list[dict] = []
         for part in content:
-            part_type = part.get("type") if isinstance(part, dict) else getattr(part, "type", "text")
+            part_type = (
+                part.get("type") if isinstance(part, dict) else getattr(part, "type", "text")
+            )
             if part_type == "text":
                 text = part.get("text") if isinstance(part, dict) else getattr(part, "text", None)
                 if text is not None:
@@ -168,7 +170,11 @@ class OpenAIProvider(BaseProvider):
                 if not image_url:
                     continue
                 image_payload: dict[str, Any] = {"url": image_url}
-                detail = image.get("detail") if isinstance(image, dict) else getattr(image, "detail", None)
+                detail = (
+                    image.get("detail")
+                    if isinstance(image, dict)
+                    else getattr(image, "detail", None)
+                )
                 if detail:
                     image_payload["detail"] = detail
                 converted.append({"type": "image_url", "image_url": image_payload})
@@ -331,7 +337,9 @@ class OpenAIProvider(BaseProvider):
                 self._request_headers(),
                 self.config.timeout,
             ):
-                async for stream_chunk in self._convert_stream_chunk_dict(chunk_data, tool_calls_acc):
+                async for stream_chunk in self._convert_stream_chunk_dict(
+                    chunk_data, tool_calls_acc
+                ):
                     yield stream_chunk
             return
 
@@ -561,7 +569,9 @@ class OpenAIProvider(BaseProvider):
                         function=ToolCallFunction(name=tc_data["name"], arguments=args),
                     )
                 )
-            unified_msg = UnifiedMessage(role="assistant", content="", tool_calls=unified_tool_calls)
+            unified_msg = UnifiedMessage(
+                role="assistant", content="", tool_calls=unified_tool_calls
+            )
             tool_info: dict[str, Any] = {"message": unified_msg}
             if raw_arguments:
                 tool_info["raw_arguments"] = raw_arguments

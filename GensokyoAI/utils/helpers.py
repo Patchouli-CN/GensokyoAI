@@ -79,5 +79,5 @@ def safe_get(obj: Any, path: str, default: Any = None) -> Any:
             if obj is None:
                 return default
         return obj
-    except (AttributeError, KeyError, TypeError):
+    except AttributeError, KeyError, TypeError:
         return default

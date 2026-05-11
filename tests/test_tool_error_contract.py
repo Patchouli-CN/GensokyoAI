@@ -65,7 +65,9 @@ class ToolErrorContractTests(unittest.TestCase):
     def test_tool_executor_wraps_generic_exception_as_structured_error(self):
         executor = ToolExecutor(ToolRegistry())
 
-        result = executor.execute_sync({"id": "call-3", "name": "p9_generic_failing_tool", "arguments": {}})
+        result = executor.execute_sync(
+            {"id": "call-3", "name": "p9_generic_failing_tool", "arguments": {}}
+        )
 
         self.assertTrue(result["is_error"])
         self.assertEqual(result["error"]["error_code"], "tool.execution_failed")
@@ -101,7 +103,9 @@ class ToolErrorContractTests(unittest.TestCase):
         executor = ToolExecutor(ToolRegistry())
 
         result = asyncio.run(
-            executor.execute({"id": "call-5", "name": "web_search", "arguments": {"query": "query"}})
+            executor.execute(
+                {"id": "call-5", "name": "web_search", "arguments": {"query": "query"}}
+            )
         )
 
         self.assertTrue(result["is_error"])
@@ -116,7 +120,9 @@ class ToolErrorContractTests(unittest.TestCase):
         executor = ToolExecutor(ToolRegistry())
 
         result = asyncio.run(
-            executor.execute({"id": "call-6", "name": "web_search", "arguments": {"query": "query"}})
+            executor.execute(
+                {"id": "call-6", "name": "web_search", "arguments": {"query": "query"}}
+            )
         )
 
         self.assertTrue(result["is_error"])
@@ -140,7 +146,9 @@ class ToolErrorContractTests(unittest.TestCase):
         try:
             executor = ToolExecutor(ToolRegistry())
             result = asyncio.run(
-                executor.execute({"id": "call-7", "name": "web_search", "arguments": {"query": "query"}})
+                executor.execute(
+                    {"id": "call-7", "name": "web_search", "arguments": {"query": "query"}}
+                )
             )
         finally:
             web_search_module._service = original_service
@@ -167,7 +175,9 @@ class ToolErrorContractTests(unittest.TestCase):
         try:
             executor = ToolExecutor(ToolRegistry())
             result = asyncio.run(
-                executor.execute({"id": "call-8", "name": "web_search", "arguments": {"query": "query"}})
+                executor.execute(
+                    {"id": "call-8", "name": "web_search", "arguments": {"query": "query"}}
+                )
             )
         finally:
             web_search_module._service = original_service
@@ -187,7 +197,9 @@ class ToolErrorContractTests(unittest.TestCase):
         try:
             executor = ToolExecutor(ToolRegistry())
             result = asyncio.run(
-                executor.execute({"id": "call-9", "name": "web_search", "arguments": {"query": "query"}})
+                executor.execute(
+                    {"id": "call-9", "name": "web_search", "arguments": {"query": "query"}}
+                )
             )
         finally:
             web_search_module._service = original_service
@@ -239,7 +251,6 @@ class ToolErrorContractTests(unittest.TestCase):
         self.assertEqual(chunk.error_details["tool_call_id"], "call-10")
         self.assertEqual(chunk.error_details["details"], {"scope": "stream"})
         self.assertFalse(chunk.error_details["recoverable"])
-
 
     def test_runtime_error_response_contract_keeps_legacy_and_structured_fields(self):
         response = runtime_error_response(

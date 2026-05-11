@@ -120,7 +120,9 @@ def sanitize_event_payload(payload: Any) -> Any:
         cleaned: dict[Any, Any] = {}
         for key, value in payload.items():
             key_text = str(key).lower()
-            if key_text in SENSITIVE_FIELD_NAMES or any(part in key_text for part in ("api_key", "token", "secret")):
+            if key_text in SENSITIVE_FIELD_NAMES or any(
+                part in key_text for part in ("api_key", "token", "secret")
+            ):
                 cleaned[key] = REDACTED_VALUE
             else:
                 cleaned[key] = sanitize_event_payload(value)

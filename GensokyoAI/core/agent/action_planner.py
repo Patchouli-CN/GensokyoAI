@@ -183,12 +183,14 @@ class ActionPlanner:
 
         try:
             messages = [{"role": "system", "content": prompt}]
-            raw_content = self.working_memory.get_recent(6) # 这里固定3轮对话作为思考就好
-            cleaned = MessageBuilder.operate_on(raw_content) \
-            .exclude_role("tool") \
-            .exclude(role="assistant", has="tool_calls") \
-            .get()
-            
+            raw_content = self.working_memory.get_recent(6)  # 这里固定3轮对话作为思考就好
+            cleaned = (
+                MessageBuilder.operate_on(raw_content)
+                .exclude_role("tool")
+                .exclude(role="assistant", has="tool_calls")
+                .get()
+            )
+
             messages.extend(cleaned)
             response = await self.model_client.chat(
                 messages=messages,

@@ -287,7 +287,11 @@ class ExternalToolManager:
                     user_message="外部工具调用超时。",
                     recoverable=True,
                     action_hint="请稍后重试，或调高外部工具超时时间。",
-                    details={"source_id": source_id, "tool_name": tool_name, "timeout_seconds": self._policy.timeout_seconds},
+                    details={
+                        "source_id": source_id,
+                        "tool_name": tool_name,
+                        "timeout_seconds": self._policy.timeout_seconds,
+                    },
                 )
             ) from exc
         except ToolExecutionError:
@@ -326,7 +330,9 @@ class ExternalToolManager:
             raise KeyError(f"Unknown external tool source: {source_id}")
         return source
 
-    def _find_tool_definition(self, source_id: str, tool_name: str) -> ExternalToolDefinition | None:
+    def _find_tool_definition(
+        self, source_id: str, tool_name: str
+    ) -> ExternalToolDefinition | None:
         state = self._states.get(source_id)
         if state is None:
             return None

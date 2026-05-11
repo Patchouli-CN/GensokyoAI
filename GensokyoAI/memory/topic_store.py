@@ -38,9 +38,7 @@ def _json_encoder(obj):
 
 def _tokenize(text: str) -> set[str]:
     return {
-        word
-        for word in re.split(r"[\s,，。、；;！!？?·]+", text.lower())
-        if 2 <= len(word) <= 20
+        word for word in re.split(r"[\s,，。、；;！!？?·]+", text.lower()) if 2 <= len(word) <= 20
     }
 
 
@@ -414,7 +412,9 @@ class TopicAwareStore:
 
     # ==================== 检索 ====================
 
-    def _keyword_memory_score(self, query: str, memory: TopicMemory, topic: Topic | None) -> tuple[float, list[str]]:
+    def _keyword_memory_score(
+        self, query: str, memory: TopicMemory, topic: Topic | None
+    ) -> tuple[float, list[str]]:
         query_tokens = _tokenize(query)
         memory_tokens = _tokenize(memory.content)
         topic_tokens = _tokenize(f"{topic.name} {topic.summary}" if topic else "")
@@ -606,7 +606,9 @@ class TopicAwareStore:
         }
 
     def list_topics(self) -> list[dict]:
-        return [payload for topic in self._topics.values() if (payload := self._topic_payload(topic))]
+        return [
+            payload for topic in self._topics.values() if (payload := self._topic_payload(topic))
+        ]
 
     def get_memory(self, memory_id: str) -> dict | None:
         memory = self._memories.get(memory_id)

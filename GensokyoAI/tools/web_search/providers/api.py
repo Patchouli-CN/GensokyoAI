@@ -20,7 +20,9 @@ class GenericAPISearchProvider(WebSearchProvider):
 
     async def search(self, query: str, *, max_results: int | None = None) -> ProviderSearchResult:
         if not self.config.api.endpoint:
-            return ProviderSearchResult(provider=self.name, status="disabled", error="未配置 tool.web_search.api.endpoint")
+            return ProviderSearchResult(
+                provider=self.name, status="disabled", error="未配置 tool.web_search.api.endpoint"
+            )
         try:
             payload = self._render_template(
                 self.config.api.request_template,
@@ -42,7 +44,9 @@ class GenericAPISearchProvider(WebSearchProvider):
                 )
             items = [self._convert_item(item) for item in raw_items]
             items = [item for item in items if item.title and item.url]
-            return ProviderSearchResult(provider=self.name, items=items[: max_results or self.config.max_results])
+            return ProviderSearchResult(
+                provider=self.name, items=items[: max_results or self.config.max_results]
+            )
         except Exception as e:
             return ProviderSearchResult(provider=self.name, status="failed", error=str(e))
 
@@ -53,7 +57,11 @@ class GenericAPISearchProvider(WebSearchProvider):
         if method == "GET" and params:
             endpoint = f"{endpoint}?{urlencode(params)}"
 
-        headers = {"Content-Type": "application/json", "Accept": "application/json", **api_config.headers}
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            **api_config.headers,
+        }
         if api_config.api_key:
             headers[api_config.api_key_header] = f"{api_config.api_key_prefix}{api_config.api_key}"
 

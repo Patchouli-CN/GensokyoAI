@@ -290,7 +290,9 @@ class OpenAIResponsesProvider(BaseProvider):
                 self._request_headers(),
                 self.config.timeout,
             ):
-                async for stream_chunk in self._convert_stream_event_dict(event_data, tool_calls_acc, options):
+                async for stream_chunk in self._convert_stream_event_dict(
+                    event_data, tool_calls_acc, options
+                ):
                     yield stream_chunk
             return
 
@@ -362,7 +364,9 @@ class OpenAIResponsesProvider(BaseProvider):
                         content="",
                         tool_calls=unified_tool_calls,
                     )
-                    usage = self._usage_to_dict(getattr(getattr(event, "response", None), "usage", None))
+                    usage = self._usage_to_dict(
+                        getattr(getattr(event, "response", None), "usage", None)
+                    )
                     tool_info: dict[str, Any] = {"message": unified_msg}
                     if raw_arguments:
                         tool_info["raw_arguments"] = raw_arguments
@@ -389,7 +393,9 @@ class OpenAIResponsesProvider(BaseProvider):
             elif event_type == "response.failed":
                 response = getattr(event, "response", None)
                 error = getattr(response, "error", None) or getattr(event, "error", None)
-                error_message = self._response_error_to_message(error) or "Responses API stream failed"
+                error_message = (
+                    self._response_error_to_message(error) or "Responses API stream failed"
+                )
                 yield StreamChunk(type="error", error=error_message, finish_reason="failed")
                 raise ModelAPIError(
                     error_message,
@@ -406,7 +412,9 @@ class OpenAIResponsesProvider(BaseProvider):
                     "incomplete_details",
                     None,
                 )
-                error_message = self._response_error_to_message(reason) or "Responses API stream incomplete"
+                error_message = (
+                    self._response_error_to_message(reason) or "Responses API stream incomplete"
+                )
                 yield StreamChunk(type="error", error=error_message, finish_reason="incomplete")
                 raise ModelAPIError(
                     error_message,
@@ -471,7 +479,9 @@ class OpenAIResponsesProvider(BaseProvider):
 
         converted: list[dict] = []
         for part in content:
-            part_type = part.get("type") if isinstance(part, dict) else getattr(part, "type", "text")
+            part_type = (
+                part.get("type") if isinstance(part, dict) else getattr(part, "type", "text")
+            )
             if part_type == "text":
                 text = part.get("text") if isinstance(part, dict) else getattr(part, "text", None)
                 if text is not None:
@@ -484,7 +494,11 @@ class OpenAIResponsesProvider(BaseProvider):
                 if not image_url:
                     continue
                 block: dict[str, Any] = {"type": "input_image", "image_url": image_url}
-                detail = image.get("detail") if isinstance(image, dict) else getattr(image, "detail", None)
+                detail = (
+                    image.get("detail")
+                    if isinstance(image, dict)
+                    else getattr(image, "detail", None)
+                )
                 if detail:
                     block["detail"] = detail
                 converted.append(block)
@@ -521,7 +535,9 @@ class OpenAIResponsesProvider(BaseProvider):
                 if content:
                     if isinstance(content, list):
                         instructions_parts.extend(
-                            block.get("text", "") for block in content if block.get("type") == "input_text"
+                            block.get("text", "")
+                            for block in content
+                            if block.get("type") == "input_text"
                         )
                     else:
                         instructions_parts.append(str(content))
@@ -641,7 +657,9 @@ class OpenAIResponsesProvider(BaseProvider):
                     )
                 )
             elif item_type == "reasoning":
-                reasoning_texts = [rc.get("text") for rc in item.get("content") or [] if rc.get("text")]
+                reasoning_texts = [
+                    rc.get("text") for rc in item.get("content") or [] if rc.get("text")
+                ]
                 if reasoning_texts:
                     thinking = "\n".join(reasoning_texts)
         full_text = "\n".join(text_parts) if text_parts else (response.get("output_text") or "")
@@ -705,10 +723,20 @@ class OpenAIResponsesProvider(BaseProvider):
                             function=ToolCallFunction(name=tc_data["name"], arguments=args),
                         )
                     )
-                tool_info: dict[str, Any] = {"message": UnifiedMessage(role="assistant", content="", tool_calls=unified_tool_calls)}
+                tool_info: dict[str, Any] = {
+                    "message": UnifiedMessage(
+                        role="assistant", content="", tool_calls=unified_tool_calls
+                    )
+                }
                 if raw_arguments:
                     tool_info["raw_arguments"] = raw_arguments
-                yield StreamChunk(type="tool_call", is_tool_call=True, tool_info=tool_info, finish_reason="tool_calls", usage=usage)
+                yield StreamChunk(
+                    type="tool_call",
+                    is_tool_call=True,
+                    tool_info=tool_info,
+                    finish_reason="tool_calls",
+                    usage=usage,
+                )
             references = self._extract_web_search_references(response)
             yield StreamChunk(
                 type="finish",
@@ -718,8 +746,14 @@ class OpenAIResponsesProvider(BaseProvider):
                 web_search_diagnostics=self._build_web_search_diagnostics(options, references),
             )
         elif event_type in ("response.failed", "response.incomplete"):
-            error_obj = (event.get("response") or {}).get("error") or event.get("error") or event.get("incomplete_details")
-            error_message = self._response_error_to_message(error_obj) or f"Responses API stream {event_type}"
+            error_obj = (
+                (event.get("response") or {}).get("error")
+                or event.get("error")
+                or event.get("incomplete_details")
+            )
+            error_message = (
+                self._response_error_to_message(error_obj) or f"Responses API stream {event_type}"
+            )
             finish_reason = "failed" if event_type == "response.failed" else "incomplete"
             yield StreamChunk(type="error", error=error_message, finish_reason=finish_reason)
             raise ModelAPIError(
@@ -837,7 +871,10 @@ class OpenAIResponsesProvider(BaseProvider):
                 content_data = cls._object_to_dict(content_item)
                 for annotation in content_data.get("annotations", []) or []:
                     annotation_data = cls._object_to_dict(annotation)
-                    if annotation_data.get("type") in ("url_citation", "citation") or annotation_data.get("url"):
+                    if annotation_data.get("type") in (
+                        "url_citation",
+                        "citation",
+                    ) or annotation_data.get("url"):
                         add_reference(annotation_data)
         return references
 
@@ -881,7 +918,9 @@ class OpenAIResponsesProvider(BaseProvider):
             enabled=enabled,
             strategy=str(web_search.get("strategy", "off")),
             provider=self.config.provider,
-            status="completed" if references else ("enabled_no_references" if enabled else "references_only"),
+            status="completed"
+            if references
+            else ("enabled_no_references" if enabled else "references_only"),
             fallback_reason=fallback_reason,
             metadata={"reference_count": len(references)},
         )

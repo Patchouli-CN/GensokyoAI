@@ -14,7 +14,9 @@ class StaticModelProvider(BaseProvider):
     async def chat(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
         raise NotImplementedError
 
-    async def chat_stream(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
+    async def chat_stream(
+        self, model: str, messages: list[dict], tools=None, options=None, **kwargs
+    ):
         raise NotImplementedError
         yield
 
@@ -39,7 +41,9 @@ class FailingModelProvider(BaseProvider):
     async def chat(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
         raise NotImplementedError
 
-    async def chat_stream(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
+    async def chat_stream(
+        self, model: str, messages: list[dict], tools=None, options=None, **kwargs
+    ):
         raise NotImplementedError
         yield
 
@@ -55,7 +59,9 @@ class SequencedProvider(BaseProvider):
     async def chat(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
         raise NotImplementedError
 
-    async def chat_stream(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
+    async def chat_stream(
+        self, model: str, messages: list[dict], tools=None, options=None, **kwargs
+    ):
         raise NotImplementedError
         yield
 
@@ -160,7 +166,11 @@ class ModelRegistryServiceTests(unittest.TestCase):
 
     def test_remote_failure_uses_cached_models_without_clearing_cache(self):
         SequencedProvider.responses = [
-            [ModelInfo(id="openai/remote-only", name="remote", capabilities=[ProviderCapability.CHAT])],
+            [
+                ModelInfo(
+                    id="openai/remote-only", name="remote", capabilities=[ProviderCapability.CHAT]
+                )
+            ],
             RuntimeError("offline"),
         ]
         service = ModelRegistryService(provider_builder=lambda config: SequencedProvider(config))
@@ -261,6 +271,7 @@ class ModelRegistryServiceTests(unittest.TestCase):
         asyncio.run(service.list_models(config))
 
         self.assertEqual(StaticModelProvider.calls, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

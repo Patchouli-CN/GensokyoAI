@@ -185,7 +185,7 @@ class ActionExecutor:
                 try:
                     self._stream_queue.get_nowait()
                     self._stream_queue.task_done()
-                except (asyncio.QueueEmpty, ValueError):
+                except asyncio.QueueEmpty, ValueError:
                     break
         self._response_future = None
         self._stream_queue = None

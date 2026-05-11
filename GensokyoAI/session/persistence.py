@@ -112,7 +112,9 @@ class SessionPersistence:
         backup_existing: bool = True,
     ) -> None:
         """异步写入 JSON；文件替换逻辑放到线程中执行以保持一致容错语义。"""
-        await asyncio.to_thread(self._atomic_write_json, path, data, backup_existing=backup_existing)
+        await asyncio.to_thread(
+            self._atomic_write_json, path, data, backup_existing=backup_existing
+        )
 
     def _quarantine_file(self, path: Path) -> Path | None:
         """将损坏文件移动到 quarantine 目录。"""

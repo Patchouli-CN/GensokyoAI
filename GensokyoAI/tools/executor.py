@@ -69,7 +69,9 @@ class ToolExecutor:
                 details={"name": name},
             )
             logger.error(error.technical_message)
-            return self._error_result(tool_call, str(name) if name else "unknown", error, legacy_prefix="错误")
+            return self._error_result(
+                tool_call, str(name) if name else "unknown", error, legacy_prefix="错误"
+            )
 
         self._publish_tool_event("started", name, arguments)
 
@@ -87,7 +89,9 @@ class ToolExecutor:
                 details={"name": name},
             )
             logger.warning(error.technical_message)
-            self._publish_tool_event("failed", name, arguments, error.technical_message, tool_error=error)
+            self._publish_tool_event(
+                "failed", name, arguments, error.technical_message, tool_error=error
+            )
             return self._error_result(tool_call, name, error, legacy_prefix="调用出错啦")
 
         try:
@@ -112,7 +116,9 @@ class ToolExecutor:
         except ToolExecutionError as e:
             error = e.error
             logger.error(f"工具 {name} 执行错误: {error.technical_message}")
-            self._publish_tool_event("failed", name, arguments, error.technical_message, tool_error=error)
+            self._publish_tool_event(
+                "failed", name, arguments, error.technical_message, tool_error=error
+            )
             return self._error_result(tool_call, name, error, legacy_prefix="错误")
         except Exception as e:
             error = ToolError(
@@ -124,7 +130,9 @@ class ToolExecutor:
                 details={"name": name, "exception_type": type(e).__name__},
             )
             logger.error(f"工具 {name} 执行错误: {e}")
-            self._publish_tool_event("failed", name, arguments, error.technical_message, tool_error=error)
+            self._publish_tool_event(
+                "failed", name, arguments, error.technical_message, tool_error=error
+            )
             return self._error_result(tool_call, name, error, legacy_prefix="错误")
 
     async def _execute_external(
@@ -143,7 +151,9 @@ class ToolExecutor:
                 details={"name": name},
             )
             logger.warning(error.technical_message)
-            self._publish_tool_event("failed", name, arguments, error.technical_message, tool_error=error)
+            self._publish_tool_event(
+                "failed", name, arguments, error.technical_message, tool_error=error
+            )
             return self._error_result(tool_call, name, error, legacy_prefix="调用出错啦")
 
         try:
@@ -160,7 +170,9 @@ class ToolExecutor:
         except ToolExecutionError as e:
             error = e.error
             logger.error(f"外部工具 {name} 执行错误: {error.technical_message}")
-            self._publish_tool_event("failed", name, arguments, error.technical_message, tool_error=error)
+            self._publish_tool_event(
+                "failed", name, arguments, error.technical_message, tool_error=error
+            )
             return self._error_result(tool_call, name, error, legacy_prefix="错误")
         except Exception as e:
             error = ToolError(
@@ -172,7 +184,9 @@ class ToolExecutor:
                 details={"name": name, "exception_type": type(e).__name__},
             )
             logger.error(f"外部工具 {name} 执行错误: {e}")
-            self._publish_tool_event("failed", name, arguments, error.technical_message, tool_error=error)
+            self._publish_tool_event(
+                "failed", name, arguments, error.technical_message, tool_error=error
+            )
             return self._error_result(tool_call, name, error, legacy_prefix="错误")
 
     @staticmethod
@@ -289,7 +303,9 @@ class ToolExecutor:
                 details={"name": name},
             )
             logger.error(error.technical_message)
-            return self._error_result(tool_call, str(name) if name else "unknown", error, legacy_prefix="错误")
+            return self._error_result(
+                tool_call, str(name) if name else "unknown", error, legacy_prefix="错误"
+            )
 
         if is_external_tool_name(name):
             try:

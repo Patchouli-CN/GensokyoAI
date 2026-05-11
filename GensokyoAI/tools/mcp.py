@@ -86,7 +86,9 @@ def mcp_tool_to_external_definition(source_id: str, tool: dict[str, Any]) -> Ext
         raise ValueError("MCP tool missing string name")
     tool_name = normalize_external_name(raw_name, kind="tool_name")
     description = str(tool.get("description") or "")
-    input_schema = tool.get("inputSchema") or tool.get("input_schema") or {"type": "object", "properties": {}}
+    input_schema = (
+        tool.get("inputSchema") or tool.get("input_schema") or {"type": "object", "properties": {}}
+    )
     metadata = dict(tool.get("metadata") or {})
     annotations = tool.get("annotations")
     if isinstance(annotations, dict):

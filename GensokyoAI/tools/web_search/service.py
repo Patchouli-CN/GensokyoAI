@@ -62,7 +62,10 @@ class WebSearchService:
             )
 
         provider_results = await asyncio.gather(
-            *(search_provider.search(normalized_query, max_results=limit) for search_provider in providers)
+            *(
+                search_provider.search(normalized_query, max_results=limit)
+                for search_provider in providers
+            )
         )
         result = self._merge_results(normalized_query, selected_provider, provider_results, limit)
         self._set_cached(cache_key, result)
@@ -89,7 +92,11 @@ class WebSearchService:
         merged = self._rank_and_merge_results(successful, max_results)
         merged = self._deduplicate(merged)[:max_results]
         status = "completed" if merged and not errors else "partial" if merged else "failed"
-        fallback_reason = None if status == "completed" else "; ".join(f"{k}: {v}" for k, v in errors.items()) or None
+        fallback_reason = (
+            None
+            if status == "completed"
+            else "; ".join(f"{k}: {v}" for k, v in errors.items()) or None
+        )
         return WebSearchResult(
             query=query,
             provider=provider,
@@ -130,7 +137,13 @@ class WebSearchService:
         snippet_score = min(snippet_length, 180) / 180
         url_score = 1.0 if item.url.startswith(("http://", "https://")) else 0.0
         freshness_penalty = item_index * 0.01
-        return source_priority + title_score * 0.25 + snippet_score * 0.2 + url_score * 0.15 - freshness_penalty
+        return (
+            source_priority
+            + title_score * 0.25
+            + snippet_score * 0.2
+            + url_score * 0.15
+            - freshness_penalty
+        )
 
     def _deduplicate(self, items: list[SearchItem]) -> list[SearchItem]:
         seen: set[str] = set()
@@ -140,7 +153,10 @@ class WebSearchService:
             if not key or key in seen:
                 continue
             seen.add(key)
-            if self.config.snippet_max_length and len(item.snippet) > self.config.snippet_max_length:
+            if (
+                self.config.snippet_max_length
+                and len(item.snippet) > self.config.snippet_max_length
+            ):
                 item.snippet = item.snippet[: self.config.snippet_max_length].rstrip() + "..."
             unique.append(item)
         return unique

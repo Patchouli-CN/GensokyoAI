@@ -78,23 +78,39 @@ class ConfigLoader(ConfigMerger):
 
         if "model" in data:
             model_data = data["model"] or {}
-            self._validate_section_fields("model", model_data, self._struct_field_names(ModelConfig))
-            self._validate_numeric_range("model.temperature", model_data.get("temperature"), minimum=0, maximum=2)
-            self._validate_numeric_range("model.top_p", model_data.get("top_p"), minimum=0, maximum=1)
-            self._validate_numeric_range("model.max_tokens", model_data.get("max_tokens"), minimum=1)
+            self._validate_section_fields(
+                "model", model_data, self._struct_field_names(ModelConfig)
+            )
+            self._validate_numeric_range(
+                "model.temperature", model_data.get("temperature"), minimum=0, maximum=2
+            )
+            self._validate_numeric_range(
+                "model.top_p", model_data.get("top_p"), minimum=0, maximum=1
+            )
+            self._validate_numeric_range(
+                "model.max_tokens", model_data.get("max_tokens"), minimum=1
+            )
             self._validate_numeric_range("model.timeout", model_data.get("timeout"), minimum=0.001)
             config.model = ModelConfig(**model_data)
             self._provided_fields[id(config.model)] = set(model_data.keys())
         if "embedding" in data:
             embedding_data = data["embedding"] or {}
-            self._validate_section_fields("embedding", embedding_data, self._struct_field_names(EmbeddingConfig))
-            self._validate_numeric_range("embedding.timeout", embedding_data.get("timeout"), minimum=0.001)
-            self._validate_numeric_range("embedding.dimensions", embedding_data.get("dimensions"), minimum=1)
+            self._validate_section_fields(
+                "embedding", embedding_data, self._struct_field_names(EmbeddingConfig)
+            )
+            self._validate_numeric_range(
+                "embedding.timeout", embedding_data.get("timeout"), minimum=0.001
+            )
+            self._validate_numeric_range(
+                "embedding.dimensions", embedding_data.get("dimensions"), minimum=1
+            )
             config.embedding = EmbeddingConfig(**embedding_data)
             self._provided_fields[id(config.embedding)] = set(embedding_data.keys())
         if "memory" in data:
             memory_data = data["memory"] or {}
-            self._validate_section_fields("memory", memory_data, self._struct_field_names(MemoryConfig))
+            self._validate_section_fields(
+                "memory", memory_data, self._struct_field_names(MemoryConfig)
+            )
             topic_generation_data = memory_data.get("topic_generation")
             memory_obj_data = dict(memory_data)
             memory_obj_data.pop("topic_generation", None)
@@ -108,27 +124,43 @@ class ConfigLoader(ConfigMerger):
                 config.memory.topic_generation = TopicGenerationConfig(**topic_generation_data)
             self._provided_fields[id(config.memory)] = set(memory_data.keys())
             if isinstance(topic_generation_data, dict):
-                self._provided_fields[id(config.memory.topic_generation)] = set(topic_generation_data.keys())
+                self._provided_fields[id(config.memory.topic_generation)] = set(
+                    topic_generation_data.keys()
+                )
         if "tool" in data:
             tool_data = data["tool"] or {}
             self._validate_tool_config_data(tool_data)
             config.tool = self._dict_to_tool_config(tool_data)
             self._provided_fields[id(config.tool)] = set(tool_data.keys())
             if isinstance(tool_data.get("web_search"), dict):
-                self._provided_fields[id(config.tool.web_search)] = set(tool_data["web_search"].keys())
+                self._provided_fields[id(config.tool.web_search)] = set(
+                    tool_data["web_search"].keys()
+                )
                 if isinstance(tool_data["web_search"].get("api"), dict):
-                    self._provided_fields[id(config.tool.web_search.api)] = set(tool_data["web_search"]["api"].keys())
+                    self._provided_fields[id(config.tool.web_search.api)] = set(
+                        tool_data["web_search"]["api"].keys()
+                    )
         if "session" in data:
             session_data = data["session"] or {}
-            self._validate_section_fields("session", session_data, self._struct_field_names(SessionConfig))
-            self._validate_numeric_range("session.max_sessions", session_data.get("max_sessions"), minimum=1)
+            self._validate_section_fields(
+                "session", session_data, self._struct_field_names(SessionConfig)
+            )
+            self._validate_numeric_range(
+                "session.max_sessions", session_data.get("max_sessions"), minimum=1
+            )
             config.session = SessionConfig(**session_data)
             self._provided_fields[id(config.session)] = set(session_data.keys())
 
         if "think_engine" in data:
             think_engine_data = data["think_engine"] or {}
-            self._validate_section_fields("think_engine", think_engine_data, self._struct_field_names(ThinkEngineConfig))
-            self._validate_numeric_range("think_engine.think_interval_minutes", think_engine_data.get("think_interval_minutes"), minimum=1)
+            self._validate_section_fields(
+                "think_engine", think_engine_data, self._struct_field_names(ThinkEngineConfig)
+            )
+            self._validate_numeric_range(
+                "think_engine.think_interval_minutes",
+                think_engine_data.get("think_interval_minutes"),
+                minimum=1,
+            )
             config.think_engine = ThinkEngineConfig(**think_engine_data)
             self._provided_fields[id(config.think_engine)] = set(think_engine_data.keys())
 
@@ -182,7 +214,9 @@ class ConfigLoader(ConfigMerger):
             raise ValueError(f"Config field '{field_name}' must be <= {maximum}")
 
     def _validate_tool_config_data(self, data: Any) -> None:
-        self._validate_section_fields("tool", data, {"enabled", "builtin_tools", "custom_tools_path", "web_search"})
+        self._validate_section_fields(
+            "tool", data, {"enabled", "builtin_tools", "custom_tools_path", "web_search"}
+        )
         web_search = data.get("web_search")
         if isinstance(web_search, dict):
             self._validate_section_fields(
@@ -205,8 +239,12 @@ class ConfigLoader(ConfigMerger):
                     "api",
                 },
             )
-            self._validate_numeric_range("tool.web_search.max_results", web_search.get("max_results"), minimum=1)
-            self._validate_numeric_range("tool.web_search.timeout", web_search.get("timeout"), minimum=0.001)
+            self._validate_numeric_range(
+                "tool.web_search.max_results", web_search.get("max_results"), minimum=1
+            )
+            self._validate_numeric_range(
+                "tool.web_search.timeout", web_search.get("timeout"), minimum=0.001
+            )
             api = web_search.get("api")
             if isinstance(api, dict):
                 self._validate_section_fields(

@@ -106,10 +106,14 @@ def _is_probably_content_url(url: str) -> bool:
     if any(host.endswith(suffix) for suffix in (".bing.com", ".microsoft.com")):
         return False
     lowered_path = parts.path.lower()
-    return not lowered_path.endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".ico", ".css", ".js"))
+    return not lowered_path.endswith(
+        (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".ico", ".css", ".js")
+    )
 
 
-def _make_snippet(candidate: _LinkCandidate, text_chunks: list[str], *, max_length: int = 220) -> str:
+def _make_snippet(
+    candidate: _LinkCandidate, text_chunks: list[str], *, max_length: int = 220
+) -> str:
     """用链接附近的可见文本合成摘要。"""
     start = max(candidate.text_index - 1, 0)
     end = min(candidate.text_index + 4, len(text_chunks))

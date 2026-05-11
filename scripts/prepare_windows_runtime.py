@@ -91,7 +91,9 @@ def bootstrap_pip(runtime_dir: Path, cache_dir: Path) -> None:
     run([str(python_exe), str(get_pip), "--no-warn-script-location"])
 
 
-def install_requirements(runtime_dir: Path, requirements: Path, extra_requirements: list[str]) -> None:
+def install_requirements(
+    runtime_dir: Path, requirements: Path, extra_requirements: list[str]
+) -> None:
     python_exe = runtime_dir / "python.exe"
     run([str(python_exe), "-m", "pip", "install", "--upgrade", "pip"])
     if requirements.exists():

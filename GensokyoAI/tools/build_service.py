@@ -31,7 +31,9 @@ class ToolBuildContext:
     character_name: str = ""
     system_contexts: list[str] = field(default_factory=list)
     external_tools: list[ExternalToolDefinition] = field(default_factory=list)
-    external_tool_policy: ExternalToolExecutionPolicy = field(default_factory=ExternalToolExecutionPolicy)
+    external_tool_policy: ExternalToolExecutionPolicy = field(
+        default_factory=ExternalToolExecutionPolicy
+    )
 
 
 @dataclass(frozen=True)
@@ -107,7 +109,9 @@ class ToolBuildService:
             return ProviderCapability.TOOLS in context.model_capabilities
         return True
 
-    def _select_tools(self, context: ToolBuildContext) -> tuple[list[ToolDefinition], dict[str, str]]:
+    def _select_tools(
+        self, context: ToolBuildContext
+    ) -> tuple[list[ToolDefinition], dict[str, str]]:
         allowed_modules = set(context.tool_config.builtin_tools or [])
         selected: list[ToolDefinition] = []
         disabled_reasons: dict[str, str] = {}
@@ -121,7 +125,9 @@ class ToolBuildService:
                 disabled_reasons[tool_def.name] = "not_in_builtin_tools"
                 continue
             if tool_def.name == "web_search" and not self._web_search_tool_enabled(context):
-                disabled_reasons[tool_def.name] = "web_search_disabled_or_provider_builtin_search_enabled"
+                disabled_reasons[tool_def.name] = (
+                    "web_search_disabled_or_provider_builtin_search_enabled"
+                )
                 continue
             selected.append(tool_def)
 
@@ -140,7 +146,9 @@ class ToolBuildService:
                 disabled_reasons[tool_def.namespaced_name] = "runtime_unavailable"
                 continue
             if not tool_def.permission_allowed(context.external_tool_policy):
-                disabled_reasons[tool_def.namespaced_name] = "external_permission_requires_confirmation"
+                disabled_reasons[tool_def.namespaced_name] = (
+                    "external_permission_requires_confirmation"
+                )
                 continue
             selected.append(tool_def)
 

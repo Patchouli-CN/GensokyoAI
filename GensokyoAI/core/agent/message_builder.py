@@ -12,14 +12,15 @@ if TYPE_CHECKING:
     from ...memory.semantic import SemanticMemoryManager
     from ...memory.working import WorkingMemoryManager
     from ..config import ModelConfig, WebSearchToolConfig
-    
+
 
 class MessageOperation:
     def __init__(self, messages: list[dict]):
         self._messages = messages
-    
+
     def exclude(self, **conditions) -> MessageOperation:
         """万能排除器"""
+
         def matches(msg):
             for key, value in conditions.items():
                 if key == "has":
@@ -32,28 +33,29 @@ class MessageOperation:
                     if msg.get(key) != value:
                         return False
             return True
-        
+
         self._messages = [m for m in self._messages if not matches(m)]
         return self
 
     def filter(self, predicate) -> MessageOperation:
         self._messages = [m for m in self._messages if predicate(m)]
         return self
-    
+
     def filter_role(self, *roles: str) -> MessageOperation:
         self._messages = [m for m in self._messages if m.get("role") in roles]
         return self
-    
+
     def exclude_role(self, *roles: str) -> MessageOperation:
         self._messages = [m for m in self._messages if m.get("role") not in roles]
         return self
-    
+
     def take(self, n: int) -> MessageOperation:
         self._messages = self._messages[-n:]
         return self
-    
+
     def get(self) -> list[dict]:
         return self._messages
+
 
 class MessageBuilder:
     """
@@ -179,7 +181,10 @@ class MessageBuilder:
         """当前模型是否配置为优先使用 Provider 内置搜索。"""
         if not self._model_config:
             return False
-        return bool(self._model_config.web_search_enabled and self._model_config.web_search_strategy != "off")
+        return bool(
+            self._model_config.web_search_enabled
+            and self._model_config.web_search_strategy != "off"
+        )
 
     def _has_web_search_tool(self) -> bool:
         if not self._tool_enabled or not self._tool_registry:
@@ -272,7 +277,7 @@ class MessageBuilder:
             system_prompt: 新的系统提示词
         """
         self._system_prompt = system_prompt
-    
+
     @staticmethod
     def operate_on(messages: list[dict]) -> MessageOperation:
         """创建一个消息操作链"""

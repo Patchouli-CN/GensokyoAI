@@ -21,7 +21,7 @@ class ToolCallFunction(Struct):
         return {
             "name": self.name,
             "arguments": (
-                msgspec.json.encode(self.arguments).decode() 
+                msgspec.json.encode(self.arguments).decode()
                 if self.provider in ("openai", "openai_responses", "deepseek")
                 else self.arguments
             ),
@@ -216,9 +216,7 @@ class ProviderCapability:
     def all(cls) -> frozenset[str]:
         """返回所有受控 Provider 能力名称。"""
         return frozenset(
-            value
-            for name, value in vars(cls).items()
-            if name.isupper() and isinstance(value, str)
+            value for name, value in vars(cls).items() if name.isupper() and isinstance(value, str)
         )
 
     @classmethod

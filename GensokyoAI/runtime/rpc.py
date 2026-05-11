@@ -254,18 +254,13 @@ class RpcMethodNotFoundError(ValueError):
 def rpc_methods(*, include_legacy: bool = False) -> list[str]:
     """Return public runtime RPC method names."""
 
-    return [
-        spec.method
-        for spec in RPC_METHOD_SPECS
-        if include_legacy or not spec.legacy
-    ]
+    return [spec.method for spec in RPC_METHOD_SPECS if include_legacy or not spec.legacy]
 
 
 def external_tool_status_methods() -> dict[str, str]:
     """Return external tool lifecycle status to Runtime event-name mapping."""
 
     return dict(_EXTERNAL_TOOL_STATUS_METHODS)
-
 
 
 def legacy_rpc_methods() -> list[str]:

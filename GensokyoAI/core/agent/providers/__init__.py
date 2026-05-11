@@ -33,10 +33,11 @@ class ProviderDefinition:
     model_registry_id: str | None = None
     builtin: bool = True
 
-
     def __post_init__(self) -> None:
         """标准化 Provider 控制面能力声明，避免注册表与实例能力使用不同命名。"""
-        object.__setattr__(self, "capabilities", frozenset(ProviderCapability.normalize(self.capabilities)))
+        object.__setattr__(
+            self, "capabilities", frozenset(ProviderCapability.normalize(self.capabilities))
+        )
 
 
 class ProviderFactory:

@@ -60,7 +60,9 @@ class OpenRouterProvider(OpenAIProvider):
         顺序上默认 headers 最先，config.extra_headers 后合并，因此用户配置可覆盖
         HTTP-Referer / X-Title。
         """
-        return merge_headers(self.DEFAULT_HEADERS, self.config.extra_headers, self.auth_headers(), *headers)
+        return merge_headers(
+            self.DEFAULT_HEADERS, self.config.extra_headers, self.auth_headers(), *headers
+        )
 
     async def list_models(self) -> list[ModelInfo]:
         """拉取 OpenRouter `/models` 并转换为统一模型元信息。"""

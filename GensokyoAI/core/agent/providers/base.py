@@ -50,7 +50,9 @@ class BaseProvider(ABC):
         """应用配置中的模型能力增删覆盖，修正远端元数据或启发式推断误差。"""
         result = ProviderCapability.normalize(capabilities)
         result.update(ProviderCapability.normalize(self.config.model_capabilities_add or []))
-        result.difference_update(ProviderCapability.normalize(self.config.model_capabilities_remove or []))
+        result.difference_update(
+            ProviderCapability.normalize(self.config.model_capabilities_remove or [])
+        )
         return result
 
     @staticmethod

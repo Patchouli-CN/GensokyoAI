@@ -307,13 +307,18 @@ class Agent:
                         if self._stream_timed_out(started_at, last_chunk_at, saw_chunk):
                             raise TimeoutError("stream response timeout") from error
                         continue
-            except (asyncio.CancelledError, GeneratorExit):
+            except asyncio.CancelledError, GeneratorExit:
                 self._action_executor.cancel_response("stream cancelled")  # type: ignore
                 raise
             except TimeoutError as error:
                 logger.warning(f"流式响应超时: {error}")
                 self._action_executor.cancel_response(str(error))  # type: ignore
-                yield StreamChunk(type="error", content="\n[响应超时]\n", error=str(error), error_code="agent.stream.timeout")
+                yield StreamChunk(
+                    type="error",
+                    content="\n[响应超时]\n",
+                    error=str(error),
+                    error_code="agent.stream.timeout",
+                )
             finally:
                 self._action_executor.complete_response(full_response)  # type: ignore
 
@@ -447,7 +452,11 @@ class Agent:
                 model_capabilities=capabilities,
                 character_name=self.character_name,
                 external_tools=external_tools,
-                **({"external_tool_policy": external_tool_policy} if external_tool_policy is not None else {}),
+                **(
+                    {"external_tool_policy": external_tool_policy}
+                    if external_tool_policy is not None
+                    else {}
+                ),
             )
         )
         self._publish_tool_selected_event(result)

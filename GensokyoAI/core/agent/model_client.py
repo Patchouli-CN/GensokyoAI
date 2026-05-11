@@ -310,7 +310,9 @@ class ModelClient:
         call_provider_name = provider_name or self.config.provider
         retry_status_codes = self._retry_status_codes()
         call_timeout = timeout or self.config.timeout
-        call_endpoint = endpoint if endpoint is not None else getattr(call_provider, "endpoint", None)
+        call_endpoint = (
+            endpoint if endpoint is not None else getattr(call_provider, "endpoint", None)
+        )
 
         auth_refreshed_after_401 = False
 
@@ -319,7 +321,9 @@ class ModelClient:
                 call = cast(
                     Callable[
                         [],
-                        Awaitable[UnifiedResponse | ImageGenerationResult | UnifiedEmbeddingResponse],
+                        Awaitable[
+                            UnifiedResponse | ImageGenerationResult | UnifiedEmbeddingResponse
+                        ],
                     ],
                     call_factory,
                 )
@@ -460,7 +464,11 @@ class ModelClient:
             )
             content = response.message.content or ""
             content_text = content if isinstance(content, str) else ""
-            reasoning = response.message.reasoning_content or response.thinking or ""
+            reasoning = (
+                getattr(response.message, "reasoning_content", None)
+                or getattr(response, "thinking", None)
+                or ""
+            )
             self._finish_timing(timing)
             if content_text:
                 timing.content_chunk_count = 1
@@ -612,15 +620,18 @@ class ModelClient:
                                         "first_chunk_ms": timing.first_chunk_ms,
                                     },
                                 )
-                        if chunk.reasoning_content:
+                        reasoning_content = getattr(chunk, "reasoning_content", None)
+                        if reasoning_content:
                             timing.reasoning_chunk_count += 1
-                            timing.reasoning_char_count += len(chunk.reasoning_content)
+                            timing.reasoning_char_count += len(reasoning_content)
                             if timing.first_reasoning_ms is None:
                                 timing.first_reasoning_ms = elapsed_ms
-                        if chunk.usage:
-                            timing.usage = chunk.usage
-                        if chunk.finish_reason:
-                            timing.finish_reason = chunk.finish_reason
+                        chunk_usage = getattr(chunk, "usage", None)
+                        if chunk_usage:
+                            timing.usage = chunk_usage
+                        chunk_finish_reason = getattr(chunk, "finish_reason", None)
+                        if chunk_finish_reason:
+                            timing.finish_reason = chunk_finish_reason
                         if chunk.type == "finish":
                             self._finish_timing(timing)
                             chunk.timing = timing
@@ -695,7 +706,7 @@ class ModelClient:
                         await asyncio.sleep(delay)
                         delay *= backoff
 
-        except TimeoutError as error:
+        except TimeoutError:
             error_msg = f"流式调用超时 ({self.config.timeout}s)"
             logger.error(error_msg)
             self._publish_error(
@@ -709,7 +720,7 @@ class ModelClient:
                     "endpoint": getattr(self._provider, "endpoint", None),
                 },
             )
-            raise ModelError(error_msg) from error
+            raise
 
         except Exception as e:
             normalized = (

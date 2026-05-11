@@ -163,7 +163,11 @@ class OllamaProvider(BaseProvider):
                 )
             ]
 
-        items = getattr(response, "models", None) or response.get("models", []) if isinstance(response, dict) else []
+        items = (
+            getattr(response, "models", None) or response.get("models", [])
+            if isinstance(response, dict)
+            else []
+        )
         models: list[ModelInfo] = []
         for item in items:
             name = getattr(item, "model", None) or getattr(item, "name", None)

@@ -23,25 +23,24 @@ class WorkingMemoryManager:
         **extra,
     ):
         msg: dict = {"role": role, "content": content}
-        
+
         if reasoning_content:
             msg["reasoning_content"] = reasoning_content
-        
+
         if tool_calls:
             msg["tool_calls"] = [
-                tc.to_dict() if hasattr(tc, 'to_dict') else tc
-                for tc in tool_calls
+                tc.to_dict() if hasattr(tc, "to_dict") else tc for tc in tool_calls
             ]
-        
+
         if tool_call_id:
             msg["tool_call_id"] = tool_call_id
-        
+
         for key, value in extra.items():
             if value is not None:
                 msg[key] = value
-        
+
         self._memory.messages.append(msg)
-        
+
     @staticmethod
     def _clean_reasoning(obj):
         """递归删除 reasoning_content（迭代栈实现）。
@@ -51,9 +50,10 @@ class WorkingMemoryManager:
         DeepSeek 多轮对话必须回传 reasoning_content 的协议要求。
         """
         import copy
+
         cleaned = copy.deepcopy(obj)
         stack = [cleaned]
-        
+
         while stack:
             item = stack.pop()
             if isinstance(item, dict):
@@ -61,7 +61,7 @@ class WorkingMemoryManager:
                 stack.extend(item.values())
             elif isinstance(item, list):
                 stack.extend(item)
-        
+
         return cleaned
 
     def rollback_messages(self, count: int) -> int:

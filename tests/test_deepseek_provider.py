@@ -81,7 +81,7 @@ class DeepSeekProviderTests(unittest.TestCase):
                                     id="call_1",
                                     function=SimpleNamespace(
                                         name="get_current_time",
-                                        arguments='{}',
+                                        arguments="{}",
                                     ),
                                 )
                             ],

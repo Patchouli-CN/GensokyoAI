@@ -297,9 +297,7 @@ class ConsoleBackend(BaseBackend):
     def _print_tool_call_indicator(self, tool_info: dict) -> None:
         """打印工具调用指示器"""
         if (message := tool_info.get("message")) and hasattr(message, "tool_calls"):
-            tool_names = [
-                tc.function.name for tc in message.tool_calls if hasattr(tc, "function")
-            ]
+            tool_names = [tc.function.name for tc in message.tool_calls if hasattr(tc, "function")]
             if tool_names:
                 logger.info(f"调用工具: {', '.join(tool_names)}")
 
@@ -348,9 +346,7 @@ class ConsoleBackend(BaseBackend):
             await self._streaming_done.wait()
 
             self.console.print()
-            self.console.print(
-                f"[{self.colors['initiative']}]💭 {self._character_name}: {msg}[/]"
-            )
+            self.console.print(f"[{self.colors['initiative']}]💭 {self._character_name}: {msg}[/]")
 
     # ==================== 交互式主循环 ====================
 

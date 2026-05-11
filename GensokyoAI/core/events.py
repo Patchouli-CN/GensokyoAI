@@ -233,7 +233,7 @@ class EventBus:
             try:
                 self._event_queue.get_nowait()
                 self._event_queue.task_done()
-            except (asyncio.QueueEmpty, ValueError):
+            except asyncio.QueueEmpty, ValueError:
                 break
 
         if self.enable_trace:

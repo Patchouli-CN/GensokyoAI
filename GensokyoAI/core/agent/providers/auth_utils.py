@@ -93,11 +93,14 @@ class TokenRefreshManager:
         )
         timeout = aiohttp.ClientTimeout(total=30)
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session, session.post(
-                self.auth_config.token_url,
-                data=urlencode(body),
-                headers=headers,
-            ) as response:
+            async with (
+                aiohttp.ClientSession(timeout=timeout) as session,
+                session.post(
+                    self.auth_config.token_url,
+                    data=urlencode(body),
+                    headers=headers,
+                ) as response,
+            ):
                 raw = await response.text(encoding="utf-8")
                 if response.status >= 400:
                     raise AuthRefreshError(f"刷新 token 请求失败: HTTP {response.status}")
@@ -111,9 +114,7 @@ class TokenRefreshManager:
 
         token = payload.get(self.auth_config.token_field)
         if not token:
-            raise AuthRefreshError(
-                f"刷新 token 响应缺少字段: {self.auth_config.token_field}"
-            )
+            raise AuthRefreshError(f"刷新 token 响应缺少字段: {self.auth_config.token_field}")
 
         self.auth_config.access_token = str(token)
         if refresh_token := payload.get("refresh_token"):
