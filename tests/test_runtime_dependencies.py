@@ -148,9 +148,7 @@ class MigrationDiagnosticsTests(unittest.TestCase):
         self.assertEqual(info["schema_versions"]["config"], CONFIG_SCHEMA_VERSION)
         self.assertEqual(info["schema_versions"]["session"], SESSION_SCHEMA_VERSION)
         self.assertEqual(info["schema_versions"]["memory"], MEMORY_SCHEMA_VERSION)
-        self.assertEqual(
-            info["schema_versions"]["session_export"], SESSION_EXPORT_SCHEMA_VERSION
-        )
+        self.assertEqual(info["schema_versions"]["session_export"], SESSION_EXPORT_SCHEMA_VERSION)
         self.assertIsNone(info["schema_versions"]["character_package"])
         self.assertEqual(info["deprecated_fields"], [])
         self.assertEqual(info["compatibility_notes"], [])
@@ -280,7 +278,9 @@ class MigrationDiagnosticsTests(unittest.TestCase):
             self.assertEqual(item["format"], "gensokyoai.memory.topic_store")
             self.assertEqual(item["path"], str(path))
             self.assertIn("could not be loaded", item["message"])
-            self.assertEqual(item["diagnostics"][0]["code"], "migration.memory.topic_store.load_failed")
+            self.assertEqual(
+                item["diagnostics"][0]["code"], "migration.memory.topic_store.load_failed"
+            )
 
 
 class SessionPersistenceIndexTests(unittest.TestCase):

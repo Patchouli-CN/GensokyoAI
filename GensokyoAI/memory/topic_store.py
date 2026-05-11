@@ -97,7 +97,9 @@ class TopicAwareStore:
                             source="memory.topic_store",
                             status="migrated",
                             from_schema_version=(
-                                from_schema_version if isinstance(from_schema_version, int) else None
+                                from_schema_version
+                                if isinstance(from_schema_version, int)
+                                else None
                             ),
                             to_schema_version=MEMORY_SCHEMA_VERSION,
                             format=MEMORY_STORE_FORMAT,
