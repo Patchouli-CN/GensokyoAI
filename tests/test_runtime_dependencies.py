@@ -314,6 +314,12 @@ class RuntimeRpcDispatchTests(unittest.TestCase):
         self.assertIn("init", legacy_rpc_methods())
         self.assertIn("install_dependencies", legacy_rpc_methods())
         self.assertIn("send_message_stream", legacy_rpc_methods())
+        self.assertIn("memory.list", rpc_methods())
+        self.assertIn("memory.search", rpc_methods())
+        self.assertIn("memory.get", rpc_methods())
+        self.assertIn("memory.update", rpc_methods())
+        self.assertIn("memory.delete", rpc_methods())
+        self.assertIn("memory.graph", rpc_methods())
 
     def test_runtime_protocol_metadata_documents_versions_and_deprecations(self):
         service = RuntimeService()
@@ -327,6 +333,7 @@ class RuntimeRpcDispatchTests(unittest.TestCase):
         self.assertEqual(info["protocol_major_version"], 1)
         self.assertIn("agent.streaming", info["capabilities"])
         self.assertIn("runtime.events", info["capabilities"])
+        self.assertIn("memory.management", info["capabilities"])
         self.assertEqual(info["breaking_changes"], [])
         self.assertTrue(info["method_specs"])
 
@@ -363,6 +370,9 @@ class RuntimeRpcDispatchTests(unittest.TestCase):
             resolve_rpc_handler(service, "session.rollback").__name__,
             "rollback_session",
         )
+        self.assertEqual(resolve_rpc_handler(service, "memory.list").__name__, "memory_list")
+        self.assertEqual(resolve_rpc_handler(service, "memory.search").__name__, "memory_search")
+        self.assertEqual(resolve_rpc_handler(service, "memory.graph").__name__, "memory_graph")
 
     def test_dispatch_rpc_raises_structured_method_not_found_error(self):
         service = RuntimeService()
@@ -481,6 +491,81 @@ class FakeRuntimeSessionManager:
         if self.current:
             messages = self.messages_by_session.get(self.current.session_id, [])
             self.current.total_turns = len(messages) // 2
+
+
+class FakeRuntimeSemanticMemory:
+    def __init__(self):
+        self.item = {
+            "id": "memory-1",
+            "content": "灵梦喜欢喝茶",
+            "importance": 0.8,
+            "topic_name": "偏好",
+            "diagnostics": {"embedding_used": False},
+        }
+        self.deleted = False
+
+    def list_memories(self, **kwargs):
+        return {"items": [self.item], "total": 1, "limit": kwargs.get("limit"), "offset": kwargs.get("offset")}
+
+    async def search_async(self, **kwargs):
+        return [{**self.item, "score": 0.9, "matched_by": ["memory_keyword"]}]
+
+    def get_memory(self, memory_id):
+        return self.item if memory_id == "memory-1" and not self.deleted else None
+
+    async def update_memory(self, memory_id, **kwargs):
+        if memory_id != "memory-1" or self.deleted:
+            return None
+        self.item = {**self.item, **{key: value for key, value in kwargs.items() if value is not None}}
+        return self.item
+
+    async def delete_memory(self, memory_id):
+        if memory_id != "memory-1" or self.deleted:
+            return False
+        self.deleted = True
+        return True
+
+    def get_topic_graph(self):
+        return {"nodes": [{"id": "topic-1", "recall_weight": 0.8}], "edges": []}
+
+
+class RuntimeMemoryRpcTests(unittest.TestCase):
+    def test_memory_rpc_methods_return_public_memory_payloads(self):
+        service = RuntimeService()
+        memory = FakeRuntimeSemanticMemory()
+        cast(Any, service.state).agent = SimpleNamespace(semantic_memory=memory)
+
+        async def run():
+            listed = await service.handle("memory.list", {"limit": 10})
+            searched = await service.handle("memory.search", {"query": "喝茶"})
+            fetched = await service.handle("memory.get", {"memory_id": "memory-1"})
+            updated = await service.handle("memory.update", {"memory_id": "memory-1", "importance": 0.9})
+            graph = await service.handle("memory.graph")
+            deleted = await service.handle("memory.delete", {"memory_id": "memory-1"})
+            missing = await service.handle("memory.get", {"memory_id": "memory-1"})
+            return listed, searched, fetched, updated, graph, deleted, missing
+
+        listed, searched, fetched, updated, graph, deleted, missing = asyncio.run(run())
+
+        self.assertEqual(listed["total"], 1)
+        self.assertEqual(searched["items"][0]["score"], 0.9)
+        self.assertFalse(searched["diagnostics"]["embedding_used"])
+        self.assertEqual(fetched["id"], "memory-1")
+        self.assertTrue(updated["updated"])
+        self.assertEqual(updated["memory"]["importance"], 0.9)
+        self.assertEqual(graph["topic_count"], 1)
+        self.assertTrue(deleted["deleted"])
+        self.assertFalse(missing["ok"])
+        self.assertEqual(missing["error_code"], "runtime.error")
+
+    def test_memory_rpc_requires_initialized_agent(self):
+        service = RuntimeService()
+
+        response = asyncio.run(service.handle("memory.list"))
+
+        self.assertFalse(response["ok"])
+        self.assertEqual(response["error_code"], "runtime.error")
+        self.assertIn("Runtime is not initialized", response["error"])
 
 
 class RuntimeSessionRpcTests(unittest.TestCase):

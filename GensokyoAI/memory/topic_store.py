@@ -16,6 +16,7 @@ Design Philosophy:
 import re
 import asyncio
 import json
+import math
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
@@ -34,6 +35,14 @@ def _json_encoder(obj):
     if isinstance(obj, datetime):
         return obj.isoformat()
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+
+def _tokenize(text: str) -> set[str]:
+    return {
+        word
+        for word in re.split(r"[\s,，。、；;！!？?·]+", text.lower())
+        if 2 <= len(word) <= 20
+    }
 
 
 class TopicAwareStore:
@@ -123,6 +132,13 @@ class TopicAwareStore:
         for word in words:
             if 2 <= len(word) <= 20:
                 self._keyword_index[word].add(topic.id)
+
+    def _rebuild_indexes(self) -> None:
+        self._topic_name_index.clear()
+        self._keyword_index.clear()
+        for topic in self._topics.values():
+            self._topic_name_index[topic.name.lower()] = topic.id
+            self._index_topic(topic)
 
     # ==================== 遗忘曲线计算 ====================
 
@@ -399,72 +415,247 @@ class TopicAwareStore:
 
     # ==================== 检索 ====================
 
+    def _keyword_memory_score(self, query: str, memory: TopicMemory, topic: Topic | None) -> tuple[float, list[str]]:
+        query_tokens = _tokenize(query)
+        memory_tokens = _tokenize(memory.content)
+        topic_tokens = _tokenize(f"{topic.name} {topic.summary}" if topic else "")
+        matched_memory = query_tokens & memory_tokens
+        matched_topic = query_tokens & topic_tokens
+        phrase_match = bool(query and query.lower() in memory.content.lower())
+
+        score = 0.0
+        if query_tokens:
+            score += len(matched_memory) / len(query_tokens) * 0.55
+            score += len(matched_topic) / len(query_tokens) * 0.25
+        if phrase_match:
+            score += 0.2
+        score += min(memory.importance, 1.0) * 0.1
+        if topic:
+            score += min(self._calculate_recall_weight(topic), 1.0) * 0.1
+
+        matched_by = []
+        if matched_memory or phrase_match:
+            matched_by.append("memory_keyword")
+        if matched_topic:
+            matched_by.append("topic_keyword")
+        if not matched_by:
+            matched_by.append("recent")
+        return min(score, 1.0), matched_by
+
+    @staticmethod
+    def _cosine_similarity(left: list[float] | None, right: list[float] | None) -> float | None:
+        if not left or not right or len(left) != len(right):
+            return None
+        dot = sum(a * b for a, b in zip(left, right))
+        left_norm = math.sqrt(sum(a * a for a in left))
+        right_norm = math.sqrt(sum(b * b for b in right))
+        if left_norm == 0 or right_norm == 0:
+            return None
+        return dot / (left_norm * right_norm)
+
+    def _memory_payload(
+        self,
+        memory: TopicMemory,
+        *,
+        topic: Topic | None = None,
+        score: float | None = None,
+        keyword_score: float | None = None,
+        embedding_score: float | None = None,
+        matched_by: list[str] | None = None,
+        diagnostics: dict | None = None,
+    ) -> dict:
+        topic = topic or self._topics.get(memory.topic_id)
+        payload = {
+            "id": memory.id,
+            "content": memory.content,
+            "importance": memory.importance,
+            "emotional_impact": memory.emotional_impact,
+            "tags": list(memory.tags),
+            "timestamp": memory.timestamp.isoformat(),
+            "memory_type": memory.memory_type.name.lower(),
+            "supersedes": memory.supersedes,
+            "topic_id": memory.topic_id,
+            "topic_name": topic.name if topic else None,
+            "topic": self._topic_payload(topic) if topic else None,
+            "embedding": None,
+        }
+        if score is not None:
+            payload["score"] = score
+        if keyword_score is not None:
+            payload["keyword_score"] = keyword_score
+        if embedding_score is not None:
+            payload["embedding_score"] = embedding_score
+        if matched_by is not None:
+            payload["matched_by"] = matched_by
+        if diagnostics is not None:
+            payload["diagnostics"] = diagnostics
+        return payload
+
+    def _topic_payload(self, topic: Topic | None) -> dict | None:
+        if topic is None:
+            return None
+        return {
+            "id": topic.id,
+            "name": topic.name,
+            "summary": topic.summary,
+            "created_at": topic.created_at.isoformat(),
+            "last_updated": topic.last_updated.isoformat(),
+            "last_accessed": topic.last_accessed.isoformat(),
+            "access_count": topic.access_count,
+            "message_count": topic.message_count,
+            "importance": topic.importance,
+            "emotional_valence": topic.emotional_valence,
+            "recall_weight": self._calculate_recall_weight(topic),
+            "related_topics": dict(topic.related_topics),
+            "message_ids": list(topic.message_ids),
+        }
+
     def search(
         self,
         top_k: int = 5,
         query_text: Optional[str] = None,
+        *,
+        threshold: float = 0.0,
+        query_embedding: list[float] | None = None,
+        memory_embeddings: dict[str, list[float]] | None = None,
+        embedding_weight: float = 0.55,
+        refresh: bool = True,
+        diagnostics: dict | None = None,
     ) -> list[dict]:
-        """搜索记忆，按综合权重排序"""
-        if not query_text or not self._topics:
+        """搜索记忆，按关键词/话题权重与可选 embedding 相似度排序。"""
+        if not query_text or not self._memories:
             return []
 
-        candidates = self._get_candidates(query_text, max_candidates=top_k * 2)
+        diagnostics = diagnostics or {}
+        resolved_memory_embeddings = memory_embeddings or {}
+        use_embedding = bool(query_embedding and resolved_memory_embeddings)
+        keyword_weight = 1.0 - embedding_weight if use_embedding else 1.0
+        candidates: list[dict] = []
 
-        # 🆕 按遗忘曲线权重排序
-        weighted_candidates = []
-        for topic in candidates:
-            weight = self._calculate_recall_weight(topic)
-            weighted_candidates.append((topic, weight))
+        for memory in self._memories.values():
+            topic = self._topics.get(memory.topic_id)
+            keyword_score, matched_by = self._keyword_memory_score(query_text, memory, topic)
+            embedding_score = None
+            if use_embedding:
+                embedding_score = self._cosine_similarity(
+                    query_embedding,
+                    resolved_memory_embeddings.get(memory.id),
+                )
+                if embedding_score is not None:
+                    matched_by = [*matched_by, "embedding"]
 
-        weighted_candidates.sort(key=lambda x: x[1], reverse=True)
+            combined = keyword_score * keyword_weight
+            if embedding_score is not None:
+                combined += max(0.0, embedding_score) * embedding_weight
+            if combined < threshold:
+                continue
 
-        results = []
-        for topic, weight in weighted_candidates[:top_k]:
-            # 🆕 检索时刷新访问时间
-            self._refresh_topic(topic, boost=0.01)
-
-            memories = []
-            for mid in topic.message_ids[-3:]:
-                if mid in self._memories:
-                    memories.append(self._memories[mid])
-
-            results.append(
-                {
-                    "id": topic.id,
-                    "content": topic.summary,
-                    "importance": topic.importance / max(topic.message_count, 1),
-                    "emotional_valence": topic.emotional_valence,  # 🆕
-                    "recall_weight": weight,  # 🆕
-                    "tags": [topic.name],
-                    "extracted_summary": topic.summary,
-                    "extracted_keywords": [topic.name],
-                    "memories": [{"id": m.id, "content": m.content} for m in memories],
-                }
+            candidates.append(
+                self._memory_payload(
+                    memory,
+                    topic=topic,
+                    score=combined,
+                    keyword_score=keyword_score,
+                    embedding_score=embedding_score,
+                    matched_by=matched_by,
+                    diagnostics=diagnostics,
+                )
             )
 
-        return results
+        candidates.sort(
+            key=lambda item: (
+                item.get("score", 0.0),
+                item.get("importance", 0.0),
+                item.get("timestamp", ""),
+            ),
+            reverse=True,
+        )
+
+        for item in candidates[:top_k]:
+            item_topic_id = item.get("topic_id")
+            topic = self._topics.get(item_topic_id) if isinstance(item_topic_id, str) else None
+            if topic and refresh:
+                self._refresh_topic(topic, boost=0.01)
+
+        return candidates[:top_k]
 
     def get_all(self) -> list[dict]:
         """获取所有记忆"""
-        return [
-            {
-                "id": m.id,
-                "content": m.content,
-                "embedding": None,
-                "importance": m.importance,
-                "emotional_impact": m.emotional_impact,
-                "tags": m.tags,
-                "timestamp": m.timestamp.isoformat(),
-            }
-            for m in self._memories.values()
-        ]
+        return [self._memory_payload(m) for m in self._memories.values()]
+
+    def list_memories(
+        self,
+        *,
+        topic_id: str | None = None,
+        topic_name: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict:
+        topic = self.find_topic_by_name(topic_name) if topic_name else None
+        selected_topic_id = topic_id or (topic.id if topic else None)
+        memories = list(self._memories.values())
+        if selected_topic_id:
+            memories = [memory for memory in memories if memory.topic_id == selected_topic_id]
+        memories.sort(key=lambda memory: memory.timestamp, reverse=True)
+        total = len(memories)
+        page = memories[max(offset, 0) : max(offset, 0) + max(limit, 1)]
+        return {
+            "items": [self._memory_payload(memory) for memory in page],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+
+    def list_topics(self) -> list[dict]:
+        return [payload for topic in self._topics.values() if (payload := self._topic_payload(topic))]
+
+    def get_memory(self, memory_id: str) -> dict | None:
+        memory = self._memories.get(memory_id)
+        return self._memory_payload(memory) if memory else None
+
+    async def update_memory(
+        self,
+        memory_id: str,
+        *,
+        content: str | None = None,
+        importance: float | None = None,
+        tags: list[str] | None = None,
+    ) -> dict | None:
+        memory = self._memories.get(memory_id)
+        if memory is None:
+            return None
+        if content is not None:
+            memory.content = content
+        if importance is not None:
+            memory.importance = max(0.0, min(1.0, float(importance)))
+        if tags is not None:
+            memory.tags = list(tags)
+        await self._save_async()
+        return self._memory_payload(memory)
+
+    async def delete_memory(self, memory_id: str) -> bool:
+        memory = self._memories.pop(memory_id, None)
+        if memory is None:
+            return False
+        topic = self._topics.get(memory.topic_id)
+        if topic and memory_id in topic.message_ids:
+            topic.message_ids = [item for item in topic.message_ids if item != memory_id]
+            topic.message_count = max(0, topic.message_count - 1)
+            topic.last_updated = datetime.now()
+            if topic.message_count == 0:
+                self._topics.pop(topic.id, None)
+        self._rebuild_indexes()
+        await self._save_async()
+        return True
 
     def get_all_topics(self) -> list[Topic]:
         """获取所有话题（只读）"""
         return list(self._topics.values())
 
-    def find_topic_by_name(self, name: str) -> Optional[Topic]:
+    def find_topic_by_name(self, name: str | None) -> Optional[Topic]:
         """根据话题名查找话题。"""
+        if not name:
+            return None
         topic_id = self._topic_name_index.get(name.lower())
         if not topic_id:
             return None
@@ -504,18 +695,7 @@ class TopicAwareStore:
 
     def get_topic_graph(self) -> dict:
         """获取话题关联图"""
-        nodes = [
-            {
-                "id": t.id,
-                "name": t.name,
-                "summary": t.summary,
-                "size": t.message_count,
-                "importance": t.importance,
-                "emotional_valence": t.emotional_valence,
-                "recall_weight": self._calculate_recall_weight(t),
-            }
-            for t in self._topics.values()
-        ]
+        nodes = [self._topic_payload(t) for t in self._topics.values()]
 
         edges = []
         for t in self._topics.values():

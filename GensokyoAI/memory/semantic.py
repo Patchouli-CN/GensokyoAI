@@ -1,4 +1,6 @@
-"""语义记忆 - 话题感知模式，零 embedding 显存占用"""
+"""语义记忆 - 话题感知模式，支持可选 embedding 混合检索"""
+
+from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
@@ -65,7 +67,12 @@ class SemanticMemoryManager:
         if not self._enabled:
             return []
 
-        results = self._store.search(query_text=query, top_k=top_k)
+        results = self._store.search(
+            query_text=query,
+            top_k=top_k,
+            threshold=self.config.semantic_similarity_threshold,
+            diagnostics={"retrieval_mode": "keyword", "embedding_used": False},
+        )
 
         contexts = []
         for item in results:
@@ -79,8 +86,111 @@ class SemanticMemoryManager:
         if not self._enabled:
             return []
 
-        results = self._store.search(query_text=query, top_k=top_k)
+        results = await self.search_async(query=query, top_k=top_k)
         return [item.get("content", "") for item in results[:top_k]]
+
+    async def search_async(
+        self,
+        query: str,
+        top_k: int | None = None,
+        *,
+        threshold: float | None = None,
+        include_embedding: bool = True,
+    ) -> list[dict]:
+        """搜索语义记忆，支持 embedding 可用时的混合检索与失败降级。"""
+        if not self._enabled:
+            return []
+
+        limit = top_k or self.config.semantic_top_k
+        effective_threshold = (
+            self.config.semantic_similarity_threshold if threshold is None else threshold
+        )
+        diagnostics: dict = {
+            "retrieval_mode": "keyword",
+            "embedding_requested": include_embedding,
+            "embedding_used": False,
+            "embedding_fallback": False,
+            "threshold": effective_threshold,
+        }
+        query_embedding = None
+        memory_embeddings: dict[str, list[float]] = {}
+
+        if include_embedding and getattr(self._model_client, "supports_embeddings", False):
+            try:
+                query_response = await self._model_client.embeddings(query)
+                query_embedding = list(query_response.embedding)
+                for memory in self._store._memories.values():
+                    response = await self._model_client.embeddings(memory.content)
+                    memory_embeddings[memory.id] = list(response.embedding)
+                diagnostics.update(
+                    {
+                        "retrieval_mode": "hybrid",
+                        "embedding_used": bool(query_embedding and memory_embeddings),
+                        "embedding_count": len(memory_embeddings),
+                    }
+                )
+            except Exception as error:
+                diagnostics.update(
+                    {
+                        "retrieval_mode": "keyword",
+                        "embedding_used": False,
+                        "embedding_fallback": True,
+                        "embedding_error": str(error),
+                    }
+                )
+                logger.debug(f"语义记忆 embedding 检索降级为关键词检索: {error}")
+        elif include_embedding:
+            diagnostics["embedding_fallback"] = True
+            diagnostics["embedding_error"] = "embedding provider is not configured or not supported"
+
+        return self._store.search(
+            query_text=query,
+            top_k=limit,
+            threshold=effective_threshold,
+            query_embedding=query_embedding,
+            memory_embeddings=memory_embeddings,
+            diagnostics=diagnostics,
+        )
+
+    def list_memories(
+        self,
+        *,
+        topic_id: str | None = None,
+        topic_name: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict:
+        """列出语义记忆。"""
+        return self._store.list_memories(
+            topic_id=topic_id,
+            topic_name=topic_name,
+            limit=limit,
+            offset=offset,
+        )
+
+    def get_memory(self, memory_id: str) -> dict | None:
+        """获取单条语义记忆。"""
+        return self._store.get_memory(memory_id)
+
+    async def update_memory(
+        self,
+        memory_id: str,
+        *,
+        content: str | None = None,
+        importance: float | None = None,
+        tags: list[str] | None = None,
+    ) -> dict | None:
+        """更新单条语义记忆。"""
+        return await self._store.update_memory(
+            memory_id,
+            content=content,
+            importance=importance,
+            tags=tags,
+        )
+
+    async def delete_memory(self, memory_id: str) -> bool:
+        """删除单条语义记忆。"""
+        return await self._store.delete_memory(memory_id)
 
     def get_topic_graph(self) -> dict:
         """获取话题关联图"""

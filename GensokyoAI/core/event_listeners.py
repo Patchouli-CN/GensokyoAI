@@ -189,9 +189,17 @@ class MemoryServiceListeners:
             self.event_bus.respond(event, None)
             return
 
-        # 🆕 立即响应，不等待存储完成
+        # 🆕 立即响应，不等待存储完成，同时返回审核/追踪元数据
         self.event_bus.respond(
-            event, {"status": "processing", "topic_name": data.get("topic_name", "记忆")}
+            event,
+            {
+                "status": "processing",
+                "topic_name": data.get("topic_name", "记忆"),
+                "importance": data.get("importance", 0.5),
+                "source": event.source,
+                "requires_review": bool(data.get("requires_review", False)),
+                "metadata": dict(data.get("metadata", {}) or {}),
+            },
         )
 
         # 后台执行存储
@@ -214,8 +222,9 @@ class MemoryServiceListeners:
                     topic_name=topic_name,
                 )
                 if topic:
+                    memory_id = topic.message_ids[-1] if topic.message_ids else None
                     logger.debug(
-                        f"记忆服务: 已存储 -> 话题「{topic.name}」(情感: {topic.emotional_valence:.2f})"
+                        f"记忆服务: 已存储 -> 话题「{topic.name}」(情感: {topic.emotional_valence:.2f}, 记忆: {memory_id})"
                     )
         except Exception as e:
             logger.error(f"记忆服务: 存储失败 - {e}")
@@ -291,8 +300,22 @@ class MemoryServiceListeners:
                 topic = await store.update_topic_memory(topic_name, new_content)
 
                 if topic:
+                    memory_id = topic.message_ids[-1] if topic.message_ids else None
                     logger.info(f"记忆服务: 已更新话题「{topic_name}」，原因: {reason}")
-                    self.event_bus.respond(event, {"topic_name": topic.name, "updated": True})
+                    self.event_bus.respond(
+                        event,
+                        {
+                            "topic_name": topic.name,
+                            "topic_id": topic.id,
+                            "memory_id": memory_id,
+                            "importance": data.get("importance", 0.7),
+                            "reason": reason,
+                            "source": event.source,
+                            "requires_review": bool(data.get("requires_review", False)),
+                            "metadata": dict(data.get("metadata", {}) or {}),
+                            "updated": True,
+                        },
+                    )
                     return
 
         except Exception as e:

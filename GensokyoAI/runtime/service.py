@@ -114,6 +114,9 @@ class RuntimeService:
                 "character.discovery",
                 "dependency.management",
                 "external_tool.status",
+                "memory.management",
+                "memory.search",
+                "memory.graph",
                 "model.discovery",
                 "runtime.events",
                 "runtime.health",
@@ -507,6 +510,108 @@ class RuntimeService:
 
         return self.external_tool_manager.source_status(include_tools=include_tools)
 
+    async def memory_list(
+        self,
+        topic_id: str | None = None,
+        topic_name: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """List current-session semantic memories with topic diagnostics."""
+
+        memory = self._require_semantic_memory()
+        return memory.list_memories(
+            topic_id=topic_id,
+            topic_name=topic_name,
+            limit=max(1, min(limit, 200)),
+            offset=max(0, offset),
+        )
+
+    async def memory_search(
+        self,
+        query: str,
+        top_k: int | None = None,
+        threshold: float | None = None,
+        include_embedding: bool = True,
+    ) -> dict[str, Any]:
+        """Search current-session semantic memories with explainable diagnostics."""
+
+        if not query or not query.strip():
+            raise ValueError("Memory search query is required")
+        memory = self._require_semantic_memory()
+        items = await memory.search_async(
+            query=query,
+            top_k=top_k,
+            threshold=threshold,
+            include_embedding=include_embedding,
+        )
+        diagnostics = items[0].get("diagnostics", {}) if items else {
+            "embedding_requested": include_embedding,
+            "embedding_used": False,
+            "threshold": threshold,
+        }
+        return {
+            "query": query,
+            "items": items,
+            "count": len(items),
+            "diagnostics": diagnostics,
+        }
+
+    async def memory_get(self, memory_id: str) -> dict[str, Any]:
+        """Return one semantic memory by id."""
+
+        if not memory_id:
+            raise ValueError("Memory id is required")
+        memory = self._require_semantic_memory()
+        item = memory.get_memory(memory_id)
+        if item is None:
+            raise ValueError(f"Memory does not exist: {memory_id}")
+        return item
+
+    async def memory_update(
+        self,
+        memory_id: str,
+        content: str | None = None,
+        importance: float | None = None,
+        tags: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Update one semantic memory by id."""
+
+        if not memory_id:
+            raise ValueError("Memory id is required")
+        memory = self._require_semantic_memory()
+        item = await memory.update_memory(
+            memory_id,
+            content=content,
+            importance=importance,
+            tags=tags,
+        )
+        if item is None:
+            raise ValueError(f"Memory does not exist: {memory_id}")
+        return {"updated": True, "memory": item}
+
+    async def memory_delete(self, memory_id: str) -> dict[str, Any]:
+        """Delete one semantic memory by id."""
+
+        if not memory_id:
+            raise ValueError("Memory id is required")
+        memory = self._require_semantic_memory()
+        deleted = await memory.delete_memory(memory_id)
+        if not deleted:
+            raise ValueError(f"Memory does not exist: {memory_id}")
+        return {"deleted": True, "memory_id": memory_id}
+
+    async def memory_graph(self) -> dict[str, Any]:
+        """Return current-session topic graph for memory visualization."""
+
+        memory = self._require_semantic_memory()
+        graph = memory.get_topic_graph()
+        return {
+            **graph,
+            "topic_count": len(graph.get("nodes", [])),
+            "edge_count": len(graph.get("edges", [])),
+        }
+
     async def create_event_subscription(
         self,
         event_types: list[str] | None = None,
@@ -603,6 +708,13 @@ class RuntimeService:
         if self.state.agent is None:
             raise RuntimeError("Runtime is not initialized. Call init first.")
         return self.state.agent
+
+    def _require_semantic_memory(self) -> Any:
+        agent = self._require_agent()
+        try:
+            return agent.semantic_memory
+        except Exception as error:
+            raise RuntimeError("Semantic memory is not available for the current session") from error
 
     def _resolve_optional(self, value: str | None) -> Path | None:
         if not value:

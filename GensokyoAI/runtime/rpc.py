@@ -77,6 +77,12 @@ RPC_METHOD_SPECS: tuple[RpcMethodSpec, ...] = (
     RpcMethodSpec("dependency.status", "dependency_status"),
     RpcMethodSpec("dependency.install", "install_dependencies"),
     RpcMethodSpec("external_tool.status", "external_tool_status"),
+    RpcMethodSpec("memory.list", "memory_list"),
+    RpcMethodSpec("memory.search", "memory_search"),
+    RpcMethodSpec("memory.get", "memory_get"),
+    RpcMethodSpec("memory.update", "memory_update"),
+    RpcMethodSpec("memory.delete", "memory_delete"),
+    RpcMethodSpec("memory.graph", "memory_graph"),
     RpcMethodSpec("init", "init", legacy=True, replacement="agent.init", remove_after="2.0.0"),
     RpcMethodSpec(
         "send_message",

@@ -3,10 +3,13 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
+from GensokyoAI.core.config import MemoryConfig
 from GensokyoAI.core.event_listeners import MemoryServiceListeners
 from GensokyoAI.core.events import Event, EventBus, SystemEvent
+from GensokyoAI.memory.semantic import SemanticMemoryManager
 from GensokyoAI.memory.topic_store import TopicAwareStore
 from GensokyoAI.memory.types import TopicMemoryType
 from GensokyoAI.memory.working import WorkingMemoryManager
@@ -84,12 +87,122 @@ class TopicAwareStorePublicApiTests(unittest.TestCase):
 
             self.assertIsNone(updated)
 
+    def test_list_search_get_update_delete_and_graph_are_explainable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = TopicAwareStore(Path(tmp) / "topics.json")
+            topic = asyncio.run(store.add_async("灵梦喜欢喝热茶", topic_name="偏好"))
+            self.assertIsNotNone(topic)
+            assert topic is not None
+            memory_id = topic.message_ids[-1]
+
+            listed = store.list_memories(topic_name="偏好")
+            searched = store.search(query_text="热茶", threshold=0.1, top_k=3)
+            fetched = store.get_memory(memory_id)
+            updated = asyncio.run(store.update_memory(memory_id, importance=0.9, tags=["偏好", "饮品"]))
+            graph = store.get_topic_graph()
+            deleted = asyncio.run(store.delete_memory(memory_id))
+
+            self.assertEqual(listed["total"], 1)
+            self.assertEqual(searched[0]["id"], memory_id)
+            self.assertGreaterEqual(searched[0]["score"], 0.1)
+            self.assertIn("matched_by", searched[0])
+            self.assertIsNotNone(fetched)
+            self.assertIsNotNone(updated)
+            assert fetched is not None
+            assert updated is not None
+            self.assertEqual(fetched["topic_name"], "偏好")
+            self.assertEqual(updated["importance"], 0.9)
+            self.assertIn("recall_weight", graph["nodes"][0])
+            self.assertTrue(deleted)
+            self.assertIsNone(store.get_memory(memory_id))
+
+    def test_embedding_similarity_can_rank_memory_above_keyword_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = TopicAwareStore(Path(tmp) / "topics.json")
+            reimu = asyncio.run(store.add_async("博丽神社的赛钱箱", topic_name="神社"))
+            marisa = asyncio.run(store.add_async("雾雨魔理沙的魔法书", topic_name="魔法"))
+            assert reimu is not None
+            assert marisa is not None
+            reimu_memory_id = reimu.message_ids[-1]
+            marisa_memory_id = marisa.message_ids[-1]
+
+            results = store.search(
+                query_text="完全无关键词",
+                top_k=2,
+                threshold=0.0,
+                query_embedding=[1.0, 0.0],
+                memory_embeddings={
+                    reimu_memory_id: [0.1, 0.9],
+                    marisa_memory_id: [1.0, 0.0],
+                },
+            )
+
+            self.assertEqual(results[0]["id"], marisa_memory_id)
+            self.assertIn("embedding", results[0]["matched_by"])
+            self.assertGreater(results[0]["embedding_score"], results[1]["embedding_score"])
+
+
+class SemanticMemoryManagerSearchTests(unittest.TestCase):
+    def test_search_async_falls_back_when_embedding_fails(self):
+        class FailingEmbeddingClient:
+            supports_embeddings = True
+
+            async def chat(self, *args, **kwargs):
+                return SimpleNamespace(message=SimpleNamespace(content="{}"))
+
+            async def embeddings(self, prompt):
+                raise RuntimeError("embedding down")
+
+        async def run():
+            with tempfile.TemporaryDirectory() as tmp:
+                manager = SemanticMemoryManager(
+                    MemoryConfig(semantic_similarity_threshold=0.1),
+                    "reimu",
+                    Path(tmp),
+                    cast(Any, FailingEmbeddingClient()),
+                )
+                await manager.add_async("灵梦喜欢喝茶", topic_name="偏好", importance=0.8)
+                return await manager.search_async("喝茶", include_embedding=True)
+
+        results = asyncio.run(run())
+
+        self.assertEqual(results[0]["diagnostics"]["embedding_fallback"], True)
+        self.assertEqual(results[0]["diagnostics"]["embedding_used"], False)
+        self.assertIn("embedding down", results[0]["diagnostics"]["embedding_error"])
+
 
 class MemoryServiceListenersPublicApiTests(unittest.TestCase):
+    def test_memory_add_listener_returns_review_metadata(self):
+        event_bus = EventBus(enable_trace=False)
+        event_bus.respond = MagicMock()
+        agent = SimpleNamespace(semantic_memory=SimpleNamespace())
+        listener = MemoryServiceListeners(agent, event_bus)  # type: ignore[arg-type]
+        listener._do_memory_add = AsyncMock()
+        event = Event(
+            type=SystemEvent.MEMORY_SEMANTIC_ADDED,
+            source="tool.remember",
+            data={
+                "content": "新记忆",
+                "topic_name": "设定",
+                "importance": 0.8,
+                "requires_review": True,
+                "metadata": {"source": "test"},
+            },
+        )
+
+        asyncio.run(listener.on_memory_add_request(event))
+
+        response = event_bus.respond.call_args.args[1]
+        self.assertEqual(response["status"], "processing")
+        self.assertEqual(response["topic_name"], "设定")
+        self.assertEqual(response["importance"], 0.8)
+        self.assertTrue(response["requires_review"])
+        self.assertEqual(response["metadata"], {"source": "test"})
+
     def test_memory_update_listener_uses_store_public_update_api(self):
         event_bus = EventBus(enable_trace=False)
         event_bus.respond = MagicMock()
-        topic = SimpleNamespace(name="设定")
+        topic = SimpleNamespace(name="设定", id="topic-1", message_ids=["memory-1"])
         store = SimpleNamespace(update_topic_memory=AsyncMock(return_value=topic))
         semantic_memory = SimpleNamespace(store=store)
         agent = SimpleNamespace(semantic_memory=semantic_memory)
@@ -103,7 +216,20 @@ class MemoryServiceListenersPublicApiTests(unittest.TestCase):
         asyncio.run(listener.on_memory_update_request(event))
 
         store.update_topic_memory.assert_called_once_with("设定", "新设定")
-        event_bus.respond.assert_called_once_with(event, {"topic_name": "设定", "updated": True})
+        event_bus.respond.assert_called_once_with(
+            event,
+            {
+                "topic_name": "设定",
+                "topic_id": "topic-1",
+                "memory_id": "memory-1",
+                "importance": 0.7,
+                "reason": "测试",
+                "source": "tool.update_memory",
+                "requires_review": False,
+                "metadata": {},
+                "updated": True,
+            },
+        )
 
     def test_memory_update_listener_responds_none_for_missing_topic(self):
         event_bus = EventBus(enable_trace=False)
