@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 from GensokyoAI.tools.errors import ToolExecutionError
 from GensokyoAI.tools.external_manager import ExternalToolSourceStatus
@@ -25,36 +25,7 @@ _EXTERNAL_TOOL_STATUS_METHODS: dict[str, str] = {
 }
 
 
-class RuntimeRpcTarget(Protocol):
-    """Protocol implemented by runtime services that expose RPC handlers."""
-
-    async def init(self, **kwargs: Any) -> dict[str, Any]: ...
-
-    async def list_characters(self, **kwargs: Any) -> list[dict[str, Any]]: ...
-
-    async def list_models(self, **kwargs: Any) -> dict[str, Any]: ...
-
-    async def model_info(self, **kwargs: Any) -> dict[str, Any]: ...
-
-    async def create_session(self, **kwargs: Any) -> dict[str, Any]: ...
-
-    async def list_sessions(self, **kwargs: Any) -> list[dict[str, Any]]: ...
-
-    async def resume_session(self, **kwargs: Any) -> dict[str, Any]: ...
-
-    async def send_message(self, **kwargs: Any) -> dict[str, Any]: ...
-
-    async def shutdown(self, **kwargs: Any) -> dict[str, Any]: ...
-
-    async def health(self, **kwargs: Any) -> dict[str, Any]: ...
-
-    async def info(self, **kwargs: Any) -> dict[str, Any]: ...
-
-    async def dependency_status(self, **kwargs: Any) -> dict[str, Any]: ...
-
-    async def install_dependencies(self, **kwargs: Any) -> dict[str, Any]: ...
-
-    async def external_tool_status(self, **kwargs: Any) -> dict[str, Any]: ...
+RuntimeRpcTarget = Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,21 +43,33 @@ RPC_METHOD_SPECS: tuple[RpcMethodSpec, ...] = (
     RpcMethodSpec("runtime.shutdown", "shutdown"),
     RpcMethodSpec("agent.init", "init"),
     RpcMethodSpec("agent.send_message", "send_message"),
+    RpcMethodSpec("agent.send_message_stream", "send_message_stream"),
     RpcMethodSpec("character.list", "list_characters"),
     RpcMethodSpec("model.list", "list_models"),
     RpcMethodSpec("model.info", "model_info"),
     RpcMethodSpec("session.create", "create_session"),
     RpcMethodSpec("session.list", "list_sessions"),
+    RpcMethodSpec("session.current", "current_session"),
     RpcMethodSpec("session.resume", "resume_session"),
+    RpcMethodSpec("session.delete", "delete_session"),
+    RpcMethodSpec("session.export", "export_session"),
+    RpcMethodSpec("session.rename", "rename_session"),
+    RpcMethodSpec("session.rollback", "rollback_session"),
     RpcMethodSpec("dependency.status", "dependency_status"),
     RpcMethodSpec("dependency.install", "install_dependencies"),
     RpcMethodSpec("external_tool.status", "external_tool_status"),
     RpcMethodSpec("init", "init", legacy=True),
     RpcMethodSpec("send_message", "send_message", legacy=True),
+    RpcMethodSpec("send_message_stream", "send_message_stream", legacy=True),
     RpcMethodSpec("list_characters", "list_characters", legacy=True),
     RpcMethodSpec("create_session", "create_session", legacy=True),
     RpcMethodSpec("list_sessions", "list_sessions", legacy=True),
+    RpcMethodSpec("current_session", "current_session", legacy=True),
     RpcMethodSpec("resume_session", "resume_session", legacy=True),
+    RpcMethodSpec("delete_session", "delete_session", legacy=True),
+    RpcMethodSpec("export_session", "export_session", legacy=True),
+    RpcMethodSpec("rename_session", "rename_session", legacy=True),
+    RpcMethodSpec("rollback_session", "rollback_session", legacy=True),
     RpcMethodSpec("shutdown", "shutdown", legacy=True),
     RpcMethodSpec("dependency_status", "dependency_status", legacy=True),
     RpcMethodSpec("install_dependencies", "install_dependencies", legacy=True),

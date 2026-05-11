@@ -88,6 +88,11 @@ class SessionManager:
         """列出所有会话"""
         return list(self._sessions.values())
 
+    @property
+    def persistence(self) -> SessionPersistence:
+        """获取会话持久化服务，供需要直接落盘协作的基础设施使用。"""
+        return self._persistence
+
     def get_working_memory(self, session_id: str | None = None) -> WorkingMemoryManager:
         """获取工作记忆"""
         sid = session_id or self._current_session_id

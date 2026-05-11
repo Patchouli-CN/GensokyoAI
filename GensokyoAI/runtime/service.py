@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +20,7 @@ from GensokyoAI.core.agent import Agent
 from GensokyoAI.core.agent.model_registry import ModelRegistryService
 from GensokyoAI.core.agent.types import ModelInfo
 from GensokyoAI.core.config import ConfigLoader
-from GensokyoAI.runtime.dependencies import dependency_status, install_dependencies
+from GensokyoAI.runtime.dependencies import InstallScope, dependency_status, install_dependencies
 from GensokyoAI.runtime.rpc import dispatch_rpc, legacy_rpc_methods, rpc_methods
 from GensokyoAI.session.context import SessionContext
 from GensokyoAI.tools.external_manager import ExternalToolManager
@@ -233,6 +234,11 @@ class RuntimeService:
         agent = self._require_agent()
         return [self._session_payload(session) for session in agent.session_manager.list_sessions()]
 
+    async def current_session(self) -> dict[str, Any] | None:
+        agent = self._require_agent()
+        session = agent.session_manager.get_current_session()
+        return self._session_payload(session) if session else None
+
     async def resume_session(self, session_id: str) -> dict[str, Any]:
         agent = self._require_agent()
         async with self._lock:
@@ -241,24 +247,170 @@ class RuntimeService:
             session = agent.session_manager.get_current_session()
             return self._session_payload(session) if session else {}
 
+    async def delete_session(self, session_id: str) -> dict[str, Any]:
+        if not session_id:
+            raise ValueError("Session id is required")
+
+        agent = self._require_agent()
+        async with self._lock:
+            current = agent.session_manager.get_current_session()
+            was_current = bool(current and current.session_id == session_id)
+            deleted = agent.session_manager.delete_session(session_id)
+            if not deleted:
+                raise ValueError(f"Session does not exist: {session_id}")
+            next_current = agent.session_manager.get_current_session()
+            remaining_sessions = [
+                self._session_payload(session)
+                for session in agent.session_manager.list_sessions()
+            ]
+            return {
+                "deleted": True,
+                "session_id": session_id,
+                "was_current": was_current,
+                "current_session": self._session_payload(next_current) if next_current else None,
+                "remaining_count": len(remaining_sessions),
+                "remaining_sessions": remaining_sessions,
+            }
+
+    async def export_session(self, session_id: str | None = None) -> dict[str, Any]:
+        agent = self._require_agent()
+        manager = agent.session_manager
+        current = manager.get_current_session()
+        target_session_id = session_id or (current.session_id if current else None)
+        if not target_session_id:
+            raise ValueError("No active session to export")
+
+        if current and current.session_id == target_session_id:
+            manager.save_current()
+
+        session = manager.get_session(target_session_id)
+        if session is None:
+            raise ValueError(f"Session does not exist: {target_session_id}")
+
+        messages = manager.persistence.load_messages(target_session_id)
+        is_current = bool(current and current.session_id == target_session_id)
+        character_name = agent.config.character.name if agent.config.character else None
+        return {
+            "format": "gensokyoai.session.export",
+            "version": 1,
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "is_current": is_current,
+            "character": self._character_payload(self.state.character_path, character_name),
+            "session": self._session_payload(session),
+            "messages": messages,
+            "message_count": len(messages),
+            "runtime": {
+                "root_dir": str(self.state.root_dir),
+                "config_path": str(self.state.config_path) if self.state.config_path else None,
+                "character_path": (
+                    str(self.state.character_path) if self.state.character_path else None
+                ),
+                "started": self.state.started,
+            },
+        }
+
+    async def rename_session(
+        self,
+        title: str,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        normalized_title = title.strip()
+        if not normalized_title:
+            raise ValueError("Session title is required")
+
+        agent = self._require_agent()
+        manager = agent.session_manager
+        current = manager.get_current_session()
+        target_session_id = session_id or (current.session_id if current else None)
+        if not target_session_id:
+            raise ValueError("No active session to rename")
+
+        async with self._lock:
+            session = manager.get_session(target_session_id)
+            if session is None:
+                raise ValueError(f"Session does not exist: {target_session_id}")
+            session.metadata["title"] = normalized_title
+            session.touch()
+            manager.persistence.save_session(session)
+            return self._session_payload(session)
+
+    async def rollback_session(
+        self,
+        num: int = 1,
+        mode: str = "turns",
+    ) -> dict[str, Any]:
+        if num < 1:
+            raise ValueError("Rollback num must be greater than or equal to 1")
+        if mode not in {"turns", "messages"}:
+            raise ValueError("Rollback mode must be either 'turns' or 'messages'")
+
+        agent = self._require_agent()
+        async with self._lock:
+            session = agent.session_manager.get_current_session()
+            if session is None:
+                raise ValueError("No active session to rollback")
+            before_messages = agent.session_manager.get_working_memory().get_context()
+            before_total_turns = session.total_turns
+            agent.rollback(num=num, mode=mode)  # type: ignore[arg-type]
+            agent.session_manager.save_current()
+            after_session = agent.session_manager.get_current_session()
+            after_messages = agent.session_manager.persistence.load_messages(session.session_id)
+            return {
+                "rolled_back": True,
+                "num": num,
+                "mode": mode,
+                "before_total_turns": before_total_turns,
+                "after_total_turns": after_session.total_turns if after_session else 0,
+                "before_message_count": len(before_messages),
+                "after_message_count": len(after_messages),
+                "message_count": len(after_messages),
+                "session": self._session_payload(after_session) if after_session else None,
+            }
+
     async def send_message(
         self,
         message: str,
         system_contexts: list[str] | None = None,
     ) -> dict[str, Any]:
-        agent = self._require_agent()
-        if not self.state.started:
-            async with self._lock:
-                if not self.state.started:
-                    await agent.start()
-                    self.state.started = True
-
+        agent = await self._ensure_started()
         response = await agent.send(message, system_contexts)
         content = response.content if response else ""
         session = agent.session_manager.get_current_session()
         return {
             "role": "assistant",
             "content": content,
+            "session": self._session_payload(session) if session else None,
+        }
+
+    async def send_message_stream(
+        self,
+        message: str,
+        system_contexts: list[str] | None = None,
+    ) -> dict[str, Any]:
+        agent = await self._ensure_started()
+        events: list[dict[str, Any]] = []
+        full_content = ""
+        index = 0
+
+        async for chunk in agent.send_stream(message, system_contexts):
+            event = self._stream_chunk_payload(chunk, index)
+            events.append(event)
+            if event.get("type") == "content":
+                full_content += event.get("content", "")
+            index += 1
+
+        session = agent.session_manager.get_current_session()
+        finish_event = {
+            "type": "finish",
+            "index": index,
+            "content": full_content,
+            "session": self._session_payload(session) if session else None,
+        }
+        events.append(finish_event)
+        return {
+            "role": "assistant",
+            "content": full_content,
+            "events": events,
             "session": self._session_payload(session) if session else None,
         }
 
@@ -270,7 +422,7 @@ class RuntimeService:
     async def install_dependencies(
         self,
         providers: list[str],
-        scope: str = "current_runtime",
+        scope: InstallScope = "current_runtime",
         timeout: int = 600,
     ) -> dict[str, Any]:
         """Install whitelisted optional Provider dependencies."""
@@ -286,6 +438,15 @@ class RuntimeService:
         async with self._lock:
             await self._shutdown_locked()
         return {"ok": True}
+
+    async def _ensure_started(self) -> Agent:
+        agent = self._require_agent()
+        if not self.state.started:
+            async with self._lock:
+                if not self.state.started:
+                    await agent.start()
+                    self.state.started = True
+        return agent
 
     async def _shutdown_locked(self) -> None:
         agent = self.state.agent
@@ -405,6 +566,40 @@ class RuntimeService:
             "owned_by": model.owned_by,
             "metadata": dict(model.metadata),
         }
+
+    @staticmethod
+    def _stream_chunk_payload(chunk: Any, index: int) -> dict[str, Any]:
+        chunk_type = getattr(chunk, "type", "text") or "text"
+        event_type = "content" if chunk_type == "text" else chunk_type
+        event: dict[str, Any] = {
+            "type": event_type,
+            "index": index,
+            "content": getattr(chunk, "content", "") or "",
+        }
+        optional_fields = (
+            "reasoning_content",
+            "is_tool_call",
+            "tool_info",
+            "status",
+            "error",
+            "error_code",
+            "error_details",
+            "usage",
+            "finish_reason",
+        )
+        for field_name in optional_fields:
+            value = getattr(chunk, field_name, None)
+            if value not in (None, False, "", [], {}):
+                event[field_name] = value
+        if getattr(chunk, "timing", None) is not None:
+            event["timing"] = str(getattr(chunk, "timing"))
+        references = getattr(chunk, "web_search_references", None)
+        if references:
+            event["web_search_references"] = [str(reference) for reference in references]
+        diagnostics = getattr(chunk, "web_search_diagnostics", None)
+        if diagnostics is not None:
+            event["web_search_diagnostics"] = str(diagnostics)
+        return event
 
     @staticmethod
     def _session_payload(session: SessionContext | None) -> dict[str, Any]:

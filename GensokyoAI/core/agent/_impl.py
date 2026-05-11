@@ -6,8 +6,8 @@ import asyncio
 from contextvars import ContextVar
 
 from .types import ProviderCapability, UnifiedMessage, StreamChunk
-from .model_registry import ModelRegistryService
-from .model_client import ModelClient
+from .composition import AgentComposition
+from .runtime_context import AgentLazyComponents
 from .save_coordinator import SaveCoordinator
 from .message_builder import MessageBuilder
 from .response_handler import ResponseHandler
@@ -17,7 +17,7 @@ from .action_planner import ActionPlanner
 from .action_executor import ActionExecutor
 
 from ..config import AppConfig, ConfigLoader
-from ..events import EventBus, Event, SystemEvent
+from ..events import Event, SystemEvent
 from ..event_listeners import (
     CoreListeners,
     MetricsListeners,
@@ -28,14 +28,10 @@ from ..event_listeners import (
 from ..exceptions import AgentError
 
 from ...memory.working import WorkingMemoryManager
-from ...memory.episodic import EpisodicMemoryManager
 from ...memory.semantic import SemanticMemoryManager
-from ...tools.registry import ToolRegistry
-from ...tools.executor import ToolExecutor
 from ...tools.tool_builtin.memory_tool import set_event_bus
 from ...tools.tool_builtin.web_search import configure_web_search_tool
-from ...tools.build_service import ToolBuildContext, ToolBuildResult, ToolBuildService
-from ...session.manager import SessionManager
+from ...tools.build_service import ToolBuildContext, ToolBuildResult
 from ...session.context import SessionContext
 from ...utils.logger import logger
 from ...utils.helpers import safe_get
@@ -87,7 +83,6 @@ class Agent:
         self.system_prompt = self._build_system_prompt()
 
     def _init_infrastructure(self) -> None:
-        self.event_bus = EventBus(enable_trace=self.config.event_trace_enabled)
         self._request_semaphore = asyncio.Semaphore(1)
         self._working_memory: Optional[WorkingMemoryManager] = None
 
@@ -95,34 +90,29 @@ class Agent:
         self.character_name = safe_get(self.config, "character.name", "default")
 
     def _init_memory_system(self) -> None:
-        self._memory_base_path = self.config.session.save_path
-        self._model_client = ModelClient(
-            self.config.model,
-            event_bus=self.event_bus,
-            embedding_config=self.config.embedding,
-        )
-        self.episodic_memory = EpisodicMemoryManager(
-            self.config.memory, self.character_name, None, self._model_client
-        )
+        bootstrap = AgentComposition(self.config, self.character_name).bootstrap()
+        self.runtime_context = bootstrap.runtime_context
+        self._lazy_components: AgentLazyComponents = bootstrap.lazy_components
+        context = self.runtime_context
+        self.event_bus = context.event_bus
+        self._memory_base_path = context.memory_base_path
+        self._model_client = context.model_client
+        self.episodic_memory = context.episodic_memory
         self._semantic_memory: Optional[SemanticMemoryManager] = None
 
     def _init_tool_system(self) -> None:
-        self.tool_registry = ToolRegistry()
-        self.tool_executor = ToolExecutor(self.tool_registry, event_bus=self.event_bus)
-        self.tool_build_service = ToolBuildService(self.tool_registry)
-        self.model_registry_service = ModelRegistryService()
+        self.tool_registry = self.runtime_context.tool_registry
+        self.tool_executor = self.runtime_context.tool_executor
+        self.tool_build_service = self.runtime_context.tool_build_service
+        self.model_registry_service = self.runtime_context.model_registry_service
 
     def _init_session_system(self) -> None:
-        self.session_manager = SessionManager(
-            self.config.session,
-            self.character_name,
-            working_max_turns=self.config.memory.working_max_turns,
-        )
+        self.session_manager = self.runtime_context.session_manager
 
     def _init_message_components(self) -> None:
-        self._message_builder: Optional[MessageBuilder] = None
-        self._save_coordinator: Optional[SaveCoordinator] = None
-        self._response_handler: Optional[ResponseHandler] = None
+        self._message_builder = self._lazy_components.message_builder
+        self._save_coordinator = self._lazy_components.save_coordinator
+        self._response_handler = self._lazy_components.response_handler
         self._background_manager: Optional[BackgroundManager] = None
 
     def _init_event_listeners(self) -> None:
@@ -138,15 +128,18 @@ class Agent:
         configure_web_search_tool(self.config.tool)
 
     def _init_lifecycle(self) -> None:
-        self.lifecycle = LifecycleManager(on_shutdown=self._on_shutdown)
+        self.lifecycle = self._lazy_components.lifecycle or LifecycleManager(
+            on_shutdown=self._on_shutdown
+        )
+        self._lazy_components.lifecycle = self.lifecycle
         self.lifecycle.setup_signal_handlers()
 
     def _init_think_engine(self) -> None:
-        self._think_engine: Optional[ThinkEngine] = None
+        self._think_engine = self._lazy_components.think_engine
 
     def _init_action_components(self) -> None:
-        self._action_planner: Optional[ActionPlanner] = None
-        self._action_executor: Optional[ActionExecutor] = None
+        self._action_planner = self._lazy_components.action_planner
+        self._action_executor = self._lazy_components.action_executor
 
     def _publish_started_event(self) -> None:
         self.event_bus.publish(
@@ -206,8 +199,11 @@ class Agent:
                 character_name=self.character_name,
                 web_search_config=self.config.tool.web_search,
                 model_config=self.config.model,
-                tool_build_result=self._build_tools(),
+                # _build_tools() 是异步方法，不能在同步属性初始化中直接调用；
+                # 每轮响应生成前会在 _on_generate_response() 中 await 后更新结果。
+                tool_build_result=None,
             )
+            self._lazy_components.message_builder = self._message_builder
         return self._message_builder
 
     @property
@@ -219,6 +215,7 @@ class Agent:
             )
             if self._background_manager:
                 self._save_coordinator.set_background_manager(self._background_manager)
+            self._lazy_components.save_coordinator = self._save_coordinator
         return self._save_coordinator
 
     @property
@@ -231,6 +228,7 @@ class Agent:
                 model_client=self._model_client,
                 message_builder=self.message_builder,
             )
+            self._lazy_components.response_handler = self._response_handler
         return self._response_handler
 
     @property
@@ -352,6 +350,7 @@ class Agent:
                 config=self.config.think_engine,
                 debug_silent_output=self.config.debug_silent_output,
             )
+            self._lazy_components.think_engine = self._think_engine
         if self._think_engine:
             await self._think_engine.start()
 
@@ -365,8 +364,10 @@ class Agent:
                 event_bus=self.event_bus,
                 debug_silent_output=self.config.debug_silent_output,
             )
+            self._lazy_components.action_planner = self._action_planner
         if self._action_executor is None:
             self._action_executor = ActionExecutor(self, self.event_bus)
+            self._lazy_components.action_executor = self._action_executor
 
         # 订阅 GENERATE_RESPONSE 事件
         self.event_bus.subscribe(
@@ -376,7 +377,7 @@ class Agent:
 
         logger.info("Agent 已启动")
 
-    async def _build_tools(self):
+    async def _build_tools(self) -> ToolBuildResult:
         """通过 ModelRegistryService + ToolBuildService 构建本轮工具 schema 与 instructions。"""
         model_info = await self.model_registry_service.get_model_info(self.config.model)
         capabilities = set(model_info.capabilities)
@@ -488,7 +489,7 @@ class Agent:
 
     def _create_background_manager(self) -> BackgroundManager:
         manager = BackgroundManager(max_workers=2, max_queue_size=50)
-        manager.register_persistence_worker(PersistenceWorker(self.session_manager._persistence))
+        manager.register_persistence_worker(PersistenceWorker(self.session_manager.persistence))
         return manager
 
     @property

@@ -3,9 +3,10 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import patch
 
-from GensokyoAI.core.agent.types import ModelInfo, ProviderCapability
+from GensokyoAI.core.agent.types import ModelInfo, ProviderCapability, StreamChunk
 from GensokyoAI.core.config import ModelConfig
 from GensokyoAI.session.context import SessionContext
 from GensokyoAI.session.persistence import SessionPersistence
@@ -142,8 +143,8 @@ class RuntimeModelRpcTests(unittest.TestCase):
     def test_model_list_and_info_return_json_compatible_model_metadata(self):
         service = RuntimeService()
         fake_registry = FakeModelRegistry()
-        service._model_registry = fake_registry
-        service.state.agent = SimpleNamespace(
+        cast(Any, service)._model_registry = fake_registry
+        cast(Any, service.state).agent = SimpleNamespace(
             config=SimpleNamespace(model=ModelConfig(provider="openai", name="gpt-test"))
         )
 
@@ -186,9 +187,16 @@ class RuntimeRpcDispatchTests(unittest.TestCase):
         self.assertIn("dependency.status", rpc_methods())
         self.assertIn("model.list", rpc_methods())
         self.assertIn("model.info", rpc_methods())
+        self.assertIn("agent.send_message_stream", rpc_methods())
+        self.assertIn("session.current", rpc_methods())
+        self.assertIn("session.delete", rpc_methods())
+        self.assertIn("session.export", rpc_methods())
+        self.assertIn("session.rename", rpc_methods())
+        self.assertIn("session.rollback", rpc_methods())
         self.assertNotIn("init", rpc_methods())
         self.assertIn("init", legacy_rpc_methods())
         self.assertIn("install_dependencies", legacy_rpc_methods())
+        self.assertIn("send_message_stream", legacy_rpc_methods())
 
     def test_resolve_rpc_handler_maps_namespaced_and_legacy_methods(self):
         service = RuntimeService()
@@ -201,6 +209,18 @@ class RuntimeRpcDispatchTests(unittest.TestCase):
         )
         self.assertEqual(resolve_rpc_handler(service, "model.list").__name__, "list_models")
         self.assertEqual(resolve_rpc_handler(service, "model.info").__name__, "model_info")
+        self.assertEqual(
+            resolve_rpc_handler(service, "agent.send_message_stream").__name__,
+            "send_message_stream",
+        )
+        self.assertEqual(resolve_rpc_handler(service, "session.current").__name__, "current_session")
+        self.assertEqual(resolve_rpc_handler(service, "session.delete").__name__, "delete_session")
+        self.assertEqual(resolve_rpc_handler(service, "session.export").__name__, "export_session")
+        self.assertEqual(resolve_rpc_handler(service, "session.rename").__name__, "rename_session")
+        self.assertEqual(
+            resolve_rpc_handler(service, "session.rollback").__name__,
+            "rollback_session",
+        )
 
     def test_dispatch_rpc_raises_structured_method_not_found_error(self):
         service = RuntimeService()
@@ -255,6 +275,223 @@ class RuntimeRpcDispatchTests(unittest.TestCase):
         self.assertEqual(response["error_object"]["user_message"], "tool user failure")
         self.assertFalse(response["error_object"]["recoverable"])
         self.assertEqual(response["error_object"]["details"], {"scope": "runtime"})
+
+
+class FakeWorkingMemory:
+    def __init__(self, messages):
+        self.messages = messages
+
+    def get_context(self):
+        return list(self.messages)
+
+
+class FakeRuntimeSessionPersistence:
+    def __init__(self, manager):
+        self.manager = manager
+        self.saved_sessions = []
+
+    def load_messages(self, session_id):
+        return list(self.manager.messages_by_session.get(session_id, []))
+
+    def save_session(self, session):
+        self.saved_sessions.append(session.session_id)
+
+
+class FakeRuntimeSessionManager:
+    def __init__(self):
+        self.current = SessionContext(character_id="reimu", total_turns=1)
+        self.sessions = {self.current.session_id: self.current}
+        self.messages_by_session = {
+            self.current.session_id: [
+                {"role": "user", "content": "你好"},
+                {"role": "assistant", "content": "你好呀"},
+            ]
+        }
+        self.deleted = []
+        self.saved = False
+        self.persistence = FakeRuntimeSessionPersistence(self)
+
+    def get_session(self, session_id):
+        return self.sessions.get(session_id)
+
+    def get_current_session(self):
+        return self.current
+
+    def list_sessions(self):
+        return list(self.sessions.values())
+
+    def get_working_memory(self, session_id=None):
+        sid = session_id or (self.current.session_id if self.current else "")
+        return FakeWorkingMemory(self.messages_by_session.get(sid, []))
+
+    def delete_session(self, session_id):
+        if session_id not in self.sessions:
+            return False
+        self.deleted.append(session_id)
+        del self.sessions[session_id]
+        self.messages_by_session.pop(session_id, None)
+        if self.current and self.current.session_id == session_id:
+            self.current = None
+        return True
+
+    def save_current(self):
+        self.saved = True
+        if self.current:
+            messages = self.messages_by_session.get(self.current.session_id, [])
+            self.current.total_turns = len(messages) // 2
+
+
+class RuntimeSessionRpcTests(unittest.TestCase):
+    def test_current_and_delete_session_return_json_compatible_payloads(self):
+        service = RuntimeService()
+        manager = FakeRuntimeSessionManager()
+        cast(Any, service.state).agent = SimpleNamespace(session_manager=manager)
+        assert manager.current is not None
+        session_id = manager.current.session_id
+
+        async def run():
+            current = await service.handle("session.current")
+            deleted = await service.handle("session.delete", {"session_id": session_id})
+            missing = await service.handle("session.delete", {"session_id": session_id})
+            return current, deleted, missing
+
+        current, deleted, missing = asyncio.run(run())
+
+        self.assertEqual(current["session_id"], session_id)
+        self.assertTrue(deleted["deleted"])
+        self.assertTrue(deleted["was_current"])
+        self.assertIsNone(deleted["current_session"])
+        self.assertEqual(deleted["remaining_count"], 0)
+        self.assertEqual(deleted["remaining_sessions"], [])
+        self.assertFalse(missing["ok"])
+        self.assertEqual(missing["error_code"], "runtime.error")
+
+    def test_export_session_returns_complete_machine_readable_payload(self):
+        service = RuntimeService()
+        manager = FakeRuntimeSessionManager()
+        cast(Any, service.state).agent = SimpleNamespace(
+            session_manager=manager,
+            config=SimpleNamespace(character=SimpleNamespace(name="博丽灵梦")),
+        )
+        assert manager.current is not None
+        session_id = manager.current.session_id
+
+        async def run():
+            exported = await service.handle("session.export")
+            missing = await service.handle("session.export", {"session_id": "missing"})
+            return exported, missing
+
+        exported, missing = asyncio.run(run())
+
+        self.assertEqual(exported["format"], "gensokyoai.session.export")
+        self.assertEqual(exported["version"], 1)
+        self.assertTrue(exported["is_current"])
+        self.assertEqual(exported["character"]["name"], "博丽灵梦")
+        self.assertEqual(exported["session"]["session_id"], session_id)
+        self.assertEqual(exported["message_count"], 2)
+        self.assertEqual(exported["messages"][0]["content"], "你好")
+        self.assertIn("runtime", exported)
+        self.assertTrue(manager.saved)
+        self.assertFalse(missing["ok"])
+        self.assertEqual(missing["error_code"], "runtime.error")
+
+    def test_rename_session_stores_title_in_metadata(self):
+        service = RuntimeService()
+        manager = FakeRuntimeSessionManager()
+        cast(Any, service.state).agent = SimpleNamespace(session_manager=manager)
+        assert manager.current is not None
+        session_id = manager.current.session_id
+
+        async def run():
+            renamed = await service.handle("session.rename", {"title": " 新标题 "})
+            invalid = await service.handle("session.rename", {"title": "   "})
+            return renamed, invalid
+
+        renamed, invalid = asyncio.run(run())
+
+        self.assertEqual(renamed["session_id"], session_id)
+        self.assertEqual(renamed["metadata"]["title"], "新标题")
+        self.assertIn(session_id, manager.persistence.saved_sessions)
+        self.assertFalse(invalid["ok"])
+        self.assertEqual(invalid["error_code"], "runtime.error")
+
+    def test_rollback_session_validates_mode_and_saves_current_memory(self):
+        service = RuntimeService()
+        manager = FakeRuntimeSessionManager()
+        rollback_calls = []
+
+        def rollback(num=1, mode="turns"):
+            rollback_calls.append((num, mode))
+            assert manager.current is not None
+            manager.messages_by_session[manager.current.session_id] = []
+
+        cast(Any, service.state).agent = SimpleNamespace(
+            session_manager=manager,
+            rollback=rollback,
+        )
+
+        async def run():
+            rolled_back = await service.handle(
+                "session.rollback",
+                {"num": 2, "mode": "messages"},
+            )
+            invalid = await service.handle("session.rollback", {"num": 0})
+            return rolled_back, invalid
+
+        rolled_back, invalid = asyncio.run(run())
+
+        self.assertTrue(rolled_back["rolled_back"])
+        self.assertEqual(rolled_back["num"], 2)
+        self.assertEqual(rolled_back["mode"], "messages")
+        self.assertEqual(rolled_back["before_total_turns"], 1)
+        self.assertEqual(rolled_back["after_total_turns"], 0)
+        self.assertEqual(rolled_back["before_message_count"], 2)
+        self.assertEqual(rolled_back["after_message_count"], 0)
+        self.assertEqual(rolled_back["message_count"], 0)
+        self.assertEqual(rollback_calls, [(2, "messages")])
+        self.assertTrue(manager.saved)
+        self.assertFalse(invalid["ok"])
+        self.assertEqual(invalid["error_code"], "runtime.error")
+
+
+class RuntimeStreamingRpcTests(unittest.TestCase):
+    def test_send_message_stream_returns_stable_event_list_and_finish_event(self):
+        service = RuntimeService()
+        manager = FakeRuntimeSessionManager()
+        start_calls = []
+
+        async def start():
+            start_calls.append(True)
+
+        async def send_stream(message, system_contexts=None):
+            yield StreamChunk(content="你")
+            yield StreamChunk(content="好", status="streaming")
+
+        cast(Any, service.state).agent = SimpleNamespace(
+            start=start,
+            send_stream=send_stream,
+            session_manager=manager,
+        )
+        service.state.started = False
+
+        async def run():
+            return await service.handle(
+                "agent.send_message_stream",
+                {"message": "hi", "system_contexts": ["ctx"]},
+            )
+
+        result = asyncio.run(run())
+
+        self.assertEqual(start_calls, [True])
+        self.assertEqual(result["role"], "assistant")
+        self.assertEqual(result["content"], "你好")
+        self.assertEqual(result["events"][0], {"type": "content", "index": 0, "content": "你"})
+        self.assertEqual(result["events"][1]["type"], "content")
+        self.assertEqual(result["events"][1]["status"], "streaming")
+        self.assertEqual(result["events"][-1]["type"], "finish")
+        self.assertEqual(result["events"][-1]["content"], "你好")
+        assert manager.current is not None
+        self.assertEqual(result["session"]["session_id"], manager.current.session_id)
 
 
 class RuntimeOverrideTests(unittest.TestCase):

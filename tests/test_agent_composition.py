@@ -1,0 +1,104 @@
+"""Agent 装配收敛回归测试。"""
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from unittest.mock import patch
+
+from GensokyoAI.core.agent import Agent
+from GensokyoAI.core.agent.composition import AgentComposition
+from GensokyoAI.core.agent.runtime_context import AgentRuntimeContext
+from GensokyoAI.core.config import AppConfig, CharacterConfig, SessionConfig
+from GensokyoAI.core.events import SystemEvent
+from GensokyoAI.memory.semantic import SemanticMemoryManager
+from GensokyoAI.memory.working import WorkingMemoryManager
+from GensokyoAI.session.manager import SessionManager
+from GensokyoAI.tools.executor import ToolExecutor
+from GensokyoAI.tools.registry import ToolRegistry
+
+
+class AgentCompositionTests(unittest.TestCase):
+    def _make_config(self, tmp: str) -> AppConfig:
+        return AppConfig(
+            character=CharacterConfig(name="Reimu", system_prompt="你是灵梦。"),
+            session=SessionConfig(save_path=Path(tmp)),
+        )
+
+    def test_composition_builds_runtime_context_with_expected_components(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._make_config(tmp)
+
+            context = AgentComposition(config, "Reimu").build()
+
+            self.assertIsInstance(context, AgentRuntimeContext)
+            self.assertFalse(context.event_bus.enable_trace)
+            self.assertEqual(context.memory_base_path, Path(tmp))
+            self.assertIs(context.model_client.config, config.model)
+            self.assertIsInstance(context.tool_registry, ToolRegistry)
+            self.assertIsInstance(context.tool_executor, ToolExecutor)
+            self.assertIsInstance(context.session_manager, SessionManager)
+
+    def test_agent_constructor_maps_runtime_context_without_starting_background_components(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("GensokyoAI.core.agent.lifecycle.LifecycleManager.setup_signal_handlers"):
+                agent = Agent(config=self._make_config(tmp))
+
+            self.assertIs(agent.event_bus, agent.runtime_context.event_bus)
+            self.assertIs(agent._model_client, agent.runtime_context.model_client)
+            self.assertIs(agent.episodic_memory, agent.runtime_context.episodic_memory)
+            self.assertIs(agent.tool_registry, agent.runtime_context.tool_registry)
+            self.assertIs(agent.tool_executor, agent.runtime_context.tool_executor)
+            self.assertIs(agent.session_manager, agent.runtime_context.session_manager)
+            self.assertIsNone(agent._background_manager)
+            self.assertIsNone(agent._think_engine)
+            self.assertIsNone(agent._action_executor)
+
+    def test_agent_lazy_memory_components_reset_between_sessions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("GensokyoAI.core.agent.lifecycle.LifecycleManager.setup_signal_handlers"):
+                agent = Agent(config=self._make_config(tmp))
+
+            first_session = agent.create_session()
+            first_working_memory = agent.working_memory
+            first_semantic_memory = agent.semantic_memory
+
+            second_session = agent.create_session()
+
+            self.assertNotEqual(first_session.session_id, second_session.session_id)
+            self.assertIsInstance(first_working_memory, WorkingMemoryManager)
+            self.assertIsInstance(first_semantic_memory, SemanticMemoryManager)
+            self.assertIsNot(agent.working_memory, first_working_memory)
+            self.assertIsNot(agent.semantic_memory, first_semantic_memory)
+
+    def test_agent_bootstrap_state_tracks_lazy_components_created_after_startup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("GensokyoAI.core.agent.lifecycle.LifecycleManager.setup_signal_handlers"):
+                agent = Agent(config=self._make_config(tmp))
+
+            session = agent.create_session()
+            self.assertIsNotNone(session)
+
+            builder = agent.message_builder
+            saver = agent.save_coordinator
+            handler = agent.response_handler
+
+            self.assertIs(agent._lazy_components.message_builder, builder)
+            self.assertIs(agent._lazy_components.save_coordinator, saver)
+            self.assertIs(agent._lazy_components.response_handler, handler)
+            self.assertIs(agent._lazy_components.lifecycle, agent.lifecycle)
+
+    def test_agent_constructor_publishes_started_event_on_runtime_event_bus(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("GensokyoAI.core.agent.lifecycle.LifecycleManager.setup_signal_handlers"):
+                agent = Agent(config=self._make_config(tmp))
+
+            started_event = agent.event_bus._event_queue.get_nowait()
+
+            self.assertEqual(started_event.type, SystemEvent.AGENT_STARTED)
+            self.assertEqual(started_event.source, "agent")
+            self.assertEqual(started_event.data["character"], "Reimu")
+
+
+if __name__ == "__main__":
+    unittest.main()
