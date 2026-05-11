@@ -4,8 +4,8 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
-from .events import Event, SystemEvent, EventBus
 from ..utils.logger import logger
+from .events import Event, EventBus, SystemEvent
 
 if TYPE_CHECKING:
     from .agent import Agent
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 class CoreListeners:
     """核心事件监听器"""
 
-    def __init__(self, agent: "Agent", event_bus: EventBus):
+    def __init__(self, agent: Agent, event_bus: EventBus):
         self.agent = agent
         self.event_bus = event_bus
         self._register()
@@ -158,7 +158,7 @@ class CoreListeners:
 class MemoryServiceListeners:
     """记忆服务监听器 - 响应工具的记忆请求"""
 
-    def __init__(self, agent: "Agent", event_bus: EventBus):
+    def __init__(self, agent: Agent, event_bus: EventBus):
         self.agent = agent
         self.event_bus = event_bus
         self._register()
@@ -466,7 +466,7 @@ class ErrorListeners:
 class PersistenceListeners:
     """持久化监听器 - 响应需要保存的事件"""
 
-    def __init__(self, agent: "Agent", event_bus: EventBus):
+    def __init__(self, agent: Agent, event_bus: EventBus):
         self.agent = agent
         self.event_bus = event_bus
         self._session = self.agent.session_manager.get_current_session()

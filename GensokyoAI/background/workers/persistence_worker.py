@@ -7,7 +7,7 @@ import time
 from typing import TYPE_CHECKING
 
 from ...utils.logger import logger
-from ..types import BackgroundTask, TaskResult, PersistenceTaskData
+from ..types import BackgroundTask, PersistenceTaskData, TaskResult
 from .base import BaseWorker
 
 if TYPE_CHECKING:
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 class PersistenceWorker(BaseWorker):
     """持久化工作器 - 负责异步文件 I/O"""
 
-    def __init__(self, persistence: "SessionPersistence"):
+    def __init__(self, persistence: SessionPersistence):
         self.persistence = persistence
 
     async def process(self, task: BackgroundTask) -> TaskResult:
@@ -42,7 +42,7 @@ class PersistenceWorker(BaseWorker):
                         await self.persistence.async_save_message(session_id, messages)
                     else:
                         raise ValueError(f"Unknown operation: {data.operation}")
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 duration_ms = (time.time() - start_time) * 1000
                 logger.debug(f"⏱️ 持久化超时 ({task.timeout}s)")
                 return TaskResult(

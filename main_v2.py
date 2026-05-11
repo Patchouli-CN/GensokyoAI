@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """GensokyoAI CLI 入口 - 极简版"""
 
-import asyncio
 import argparse
+import asyncio
 from pathlib import Path
 
 from rich.console import Console
 
+from GensokyoAI.backends.console import ConsoleBackendBuilder
 from GensokyoAI.core.agent import Agent
 from GensokyoAI.core.config import ConfigLoader
-from GensokyoAI.backends.console import ConsoleBackendBuilder
 from GensokyoAI.utils.exec_hook import set_exechook
 
 # 灵梦，这是异变啊！

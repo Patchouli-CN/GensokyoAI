@@ -9,19 +9,19 @@ transport such as ``bridge_main.py`` or a future HTTP/WebSocket adapter.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from pathlib import Path
 from collections.abc import AsyncIterator, Iterable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import yaml
 
 from GensokyoAI.core.agent import Agent
-from GensokyoAI.core.events import Event, SystemEvent
 from GensokyoAI.core.agent.model_registry import ModelRegistryService
 from GensokyoAI.core.agent.types import ModelInfo
 from GensokyoAI.core.config import ConfigLoader
+from GensokyoAI.core.events import Event, SystemEvent
 from GensokyoAI.runtime.dependencies import InstallScope, dependency_status, install_dependencies
 from GensokyoAI.runtime.rpc import (
     dispatch_rpc,
@@ -31,6 +31,8 @@ from GensokyoAI.runtime.rpc import (
     runtime_error_to_dict,
     runtime_protocol_metadata,
 )
+from GensokyoAI.session.context import SessionContext
+from GensokyoAI.tools.external_manager import ExternalToolManager
 
 RUNTIME_EVENT_BACKPRESSURE_DROPPED = "runtime.backpressure.dropped"
 REDACTED_VALUE = "[redacted]"
@@ -50,8 +52,6 @@ SENSITIVE_EVENT_FIELD_NAMES = {
     "headers",
     "extra_headers",
 }
-from GensokyoAI.session.context import SessionContext
-from GensokyoAI.tools.external_manager import ExternalToolManager
 
 
 @dataclass(slots=True)
@@ -209,7 +209,7 @@ class RuntimeService:
                     continue
                 seen.add(resolved)
                 try:
-                    with open(path, "r", encoding="utf-8") as file:
+                    with open(path, encoding="utf-8") as file:
                         data = yaml.safe_load(file) or {}
                     characters.append(
                         {
@@ -340,7 +340,7 @@ class RuntimeService:
         return {
             "format": "gensokyoai.session.export",
             "version": 1,
-            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "exported_at": datetime.now(UTC).isoformat(),
             "is_current": is_current,
             "character": self._character_payload(self.state.character_path, character_name),
             "session": self._session_payload(session),
@@ -855,7 +855,7 @@ class RuntimeService:
             if value not in (None, False, "", [], {}):
                 event[field_name] = value
         if getattr(chunk, "timing", None) is not None:
-            event["timing"] = str(getattr(chunk, "timing"))
+            event["timing"] = str(chunk.timing)
         references = getattr(chunk, "web_search_references", None)
         if references:
             event["web_search_references"] = [str(reference) for reference in references]
@@ -892,7 +892,7 @@ class RuntimeService:
                 "dropped_event_type": dropped_event.get("type"),
                 "dropped_event_id": dropped_event.get("id"),
             },
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "metadata": {},
         }
 
@@ -930,7 +930,7 @@ class RuntimeService:
             return {str(key): RuntimeService._json_compatible(item) for key, item in value.items()}
         if isinstance(value, (list, tuple, set)):
             return [RuntimeService._json_compatible(item) for item in value]
-        if hasattr(value, "to_dict") and callable(getattr(value, "to_dict")):
+        if hasattr(value, "to_dict") and callable(value.to_dict):
             return RuntimeService._json_compatible(value.to_dict())
         if hasattr(value, "value"):
             return RuntimeService._json_compatible(value.value)

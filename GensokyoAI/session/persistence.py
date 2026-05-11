@@ -5,14 +5,12 @@
 import asyncio
 import json
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-import ayafileio
-
-from .context import SessionContext
 from ..utils.logger import logger
+from .context import SessionContext
 
 
 class SessionPersistence:
@@ -64,20 +62,20 @@ class SessionPersistence:
 
     def _quarantine_path(self, path: Path) -> Path:
         """生成不会覆盖现有文件的隔离文件路径。"""
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
         return self._quarantine_dir(path) / f"{path.name}.{timestamp}.{uuid4().hex}.bad"
 
     def _read_json_file(self, path: Path) -> dict:
         """读取 JSON 文件；失败时尝试从备份恢复，仍失败则隔离损坏文件。"""
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 return json.load(f)
         except Exception as original_error:
             logger.warning(f"读取 JSON 失败，尝试备份恢复 {path}: {original_error}")
             backup_path = self._backup_path(path)
             if backup_path.exists():
                 try:
-                    with open(backup_path, "r", encoding="utf-8") as f:
+                    with open(backup_path, encoding="utf-8") as f:
                         data = json.load(f)
                     self._atomic_write_json(path, data, backup_existing=False)
                     logger.warning(f"已从备份恢复 JSON 文件: {path}")

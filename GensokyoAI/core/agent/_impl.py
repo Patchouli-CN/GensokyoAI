@@ -1,42 +1,40 @@
 """Agent 主类 - 事件驱动版"""
 
-from typing import AsyncIterator, Optional, Literal
-from pathlib import Path
 import asyncio
+from collections.abc import AsyncIterator
 from contextvars import ContextVar
+from pathlib import Path
+from typing import Literal
 
-from .types import ProviderCapability, UnifiedMessage, StreamChunk
-from .composition import AgentComposition
-from .runtime_context import AgentLazyComponents
-from .save_coordinator import SaveCoordinator
-from .message_builder import MessageBuilder
-from .response_handler import ResponseHandler
-from .lifecycle import LifecycleManager
-from .think_engine import ThinkEngine
-from .action_planner import ActionPlanner
-from .action_executor import ActionExecutor
-
-from ..config import AppConfig, ConfigLoader
-from ..events import Event, SystemEvent
-from ..event_listeners import (
-    CoreListeners,
-    MetricsListeners,
-    ErrorListeners,
-    MemoryServiceListeners,
-    PersistenceListeners,
-)
-from ..exceptions import AgentError
-
-from ...memory.working import WorkingMemoryManager
+from ...background import BackgroundManager, PersistenceWorker
 from ...memory.semantic import SemanticMemoryManager
+from ...memory.working import WorkingMemoryManager
+from ...session.context import SessionContext
+from ...tools.build_service import ToolBuildContext, ToolBuildResult
 from ...tools.tool_builtin.memory_tool import set_event_bus
 from ...tools.tool_builtin.web_search import configure_web_search_tool
-from ...tools.build_service import ToolBuildContext, ToolBuildResult
-from ...session.context import SessionContext
-from ...utils.logger import logger
 from ...utils.helpers import safe_get
-from ...background import BackgroundManager, PersistenceWorker
-
+from ...utils.logger import logger
+from ..config import AppConfig, ConfigLoader
+from ..event_listeners import (
+    CoreListeners,
+    ErrorListeners,
+    MemoryServiceListeners,
+    MetricsListeners,
+    PersistenceListeners,
+)
+from ..events import Event, SystemEvent
+from ..exceptions import AgentError
+from .action_executor import ActionExecutor
+from .action_planner import ActionPlanner
+from .composition import AgentComposition
+from .lifecycle import LifecycleManager
+from .message_builder import MessageBuilder
+from .response_handler import ResponseHandler
+from .runtime_context import AgentLazyComponents
+from .save_coordinator import SaveCoordinator
+from .think_engine import ThinkEngine
+from .types import ProviderCapability, StreamChunk, UnifiedMessage
 
 request_id_var: ContextVar[str] = ContextVar("request_id", default="")
 
@@ -84,7 +82,7 @@ class Agent:
 
     def _init_infrastructure(self) -> None:
         self._request_semaphore = asyncio.Semaphore(1)
-        self._working_memory: Optional[WorkingMemoryManager] = None
+        self._working_memory: WorkingMemoryManager | None = None
         self._generate_response_subscription_id: str | None = None
         self._stream_first_chunk_timeout = 30.0
         self._stream_idle_timeout = 30.0
@@ -102,7 +100,7 @@ class Agent:
         self._memory_base_path = context.memory_base_path
         self._model_client = context.model_client
         self.episodic_memory = context.episodic_memory
-        self._semantic_memory: Optional[SemanticMemoryManager] = None
+        self._semantic_memory: SemanticMemoryManager | None = None
 
     def _init_tool_system(self) -> None:
         self.tool_registry = self.runtime_context.tool_registry
@@ -118,7 +116,7 @@ class Agent:
         self._message_builder = self._lazy_components.message_builder
         self._save_coordinator = self._lazy_components.save_coordinator
         self._response_handler = self._lazy_components.response_handler
-        self._background_manager: Optional[BackgroundManager] = None
+        self._background_manager: BackgroundManager | None = None
 
     def _init_event_listeners(self) -> None:
         self.core_listeners = CoreListeners(self, self.event_bus)
@@ -259,7 +257,7 @@ class Agent:
                 full_response = await asyncio.wait_for(response_future, timeout=60.0)
                 if full_response:
                     return UnifiedMessage(role="assistant", content=full_response)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("等待响应超时")
                 self._action_executor.cancel_response("send timeout")  # type: ignore
                 return UnifiedMessage(role="assistant", content="「唔…我有点走神了…」")
@@ -303,11 +301,11 @@ class Agent:
                             last_chunk_at = loop.time()
                             full_response += chunk
                             yield StreamChunk(content=chunk)
-                    except asyncio.TimeoutError:
+                    except TimeoutError as error:
                         if response_future.done():
                             break
                         if self._stream_timed_out(started_at, last_chunk_at, saw_chunk):
-                            raise TimeoutError("stream response timeout")
+                            raise TimeoutError("stream response timeout") from error
                         continue
             except (asyncio.CancelledError, GeneratorExit):
                 self._action_executor.cancel_response("stream cancelled")  # type: ignore
@@ -492,7 +490,7 @@ class Agent:
 
         except Exception as e:
             logger.error(f"生成响应异常: {e}")
-            error_msg = f"\n[出了点问题]\n"
+            error_msg = "\n[出了点问题]\n"
             if not full_response:
                 full_response = error_msg
                 await self._action_executor.feed_chunk(error_msg)  # type: ignore

@@ -1,13 +1,15 @@
 """事件系统 - 解耦所有组件"""
 
 import asyncio
-from collections.abc import Iterable
-from typing import Callable, Any, Optional
-from enum import Enum
-from datetime import datetime
-from msgspec import Struct, field
-from uuid import uuid4
+import contextlib
 import inspect
+from collections.abc import Callable, Iterable
+from datetime import datetime
+from enum import Enum
+from typing import Any
+from uuid import uuid4
+
+from msgspec import Struct, field
 
 from ..utils.logger import logger
 
@@ -129,7 +131,7 @@ class Subscription:
         handler: Callable,
         priority: EventPriority = EventPriority.NORMAL,
         once: bool = False,
-        filter_func: Optional[Callable[["Event"], bool]] = None,
+        filter_func: Callable[[Event], bool] | None = None,
     ):
         self.id = str(uuid4())[:8]
         self.handler = handler
@@ -164,7 +166,7 @@ class EventBus:
         self._lock = asyncio.Lock()
         self._running = False
         self._event_queue: asyncio.Queue[Event] = asyncio.Queue(maxsize=max_queue_size)
-        self._worker_task: Optional[asyncio.Task] = None
+        self._worker_task: asyncio.Task | None = None
         self._stats = {
             "published": 0,
             "delivered": 0,
@@ -214,7 +216,7 @@ class EventBus:
 
         self._running = False
 
-        for request_id, future in list(self._pending_requests.items()):
+        for _request_id, future in list(self._pending_requests.items()):
             if not future.done():
                 future.set_exception(asyncio.CancelledError("EventBus stopped"))
         self._pending_requests.clear()
@@ -223,10 +225,8 @@ class EventBus:
 
         if self._worker_task and not self._worker_task.done():
             self._worker_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._worker_task
-            except asyncio.CancelledError:
-                pass
 
         remaining = self._event_queue.qsize()
         while not self._event_queue.empty():
@@ -263,10 +263,8 @@ class EventBus:
                     await self._event_queue.put(event)
                     break
             finally:
-                try:
+                with contextlib.suppress(ValueError):
                     self._event_queue.task_done()
-                except ValueError:
-                    pass
 
     async def _event_worker(self) -> None:
         """事件处理工作器"""
@@ -290,10 +288,8 @@ class EventBus:
             except Exception as e:
                 logger.error(f"❌ [EventBus] 事件处理异常: {e}", exc_info=True)
                 self._stats["errors"] += 1
-                try:
+                with contextlib.suppress(ValueError):
                     self._event_queue.task_done()
-                except ValueError:
-                    pass
 
         logger.debug(f"🛑 [EventBus] 工作器线程已停止 (running={self._running})")
 
@@ -305,7 +301,7 @@ class EventBus:
         handler: Callable[[Event], Any],
         priority: EventPriority = EventPriority.NORMAL,
         once: bool = False,
-        filter_func: Optional[Callable[[Event], bool]] = None,
+        filter_func: Callable[[Event], bool] | None = None,
     ) -> str:
         sub = Subscription(handler, priority, once, filter_func)
 
@@ -326,7 +322,7 @@ class EventBus:
         return sub.id
 
     def unsubscribe(self, subscription_id: str) -> bool:
-        for event_type, subs in self._subscribers.items():
+        for _event_type, subs in self._subscribers.items():
             for sub in subs:
                 if sub.id == subscription_id:
                     subs.remove(sub)
@@ -358,7 +354,7 @@ class EventBus:
                 self._stats["dropped"] += 1
                 logger.warning(f"⚠️ [EventBus] 事件队列已满，丢弃事件: {event.type.value}")
 
-    async def request(self, event: Event, timeout: Optional[float] = None) -> Any:
+    async def request(self, event: Event, timeout: float | None = None) -> Any:
         """发送请求事件并等待响应"""
         request_id = event.id
         future: asyncio.Future = asyncio.Future()
@@ -369,7 +365,7 @@ class EventBus:
             timeout_val = timeout or self._response_timeout
             result = await asyncio.wait_for(future, timeout=timeout_val)
             return result
-        except asyncio.TimeoutError:
+        except TimeoutError:
             if self.enable_trace:
                 logger.warning(f"⏰ [EventBus] 请求超时: {event.type.value}")
             return None

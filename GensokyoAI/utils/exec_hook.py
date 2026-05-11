@@ -2,11 +2,12 @@
 
 # GensokyoAI\utils\exec_hook.py
 
-import traceback
-import multiprocessing
-import threading
 import inspect
+import multiprocessing
 import sys
+import threading
+import traceback
+
 from .logger import logger
 
 
@@ -29,7 +30,7 @@ def format_stack_trace(exctype, value, tb, max_depth=15, nested=False) -> list[s
     limited_tb_list = tb_list[:max_depth]
     more_frames = len(tb_list) - max_depth
 
-    for i, (filename, lineno, funcname, line) in enumerate(limited_tb_list):
+    for _i, (filename, lineno, funcname, _line) in enumerate(limited_tb_list):
         # 获取函数所在的模块名
         module_name = inspect.getmodulename(filename)
         exception_info.append(

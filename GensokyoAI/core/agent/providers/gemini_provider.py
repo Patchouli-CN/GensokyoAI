@@ -5,27 +5,25 @@
 
 # GensokyoAI/core/agent/providers/gemini_provider.py
 
-import json
-from collections.abc import AsyncIterable, Iterable
-from typing import Any, AsyncIterator, TYPE_CHECKING, cast
+from collections.abc import AsyncIterable, AsyncIterator, Iterable
+from typing import TYPE_CHECKING, Any, cast
 
-from .base import BaseProvider
-from .openai_provider import OpenAIProvider
+from ....utils.logger import logger
 from ..types import (
     ImageInput,
-    MessageContentPart,
-    UnifiedResponse,
-    UnifiedMessage,
-    UnifiedEmbeddingResponse,
+    ModelInfo,
+    ProviderCapability,
     StreamChunk,
     ToolCall,
     ToolCallFunction,
-    ProviderCapability,
-    ModelInfo,
+    UnifiedEmbeddingResponse,
+    UnifiedMessage,
+    UnifiedResponse,
     WebSearchDiagnostics,
     WebSearchReference,
 )
-from ....utils.logger import logger
+from .base import BaseProvider
+from .openai_provider import OpenAIProvider
 
 if TYPE_CHECKING:
     from ...config import ModelConfig
@@ -39,7 +37,7 @@ class GeminiProvider(BaseProvider):
     注意：Gemini 的消息角色和格式与 OpenAI 有所不同。
     """
 
-    def __init__(self, config: "ModelConfig"):
+    def __init__(self, config: ModelConfig):
         super().__init__(config)
         self._client = self._build_client()
         logger.debug(f"GeminiProvider 初始化完成，model: {config.name}")
@@ -267,11 +265,11 @@ class GeminiProvider(BaseProvider):
             model=model,
         )
 
-    def update_config(self, config: "ModelConfig") -> None:
+    def update_config(self, config: ModelConfig) -> None:
         """更新配置并重建客户端"""
         super().update_config(config)
         self._client = self._build_client()
-        logger.info(f"GeminiProvider 配置已更新")
+        logger.info("GeminiProvider 配置已更新")
 
     # ==================== 转换工具方法 ====================
 

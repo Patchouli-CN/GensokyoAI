@@ -3,9 +3,11 @@
 # GensokyoAI\tools\base.py
 
 import inspect
-from typing import Callable, Any, Optional, get_type_hints
-from msgspec import Struct
+from collections.abc import Callable
 from enum import Enum
+from typing import Any, get_type_hints
+
+from msgspec import Struct
 
 
 class ToolParameterType(Enum):
@@ -25,8 +27,8 @@ class ToolParameter(Struct):
     description: str = ""
     required: bool = True
     default: Any = None
-    items: Optional[dict] = None  # for array type
-    properties: Optional[dict] = None  # for object type
+    items: dict | None = None  # for array type
+    properties: dict | None = None  # for object type
 
 
 class ToolDefinition(Struct):
@@ -91,7 +93,7 @@ class ToolDefinition(Struct):
 _TOOL_REGISTRY: dict[str, ToolDefinition] = {}
 
 
-def tool(name: Optional[str] = None, description: Optional[str] = None) -> Callable:
+def tool(name: str | None = None, description: str | None = None) -> Callable:
     """工具装饰器"""
 
     def decorator(func: Callable) -> Callable:
@@ -140,7 +142,7 @@ def tool(name: Optional[str] = None, description: Optional[str] = None) -> Calla
     return decorator
 
 
-def get_tool(name: str) -> Optional[ToolDefinition]:
+def get_tool(name: str) -> ToolDefinition | None:
     """获取工具定义"""
     return _TOOL_REGISTRY.get(name)
 

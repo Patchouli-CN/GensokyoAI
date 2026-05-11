@@ -10,9 +10,9 @@ from __future__ import annotations
 import importlib.util
 import subprocess
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable, Literal
-
+from typing import Any, Literal
 
 OPTIONAL_PROVIDER_DEPENDENCIES: dict[str, list[str]] = {
     "ollama": ["ollama"],

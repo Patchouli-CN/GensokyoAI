@@ -5,11 +5,11 @@
 import importlib
 import importlib.util
 import pkgutil
+from collections.abc import Callable
 from pathlib import Path
-from typing import Optional, Callable
 
-from .base import ToolDefinition, list_tools, get_tool, tool
 from ..utils.logger import logger
+from .base import ToolDefinition, get_tool, list_tools, tool
 
 
 class ToolRegistry:
@@ -35,7 +35,7 @@ class ToolRegistry:
 
         self._tools.update(list_tools())
 
-    def register(self, func: Callable, name: Optional[str] = None) -> None:
+    def register(self, func: Callable, name: str | None = None) -> None:
         """注册工具（非装饰器方式）"""
 
         decorated = tool(name=name)(func)
@@ -57,7 +57,7 @@ class ToolRegistry:
             except ImportError as e:
                 logger.warning(f"导入模块 {name} 失败: {e}")
 
-    def get(self, name: str) -> Optional[ToolDefinition]:
+    def get(self, name: str) -> ToolDefinition | None:
         """获取工具"""
         return self._tools.get(name) or get_tool(name)
 

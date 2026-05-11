@@ -3,18 +3,19 @@
 # GensokyoAI\background\manager.py
 
 import asyncio
-from typing import TYPE_CHECKING, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
+from ..utils.logger import logger
 from .types import (
     BackgroundTask,
+    PersistenceTaskData,
+    TaskPriority,
     TaskResult,
     TaskType,
-    TaskPriority,
-    PersistenceTaskData,
 )
 from .workers import PersistenceWorker
 from .workers.base import BaseWorker
-from ..utils.logger import logger
 
 if TYPE_CHECKING:
     from ..core.events import EventBus
@@ -49,7 +50,7 @@ class BackgroundManager:
         self,
         max_workers: int = 3,
         max_queue_size: int = 100,
-        event_bus: "EventBus" | None = None,
+        event_bus: EventBus | None = None,
     ):
         self.max_workers = max_workers
         self.max_queue_size = max_queue_size
@@ -76,23 +77,23 @@ class BackgroundManager:
 
     # ==================== 工作器注册 ====================
 
-    def register_worker(self, task_type: TaskType, worker: BaseWorker) -> "BackgroundManager":
+    def register_worker(self, task_type: TaskType, worker: BaseWorker) -> BackgroundManager:
         """注册工作器"""
         self._workers[task_type] = worker
         logger.debug(f"注册工作器: {task_type.name}")
         return self
 
-    def register_persistence_worker(self, worker: PersistenceWorker) -> "BackgroundManager":
+    def register_persistence_worker(self, worker: PersistenceWorker) -> BackgroundManager:
         """注册持久化工作器"""
         return self.register_worker(TaskType.PERSISTENCE, worker)
 
-    def set_event_bus(self, event_bus: "EventBus") -> None:
+    def set_event_bus(self, event_bus: EventBus) -> None:
         """注入事件总线。"""
         self._event_bus = event_bus
 
     # ==================== 回调注册 ====================
 
-    def on_complete(self, callback: Callable[[TaskResult], Awaitable[None]]) -> "BackgroundManager":
+    def on_complete(self, callback: Callable[[TaskResult], Awaitable[None]]) -> BackgroundManager:
         """注册完成回调"""
         self._result_callbacks.append(callback)
         return self
@@ -184,7 +185,7 @@ class BackgroundManager:
             timeout = 5.0
             try:
                 await asyncio.wait_for(self._task_queue.join(), timeout=timeout)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(f"等待队列清空超时，剩余 {self._task_queue.qsize()} 个任务将被丢弃")
 
         self._running = False
@@ -288,7 +289,7 @@ class BackgroundManager:
             except asyncio.CancelledError:
                 logger.debug(f"工作器 {worker_id} 已取消")
                 break
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
             except Exception as e:
                 logger.error(f"工作器 {worker_id} 发生未预期异常: {e}")

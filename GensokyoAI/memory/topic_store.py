@@ -13,22 +13,21 @@ Design Philosophy:
 
 # GensokyoAI/memory/topic_store.py
 
-import re
 import asyncio
 import json
 import math
-from pathlib import Path
-from datetime import datetime
+import re
 from collections import defaultdict
-from typing import Optional
+from datetime import datetime
+from pathlib import Path
 
-import msgspec
 import ayafileio
+import msgspec
 
-from .types import Topic, TopicMemory, TopicMemoryType
-from ..utils.logger import logger
-from ..core.config import TopicGenerationConfig
 from ..core.agent.model_client import ModelClient
+from ..core.config import TopicGenerationConfig
+from ..utils.logger import logger
+from .types import Topic, TopicMemory, TopicMemoryType
 
 
 def _json_encoder(obj):
@@ -57,7 +56,7 @@ class TopicAwareStore:
     """
 
     def __init__(
-        self, path: Path, max_topics: int = 50, topic_config: Optional[TopicGenerationConfig] = None
+        self, path: Path, max_topics: int = 50, topic_config: TopicGenerationConfig | None = None
     ):
         self.path = Path(path)
         self.max_topics = max_topics
@@ -276,9 +275,9 @@ class TopicAwareStore:
         content: str,
         importance: float = 0.0,
         emotional_valence: float = 0.0,  # 🆕
-        model_client: Optional[ModelClient] = None,
-        topic_name: Optional[str] = None,
-    ) -> Optional[Topic]:
+        model_client: ModelClient | None = None,
+        topic_name: str | None = None,
+    ) -> Topic | None:
         """
         添加语义记忆！
 
@@ -446,7 +445,7 @@ class TopicAwareStore:
     def _cosine_similarity(left: list[float] | None, right: list[float] | None) -> float | None:
         if not left or not right or len(left) != len(right):
             return None
-        dot = sum(a * b for a, b in zip(left, right))
+        dot = sum(a * b for a, b in zip(left, right, strict=False))
         left_norm = math.sqrt(sum(a * a for a in left))
         right_norm = math.sqrt(sum(b * b for b in right))
         if left_norm == 0 or right_norm == 0:
@@ -513,7 +512,7 @@ class TopicAwareStore:
     def search(
         self,
         top_k: int = 5,
-        query_text: Optional[str] = None,
+        query_text: str | None = None,
         *,
         threshold: float = 0.0,
         query_embedding: list[float] | None = None,
@@ -652,7 +651,7 @@ class TopicAwareStore:
         """获取所有话题（只读）"""
         return list(self._topics.values())
 
-    def find_topic_by_name(self, name: str | None) -> Optional[Topic]:
+    def find_topic_by_name(self, name: str | None) -> Topic | None:
         """根据话题名查找话题。"""
         if not name:
             return None
@@ -669,7 +668,7 @@ class TopicAwareStore:
         importance: float = 0.7,
         score: float = 10.0,
         memory_type: TopicMemoryType = TopicMemoryType.CORRECTION,
-    ) -> Optional[Topic]:
+    ) -> Topic | None:
         """为指定话题追加一条更新记忆，并返回更新后的话题。"""
         if not topic_name or not content:
             return None
@@ -689,7 +688,7 @@ class TopicAwareStore:
         await self._save_async()
         return topic
 
-    def get_topic_by_id(self, topic_id: str) -> Optional[Topic]:
+    def get_topic_by_id(self, topic_id: str) -> Topic | None:
         """根据 ID 获取话题"""
         return self._topics.get(topic_id)
 

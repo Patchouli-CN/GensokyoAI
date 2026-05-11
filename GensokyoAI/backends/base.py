@@ -3,7 +3,7 @@
 # GensokyoAI/backends/base.py
 
 from abc import ABC, abstractmethod
-from typing import Callable, Optional
+from collections.abc import Callable
 
 
 class BaseBackend(ABC):
@@ -25,6 +25,6 @@ class BaseBackend(ABC):
         pass
 
     @abstractmethod
-    def set_stream_handler(self, handler: Optional[Callable]) -> None:
+    def set_stream_handler(self, handler: Callable | None) -> None:
         """设置流式处理器"""
         pass

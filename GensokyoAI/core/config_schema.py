@@ -1,8 +1,8 @@
 """配置 schema 定义。"""
 
+from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
-from enum import Enum
 
 from msgspec import Struct, field
 

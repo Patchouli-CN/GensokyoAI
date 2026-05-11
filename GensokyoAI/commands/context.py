@@ -1,16 +1,17 @@
 # GensokyoAI/commands/context.py
 
-from typing import TypeVar, Generic
-from msgspec import Struct
-from ..core.agent import Agent
-from ..backends.base import BaseBackend
+from typing import TypeVar
 
+from msgspec import Struct
+
+from ..backends.base import BaseBackend
+from ..core.agent import Agent
 
 # 泛型变量
 T = TypeVar("T", bound="BaseBackend")
 
 
-class CommandContext(Struct, Generic[T], frozen=False):
+class CommandContext[T: "BaseBackend"](Struct, frozen=False):
     """
     命令执行上下文
     """
@@ -22,7 +23,7 @@ class CommandContext(Struct, Generic[T], frozen=False):
     metadata: dict = {}
 
     @property
-    def backend_inst(self) -> "T":
+    def backend_inst(self) -> T:
         """后端实例"""
         if self.backend is None:
             raise ValueError("Backend is not set")

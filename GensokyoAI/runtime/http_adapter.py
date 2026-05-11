@@ -7,11 +7,12 @@ transports without coupling clients to Agent internals.
 from __future__ import annotations
 
 import asyncio
-import json
-from datetime import datetime, timezone
+import contextlib
 import hmac
+import json
 import os
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -160,10 +161,8 @@ async def handle_events(request: web.Request) -> web.StreamResponse:
     except (asyncio.CancelledError, ConnectionResetError, RuntimeError):
         pass
     finally:
-        try:
+        with contextlib.suppress(Exception):
             await service.close_event_subscription(subscription_id)
-        except Exception:
-            pass
 
     return response
 
@@ -437,7 +436,7 @@ async def _pump_ws_heartbeat(
             {
                 "ok": True,
                 "type": "heartbeat",
-                "ts": datetime.now(timezone.utc).isoformat(),
+                "ts": datetime.now(UTC).isoformat(),
             },
         )
 
@@ -457,18 +456,14 @@ async def _cleanup_ws_subscriptions(
     for subscription_id, task in list(subscription_tasks.items()):
         task.cancel()
         await _await_cancelled_task(task)
-        try:
+        with contextlib.suppress(Exception):
             await service.close_event_subscription(subscription_id)
-        except Exception:
-            pass
     subscription_tasks.clear()
 
 
 async def _await_cancelled_task(task: asyncio.Task[Any]) -> None:
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await task
-    except asyncio.CancelledError:
-        pass
 
 
 async def _send_ws_json(
@@ -538,7 +533,7 @@ def _split_query_values(values: list[str]) -> list[str]:
 
 def _sse_frame(event_name: str, payload: dict[str, Any]) -> bytes:
     data = _json_dumps(payload)
-    return f"event: {event_name}\ndata: {data}\n\n".encode("utf-8")
+    return f"event: {event_name}\ndata: {data}\n\n".encode()
 
 
 def _heartbeat_interval_from_request(request: web.Request) -> float:

@@ -5,6 +5,8 @@ from typing import Any
 
 import yaml
 
+from .config_env import apply_env_overrides
+from .config_merge import ConfigMerger
 from .config_schema import (
     AppConfig,
     CharacterConfig,
@@ -16,8 +18,6 @@ from .config_schema import (
     ThinkEngineConfig,
     TopicGenerationConfig,
 )
-from .config_merge import ConfigMerger
-from .config_env import apply_env_overrides
 
 
 class ConfigLoader(ConfigMerger):
@@ -52,7 +52,7 @@ class ConfigLoader(ConfigMerger):
 
     def _load_yaml(self, path: Path) -> AppConfig:
         """从 YAML 加载配置"""
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
         return self._dict_to_config(data)
 
@@ -231,7 +231,7 @@ class ConfigLoader(ConfigMerger):
 
     def load_character(self, path: Path) -> CharacterConfig:
         """加载角色配置"""
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
         return CharacterConfig(
             name=data["name"],

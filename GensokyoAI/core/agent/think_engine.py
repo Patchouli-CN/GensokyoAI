@@ -3,15 +3,15 @@
 # GensokyoAI/core/agent/think_engine.py
 
 import asyncio
+import contextlib
 import random
 from datetime import datetime, timedelta
-from typing import Optional
 
-from ...utils.logger import logger
 from ...memory.semantic import SemanticMemoryManager
-from .model_client import ModelClient
-from ..events import EventBus, SystemEvent, Event
+from ...utils.logger import logger
 from ..config import ThinkEngineConfig
+from ..events import Event, EventBus, SystemEvent
+from .model_client import ModelClient
 
 
 # 为了研发这个引擎，下面是一个小故事：
@@ -38,7 +38,7 @@ class ThinkEngine:
         model_client: ModelClient,
         event_bus: EventBus,
         character_name: str,
-        config: "ThinkEngineConfig",
+        config: ThinkEngineConfig,
         debug_silent_output: bool = False,
     ):
         self.semantic_memory = semantic_memory
@@ -49,8 +49,8 @@ class ThinkEngine:
         self.debug_silent_output = debug_silent_output
 
         self._running = False
-        self._think_task: Optional[asyncio.Task] = None
-        self._last_think_time: Optional[datetime] = None
+        self._think_task: asyncio.Task | None = None
+        self._last_think_time: datetime | None = None
         self._think_interval = timedelta(minutes=config.think_interval_minutes)
 
     async def start(self) -> None:
@@ -69,10 +69,8 @@ class ThinkEngine:
         self._running = False
         if self._think_task:
             self._think_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._think_task
-            except asyncio.CancelledError:
-                pass
         logger.info(f"🧠 [ThinkEngine] 思考引擎已停止 (角色: {self.character_name})")
 
     async def _think_loop(self) -> None:

@@ -2,17 +2,17 @@
 
 # GensokyoAI\memory\__init__.py
 
-from .working import WorkingMemoryManager
 from .episodic import EpisodicMemoryManager
 from .semantic import SemanticMemoryManager
+from .topic_store import TopicAwareStore
 from .types import (
-    MemoryRecord,
-    WorkingMemory,
     EpisodicMemory,
+    MemoryRecord,
     Topic,
     TopicMemory,
+    WorkingMemory,
 )
-from .topic_store import TopicAwareStore
+from .working import WorkingMemoryManager
 
 __all__ = [
     "WorkingMemoryManager",

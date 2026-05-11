@@ -3,14 +3,13 @@
 # GensokyoAI\memory\episodic.py
 
 import asyncio
-from typing import Optional
 from datetime import datetime
 
-from .types import EpisodicMemory, MemoryRecord
+from ..core.agent.model_client import ModelClient
 from ..core.config import MemoryConfig
 from ..core.exceptions import MemorySystemError
 from ..utils.logger import logger
-from ..core.agent.model_client import ModelClient
+from .types import EpisodicMemory, MemoryRecord
 
 
 class EpisodicMemoryManager:
@@ -46,7 +45,7 @@ class EpisodicMemoryManager:
             # 不等待压缩完成，后台执行
             asyncio.create_task(self.compress())
 
-    async def compress(self) -> Optional[EpisodicMemory]:
+    async def compress(self) -> EpisodicMemory | None:
         """压缩当前消息为情景记忆"""
         async with self._compress_lock:
             if len(self._current_episode_messages) < self.config.episodic_threshold:
@@ -107,7 +106,8 @@ class EpisodicMemoryManager:
                 model=self.config.episodic_summary_model,
                 options={"temperature": 0.3},
             )
-            return response.message.content.strip()
+            content = response.message.content
+            return content.strip() if isinstance(content, str) else ""
         except Exception as e:
             logger.error(f"生成摘要失败: {e}")
             return f"[压缩摘要] 共 {len(messages)} 条消息"

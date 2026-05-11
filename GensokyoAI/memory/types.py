@@ -2,11 +2,11 @@
 
 """记忆数据类"""
 
-from enum import Enum, auto
-from msgspec import Struct, field
 from datetime import datetime
+from enum import Enum, auto
 from uuid import uuid4
-from typing import Optional
+
+from msgspec import Struct, field
 
 
 class TopicMemoryType(Enum):
@@ -94,4 +94,4 @@ class TopicMemory(Struct):
     tags: list[str] = field(default_factory=list)
     timestamp: datetime = field(default_factory=datetime.now)
     memory_type: TopicMemoryType = TopicMemoryType.FACT
-    supersedes: Optional[str] = None
+    supersedes: str | None = None

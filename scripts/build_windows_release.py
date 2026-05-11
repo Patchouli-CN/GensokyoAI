@@ -9,8 +9,8 @@ import subprocess
 from pathlib import Path
 
 from prepare_client_python_assets import prepare as prepare_python_assets
-from prepare_windows_runtime import prepare as prepare_windows_runtime
 from prepare_windows_runtime import DEFAULT_ARCH, DEFAULT_CACHE_DIR, DEFAULT_VERSION
+from prepare_windows_runtime import prepare as prepare_windows_runtime
 
 ROOT = Path(__file__).resolve().parents[1]
 CLIENT_DIR = ROOT / "hakureiterminal"

@@ -1,5 +1,13 @@
 """Runtime API boundary for frontend-agnostic GensokyoAI clients."""
 
+from .dependencies import (
+    OPTIONAL_PROVIDER_DEPENDENCIES,
+    PROVIDER_IMPORTS,
+    DependencyError,
+    available_dependency_providers,
+    dependency_status,
+    install_dependencies,
+)
 from .event_contract import (
     REDACTED_VALUE,
     RUNTIME_EVENT_CONTRACT,
@@ -17,14 +25,6 @@ from .rpc import (
     resolve_rpc_handler,
     rpc_method_specs,
     rpc_methods,
-)
-from .dependencies import (
-    OPTIONAL_PROVIDER_DEPENDENCIES,
-    PROVIDER_IMPORTS,
-    DependencyError,
-    available_dependency_providers,
-    dependency_status,
-    install_dependencies,
 )
 
 __all__ = [

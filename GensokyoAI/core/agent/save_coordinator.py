@@ -5,13 +5,13 @@
 import asyncio
 from typing import TYPE_CHECKING
 
-from ...utils.logger import logger
 from ...background import BackgroundManager, TaskPriority
+from ...utils.logger import logger
 
 if TYPE_CHECKING:
-    from ...session.manager import SessionManager
-    from ...memory.working import WorkingMemoryManager
     from ...core.config import SessionConfig
+    from ...memory.working import WorkingMemoryManager
+    from ...session.manager import SessionManager
 
 
 class SaveCoordinator:
@@ -23,8 +23,8 @@ class SaveCoordinator:
 
     def __init__(
         self,
-        session_manager: "SessionManager",
-        session_config: "SessionConfig",
+        session_manager: SessionManager,
+        session_config: SessionConfig,
     ):
         self._session_manager = session_manager
         self._session_config = session_config
@@ -55,7 +55,7 @@ class SaveCoordinator:
         self._last_saved_turn = 0
         self._last_saved_content_hash = ""
 
-    def _get_content_hash(self, working_memory: "WorkingMemoryManager") -> str:
+    def _get_content_hash(self, working_memory: WorkingMemoryManager) -> str:
         """计算工作记忆内容的简单哈希"""
         messages = working_memory.get_context()
         # 用消息数量和最后一条内容作为简单哈希
@@ -64,7 +64,7 @@ class SaveCoordinator:
         last_msg = messages[-1]
         return f"{len(messages)}:{last_msg.get('role', '')}:{last_msg.get('content', '')[:50]}"
 
-    def should_save(self, working_memory: "WorkingMemoryManager", force: bool = False) -> bool:
+    def should_save(self, working_memory: WorkingMemoryManager, force: bool = False) -> bool:
         """
         判断是否应该保存
 
@@ -89,12 +89,12 @@ class SaveCoordinator:
         # 🆕 内容没变，不保存（更强的去重）
         current_hash = self._get_content_hash(working_memory)
         if current_hash == self._last_saved_content_hash:
-            logger.debug(f"内容未变化，跳过保存")
+            logger.debug("内容未变化，跳过保存")
             return False
 
         return True
 
-    def mark_saving(self, working_memory: "WorkingMemoryManager") -> None:
+    def mark_saving(self, working_memory: WorkingMemoryManager) -> None:
         """标记正在保存"""
         self._save_pending = True
         self._last_saved_turn = len(working_memory) // 2
@@ -117,7 +117,7 @@ class SaveCoordinator:
 
     async def save_async(
         self,
-        working_memory: "WorkingMemoryManager",
+        working_memory: WorkingMemoryManager,
         force: bool = False,
     ) -> bool:
         """异步保存"""
@@ -168,7 +168,7 @@ class SaveCoordinator:
 
     async def save_immediately(
         self,
-        working_memory: "WorkingMemoryManager",
+        working_memory: WorkingMemoryManager,
     ) -> bool:
         """立即保存当前工作记忆，不经过后台队列。
 

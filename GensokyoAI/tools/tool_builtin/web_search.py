@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
+from ...core.config import WebSearchToolConfig
 from ..base import tool
 from ..errors import ToolError, ToolExecutionError
 from ..web_search.service import WebSearchService
-from ...core.config import WebSearchToolConfig
 
 if TYPE_CHECKING:
     from ...core.config import ToolConfig
@@ -18,7 +18,7 @@ _config = WebSearchToolConfig()
 _service: WebSearchService | None = None
 
 
-def configure_web_search_tool(config: "ToolConfig") -> None:
+def configure_web_search_tool(config: ToolConfig) -> None:
     """注入工具配置。"""
     global _config, _service
     _config = config.web_search

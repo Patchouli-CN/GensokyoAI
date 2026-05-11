@@ -2,26 +2,26 @@
 
 """记忆工具 - 通过事件总线操作记忆（异步非阻塞）"""
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from ..base import tool
-from ...utils.logger import logger
 from ...core.events import Event, SystemEvent
+from ...utils.logger import logger
+from ..base import tool
 
 if TYPE_CHECKING:
     from ...core.events import EventBus
 
 
-_event_bus: Optional["EventBus"] = None
+_event_bus: EventBus | None = None
 
 
-def set_event_bus(event_bus: "EventBus") -> None:
+def set_event_bus(event_bus: EventBus) -> None:
     """注入事件总线"""
     global _event_bus
     _event_bus = event_bus
 
 
-def get_event_bus() -> Optional["EventBus"]:
+def get_event_bus() -> EventBus | None:
     """获取事件总线"""
     return _event_bus
 
@@ -76,7 +76,7 @@ async def remember(
                 return f"「这件事让我感触很深，我会永远记住的！({topic_name})」"
             return f"「这个很重要，我记住了！({topic_name})」"
         else:
-            return f"「嗯，记住了～」"
+            return "「嗯，记住了～」"
 
     return "「记住了～」"
 

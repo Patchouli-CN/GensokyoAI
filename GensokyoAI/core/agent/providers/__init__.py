@@ -5,9 +5,9 @@
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from .base import BaseProvider
-from ..types import ProviderCapability
 from ....utils.logger import logger
+from ..types import ProviderCapability
+from .base import BaseProvider
 
 if TYPE_CHECKING:
     from ...config import ModelConfig
@@ -344,7 +344,7 @@ class ProviderFactory:
         logger.info(f"注册 Provider: {name} -> {provider_cls.__name__}")
 
     @classmethod
-    def create(cls, config: "ModelConfig", **kwargs) -> BaseProvider:
+    def create(cls, config: ModelConfig, **kwargs) -> BaseProvider:
         """
         根据配置创建 Provider 实例
 

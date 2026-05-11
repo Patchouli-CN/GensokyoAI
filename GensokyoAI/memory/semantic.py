@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
-from .topic_store import TopicAwareStore
 from ..core.config import MemoryConfig
 from ..utils.logger import logger
+from .topic_store import TopicAwareStore
 
 if TYPE_CHECKING:
     from ..core.agent.model_client import ModelClient
@@ -22,7 +22,7 @@ class SemanticMemoryManager:
         config: MemoryConfig,
         character_id: str,
         memory_path: Path,  # 🆕 直接传完整路径
-        model_client: "ModelClient",
+        model_client: ModelClient,
     ):
         self.config = config
         self.character_id = character_id
@@ -42,8 +42,8 @@ class SemanticMemoryManager:
         content: str,
         importance: float = 0.0,
         emotional_valence: float = 0.0,
-        topic_name: Optional[str] = None,
-    ) -> Optional["Topic"]:
+        topic_name: str | None = None,
+    ) -> Topic | None:
         """添加语义记忆"""
         if not self._enabled:
             return None

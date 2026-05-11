@@ -2,17 +2,16 @@
 
 # GensokyoAI\tools\executor.py
 
-import json
 import asyncio
-from typing import TYPE_CHECKING, Optional, Any
+import json
+from typing import TYPE_CHECKING, Any
 
 from ..core.agent.types import UnifiedMessage
-
+from ..runtime.event_contract import sanitize_event_payload
+from ..utils.logger import logger
 from .errors import ToolError, ToolExecutionError
 from .external_manager import ExternalToolManager, is_external_tool_name
 from .registry import ToolRegistry
-from ..runtime.event_contract import sanitize_event_payload
-from ..utils.logger import logger
 
 if TYPE_CHECKING:
     from ..core.events import EventBus
@@ -24,14 +23,14 @@ class ToolExecutor:
     def __init__(
         self,
         registry: ToolRegistry | None = None,
-        event_bus: Optional["EventBus"] = None,
+        event_bus: EventBus | None = None,
         external_tool_manager: ExternalToolManager | None = None,
     ):
         self._registry = registry or ToolRegistry()
         self._event_bus = event_bus
         self._external_tool_manager = external_tool_manager
 
-    def set_event_bus(self, event_bus: "EventBus") -> None:
+    def set_event_bus(self, event_bus: EventBus) -> None:
         """注入事件总线"""
         self._event_bus = event_bus
 

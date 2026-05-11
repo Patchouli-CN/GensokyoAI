@@ -72,10 +72,7 @@ class McpSource:
 
 
 def _extract_mcp_tools(response: Any) -> list[dict[str, Any]]:
-    if isinstance(response, dict):
-        tools = response.get("tools", [])
-    else:
-        tools = response
+    tools = response.get("tools", []) if isinstance(response, dict) else response
     if not isinstance(tools, list):
         raise ValueError("MCP tools/list response must contain a tools list")
     return [tool for tool in tools if isinstance(tool, dict)]

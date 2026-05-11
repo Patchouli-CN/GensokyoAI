@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import time
+
 from ...core.config import WebSearchToolConfig
 from ...utils.request_utils import normalize_search_url
 from .providers.api import GenericAPISearchProvider
-from .providers.bing import BingSearchProvider
 from .providers.base import WebSearchProvider
+from .providers.bing import BingSearchProvider
 from .types import ProviderSearchResult, SearchItem, WebSearchResult
 
 

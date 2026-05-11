@@ -6,15 +6,13 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
-
-import yaml
 from unittest.mock import patch
 
+import yaml
+
 from GensokyoAI.core.agent.types import ModelInfo, ProviderCapability, StreamChunk
-from GensokyoAI.core.events import Event, EventBus, SystemEvent
 from GensokyoAI.core.config import ConfigLoader, ModelConfig
-from GensokyoAI.session.context import SessionContext
-from GensokyoAI.session.persistence import SessionPersistence
+from GensokyoAI.core.events import Event, EventBus, SystemEvent
 from GensokyoAI.runtime.dependencies import (
     OPTIONAL_PROVIDER_DEPENDENCIES,
     DependencyError,
@@ -28,8 +26,10 @@ from GensokyoAI.runtime.rpc import (
     resolve_rpc_handler,
     rpc_methods,
 )
-from GensokyoAI.tools.errors import ToolError, ToolExecutionError
 from GensokyoAI.runtime.service import RuntimeService
+from GensokyoAI.session.context import SessionContext
+from GensokyoAI.session.persistence import SessionPersistence
+from GensokyoAI.tools.errors import ToolError, ToolExecutionError
 
 
 class RuntimeDependencyTests(unittest.TestCase):

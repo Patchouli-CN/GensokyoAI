@@ -4,6 +4,9 @@
 旧代码仍可继续从本模块导入 AppConfig、ConfigLoader 等名称。
 """
 
+from .config_env import apply_env_overrides
+from .config_loader import ConfigLoader
+from .config_merge import ConfigMerger
 from .config_schema import (
     AppConfig,
     AuthConfig,
@@ -19,9 +22,6 @@ from .config_schema import (
     WebSearchAPIConfig,
     WebSearchToolConfig,
 )
-from .config_loader import ConfigLoader
-from .config_merge import ConfigMerger
-from .config_env import apply_env_overrides
 
 __all__ = [
     "AppConfig",

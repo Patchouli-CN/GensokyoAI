@@ -2,21 +2,22 @@
 
 # GensokyoAI/backends/console/_impl.py
 
-from typing import Callable
 import asyncio
+import contextlib
+from collections.abc import Callable
 
 import aioconsole
 from rich.console import Console as RichConsole
 from rich.panel import Panel
 from rich.text import Text
 
-from ..base import BaseBackend
-from ...core.events import Event, SystemEvent, EventPriority
+from ...commands import CommandContext, CommandExecutor, CommandResult, CommandStatus, CommandType
 from ...core.agent import Agent
-from ...utils.logger import logger
-from ...utils.formatters import format_session_id, format_datetime
+from ...core.events import Event, EventPriority, SystemEvent
+from ...utils.formatters import format_datetime, format_session_id
 from ...utils.helpers import safe_get
-from ...commands import CommandExecutor, CommandContext, CommandResult, CommandStatus, CommandType
+from ...utils.logger import logger
+from ..base import BaseBackend
 
 ART = r"""
    _____________   _______ ____  __ ____  ______
@@ -80,12 +81,10 @@ class ConsoleBackend(BaseBackend):
             if result.status == CommandStatus.SUCCESS:
                 if result.message:
                     self._print_success_message(result.message)
-            elif result.status == CommandStatus.FAILURE:
-                if result.message:
-                    self._print_error_message(result.message)
-            elif result.status == CommandStatus.NO_HANDLER:
-                if result.message:
-                    self._print_error_message(result.message)
+            elif (
+                result.status == CommandStatus.FAILURE or result.status == CommandStatus.NO_HANDLER
+            ) and result.message:
+                self._print_error_message(result.message)
 
             if result.should_exit:
                 self._running = False
@@ -143,7 +142,7 @@ class ConsoleBackend(BaseBackend):
         info_text = Text()
         info_text.append("\n")
         info_text.append("✨ 幻想乡 AI 角色扮演引擎 ✨\n", style="bold magenta")
-        info_text.append(f"🌸 当前角色: ", style="dim")
+        info_text.append("🌸 当前角色: ", style="dim")
         info_text.append(f"{character_name}\n", style="bold cyan")
         info_text.append("─" * 40 + "\n", style="dim")
         info_text.append("\n")
@@ -264,12 +263,13 @@ class ConsoleBackend(BaseBackend):
 
         if response:
             self._write_character_prefix()
-            self.console.print(response.content, style=self.colors["assistant"])
+            content = response.content if isinstance(response.content, str) else ""
+            self.console.print(content, style=self.colors["assistant"])
 
             if self._stream_handler:
-                self._stream_handler(response.content)
+                self._stream_handler(content)
 
-            return response.content or ""
+            return content
 
         return ""
 
@@ -296,13 +296,12 @@ class ConsoleBackend(BaseBackend):
 
     def _print_tool_call_indicator(self, tool_info: dict) -> None:
         """打印工具调用指示器"""
-        if message := tool_info.get("message"):
-            if hasattr(message, "tool_calls"):
-                tool_names = [
-                    tc.function.name for tc in message.tool_calls if hasattr(tc, "function")
-                ]
-                if tool_names:
-                    logger.info(f"调用工具: {', '.join(tool_names)}")
+        if (message := tool_info.get("message")) and hasattr(message, "tool_calls"):
+            tool_names = [
+                tc.function.name for tc in message.tool_calls if hasattr(tc, "function")
+            ]
+            if tool_names:
+                logger.info(f"调用工具: {', '.join(tool_names)}")
 
     # ==================== 生命周期 ====================
 
@@ -311,10 +310,8 @@ class ConsoleBackend(BaseBackend):
         self._running = False
         if self._display_task:
             self._display_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._display_task
-            except asyncio.CancelledError:
-                pass
         await self.agent.shutdown()
         logger.info("控制台后端已停止")
 
@@ -344,7 +341,7 @@ class ConsoleBackend(BaseBackend):
         while self._running:
             try:
                 msg = await asyncio.wait_for(self._initiative_queue.get(), timeout=0.5)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
 
             # 等待流式输出完成再显示主动消息
@@ -403,15 +400,15 @@ class ConsoleBackendBuilder:
     def __init__(self, agent: Agent):
         self._backend = ConsoleBackend(agent)
 
-    def with_stream_mode(self, enabled: bool = True) -> "ConsoleBackendBuilder":
+    def with_stream_mode(self, enabled: bool = True) -> ConsoleBackendBuilder:
         self._backend.set_stream_mode(enabled)
         return self
 
-    def with_stream_handler(self, handler: Callable) -> "ConsoleBackendBuilder":
+    def with_stream_handler(self, handler: Callable) -> ConsoleBackendBuilder:
         self._backend.set_stream_handler(handler)
         return self
 
-    def with_color_theme(self, theme: dict[str, str]) -> "ConsoleBackendBuilder":
+    def with_color_theme(self, theme: dict[str, str]) -> ConsoleBackendBuilder:
         for element, color in theme.items():
             self._backend.set_color(element, color)
         return self
@@ -422,7 +419,7 @@ class ConsoleBackendBuilder:
         handler: Callable,
         aliases: list[str] | None = None,
         description: str = "",
-    ) -> "ConsoleBackendBuilder":
+    ) -> ConsoleBackendBuilder:
         """注册自定义命令"""
         self._backend.cmd_executor.parser.register_tag(
             name, aliases, CommandType.CUSTOM, description, handler

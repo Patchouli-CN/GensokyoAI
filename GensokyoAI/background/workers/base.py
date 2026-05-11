@@ -2,6 +2,7 @@
 # GensokyoAI\background\workers\base.py
 
 from abc import ABC, abstractmethod
+
 from ..types import BackgroundTask, TaskResult
 
 

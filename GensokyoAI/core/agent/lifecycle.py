@@ -3,13 +3,14 @@
 # GensokyoAI/core/agent/lifecycle.py
 
 import asyncio
+import contextlib
 import signal
-import sys
 import signal as sig
-from typing import Callable, Awaitable
+import sys
+from collections.abc import Awaitable, Callable
 
-from ...utils.logger import logger
 from ...background.manager import BackgroundManager
+from ...utils.logger import logger
 
 
 class LifecycleManager:
@@ -192,7 +193,5 @@ class LifecycleManager:
 
     async def wait_for_shutdown(self, timeout: float = 5.0) -> None:
         """等待关闭完成"""
-        try:
+        with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._shutdown_event.wait(), timeout)
-        except asyncio.TimeoutError:
-            pass

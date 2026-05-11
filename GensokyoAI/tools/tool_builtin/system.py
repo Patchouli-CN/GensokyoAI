@@ -3,6 +3,7 @@
 # GensokyoAI\tools\tool_builtin\system.py
 
 import platform
+
 from ..base import tool
 
 

@@ -2,10 +2,11 @@
 
 # GensokyoAI\session\context.py
 
-from msgspec import Struct, field
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
+
+from msgspec import Struct, field
 
 
 class SessionContext(Struct):
@@ -40,7 +41,7 @@ class SessionContext(Struct):
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "SessionContext":
+    def from_dict(cls, data: dict) -> SessionContext:
         """从字典创建"""
         return cls(
             session_id=data["session_id"],

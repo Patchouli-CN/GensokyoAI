@@ -2,11 +2,10 @@
 
 # GensokyoAI\utils\logging.py
 
-import sys
 import inspect
 import logging as std_logging
+import sys
 from pathlib import Path
-from typing import Optional
 
 from loguru import logger
 
@@ -40,9 +39,9 @@ class LoguruHandler(std_logging.Handler):
 def setup_logging(
     log_level: str = "INFO",
     log_console: bool = True,
-    log_file: Optional[Path] = None,
-    log_format: Optional[str] = None,
-    log_format_console: Optional[str] = None,
+    log_file: Path | None = None,
+    log_format: str | None = None,
+    log_format_console: str | None = None,
     intercept_standard_logging: bool = True,
 ) -> None:
     """配置日志系统

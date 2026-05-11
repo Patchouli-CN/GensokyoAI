@@ -11,15 +11,15 @@ P7 目标是先提供轻量服务层，不改变现有 Provider 请求行为和 
 
 from __future__ import annotations
 
-from collections.abc import Callable, Awaitable
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from ...utils.logger import logger
+from ..config import ModelConfig
 from .providers import ProviderFactory
 from .providers.base import BaseProvider
 from .types import ModelInfo, ProviderCapability
-from ..config import ModelConfig
-from ...utils.logger import logger
 
 ProviderBuilder = Callable[[ModelConfig], BaseProvider]
 

@@ -4,8 +4,17 @@
 
 import asyncio
 import time
-from typing import AsyncIterator, Optional
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import cast
 
+from ...runtime.event_contract import sanitize_event_payload
+from ...utils.logger import logger
+from ...utils.request_utils import ModelAPIError, is_retryable_error, normalize_model_error
+from ..config import EmbeddingConfig, ModelConfig
+from ..events import Event, EventBus, SystemEvent
+from ..exceptions import ModelError
+from .providers import BaseProvider, ProviderFactory
+from .providers.auth_utils import AuthRefreshError, sanitize_auth_data
 from .types import (
     ImageGenerationRequest,
     ImageGenerationResult,
@@ -13,17 +22,8 @@ from .types import (
     ProviderCapability,
     StreamChunk,
     UnifiedEmbeddingResponse,
-    UnifiedMessage,
     UnifiedResponse,
 )
-from .providers import ProviderFactory, BaseProvider
-from .providers.auth_utils import AuthRefreshError, sanitize_auth_data
-from ...utils.request_utils import ModelAPIError, is_retryable_error, normalize_model_error
-from ..config import EmbeddingConfig, ModelConfig
-from ..exceptions import ModelError
-from ..events import Event, SystemEvent, EventBus
-from ...runtime.event_contract import sanitize_event_payload
-from ...utils.logger import logger
 
 
 class ModelClient:
@@ -38,7 +38,7 @@ class ModelClient:
     def __init__(
         self,
         config: ModelConfig,
-        event_bus: Optional["EventBus"] = None,
+        event_bus: EventBus | None = None,
         embedding_config: EmbeddingConfig | None = None,
     ):
         self.config = config
@@ -301,7 +301,7 @@ class ModelClient:
         provider_name: str | None = None,
         timeout: float | None = None,
         endpoint: str | None = None,
-    ):
+    ) -> UnifiedResponse | ImageGenerationResult | UnifiedEmbeddingResponse:
         """按配置对可重试 API 错误进行指数退避重试。"""
         max_attempts = max(1, self.config.retry_max_attempts)
         delay = max(0.0, self.config.retry_initial_delay)
@@ -316,13 +316,20 @@ class ModelClient:
 
         for attempt in range(1, max_attempts + 1):
             try:
+                call = cast(
+                    Callable[
+                        [],
+                        Awaitable[UnifiedResponse | ImageGenerationResult | UnifiedEmbeddingResponse],
+                    ],
+                    call_factory,
+                )
                 await self._prepare_provider_auth(
                     call_provider,
                     context=context,
                     model=model,
                 )
-                return await asyncio.wait_for(call_factory(), timeout=call_timeout)
-            except asyncio.TimeoutError:
+                return await asyncio.wait_for(call(), timeout=call_timeout)
+            except TimeoutError:
                 raise
             except asyncio.CancelledError:
                 raise
@@ -334,11 +341,12 @@ class ModelClient:
                     endpoint=call_endpoint,
                     retry_status_codes=retry_status_codes,
                 )
+                auth_config = call_provider.config.auth
                 if (
                     normalized.status_code == 401
                     and not auth_refreshed_after_401
-                    and getattr(call_provider.config, "auth", None)
-                    and call_provider.config.auth.allow_401_refresh
+                    and auth_config is not None
+                    and auth_config.allow_401_refresh
                 ):
                     auth_refreshed_after_401 = True
                     await self._prepare_provider_auth(
@@ -347,7 +355,7 @@ class ModelClient:
                         model=model,
                         force_refresh=True,
                     )
-                    return await asyncio.wait_for(call_factory(), timeout=call_timeout)
+                    return await asyncio.wait_for(call(), timeout=call_timeout)
 
                 if attempt >= max_attempts or not is_retryable_error(
                     normalized,
@@ -387,12 +395,14 @@ class ModelClient:
                     await asyncio.sleep(delay)
                     delay *= backoff
 
+        raise ModelError(f"模型 API 调用失败: 已达到最大重试次数 ({max_attempts})")
+
     async def chat(
         self,
         messages: list[dict[str, str]],
-        tools: Optional[list[dict]] = None,
-        model: Optional[str] = None,
-        options: Optional[dict] = None,
+        tools: list[dict] | None = None,
+        model: str | None = None,
+        options: dict | None = None,
         **kwargs,
     ) -> UnifiedResponse:
         """
@@ -434,27 +444,27 @@ class ModelClient:
                 message_count=len(messages),
             )
             logger.debug(f"非流式调用模型，消息数: {len(messages)}")
-            response = await self._call_with_retry(
-                lambda: self._provider.chat(
+            response = cast(
+                UnifiedResponse,
+                await self._call_with_retry(
+                    lambda: self._provider.chat(
+                        model=call_model,
+                        messages=messages,
+                        tools=tools,
+                        options=call_options,
+                        **kwargs,
+                    ),
+                    context="chat",
                     model=call_model,
-                    messages=messages,
-                    tools=tools,
-                    options=call_options,
-                    **kwargs,
                 ),
-                context="chat",
-                model=call_model,
             )
-            content = getattr(response.message, "content", "") or ""
-            reasoning = (
-                getattr(response.message, "reasoning_content", None)
-                or getattr(response, "thinking", None)
-                or ""
-            )
+            content = response.message.content or ""
+            content_text = content if isinstance(content, str) else ""
+            reasoning = response.message.reasoning_content or response.thinking or ""
             self._finish_timing(timing)
-            if content:
+            if content_text:
                 timing.content_chunk_count = 1
-                timing.content_char_count = len(content)
+                timing.content_char_count = len(content_text)
                 timing.first_token_ms = timing.duration_ms
             if reasoning:
                 timing.reasoning_chunk_count = 1
@@ -472,10 +482,10 @@ class ModelClient:
                     },
                 )
             self._publish_model_completed(timing)
-            logger.debug(f"模型响应完成，长度: {len(content)}，耗时: {timing.duration_ms}ms")
+            logger.debug(f"模型响应完成，长度: {len(content_text)}，耗时: {timing.duration_ms}ms")
             return response
 
-        except asyncio.TimeoutError:
+        except TimeoutError as error:
             error_msg = f"模型调用超时 ({self.config.timeout}s)"
             logger.error(error_msg)
 
@@ -483,7 +493,7 @@ class ModelClient:
                 ModelError(error_msg),
                 {"context": "chat", "timeout": self.config.timeout, "message_count": len(messages)},
             )
-            raise ModelError(error_msg)
+            raise ModelError(error_msg) from error
 
         except Exception as e:
             normalized = (
@@ -508,10 +518,10 @@ class ModelClient:
     async def chat_stream(
         self,
         messages: list[dict[str, str]],
-        tools: Optional[list[dict]] = None,
-        model: Optional[str] = None,
-        options: Optional[dict] = None,
-        extra_body: Optional[dict] = None,
+        tools: list[dict] | None = None,
+        model: str | None = None,
+        options: dict | None = None,
+        extra_body: dict | None = None,
         **kwargs,
     ) -> AsyncIterator[StreamChunk]:
         """
@@ -624,7 +634,7 @@ class ModelClient:
                         timing_published = True
                         self._publish_model_completed(timing)
                     break
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     raise
                 except asyncio.CancelledError:
                     raise
@@ -636,11 +646,12 @@ class ModelClient:
                         endpoint=getattr(self._provider, "endpoint", None),
                         retry_status_codes=self._retry_status_codes(),
                     )
+                    auth_config = self._provider.config.auth
                     if (
                         normalized.status_code == 401
                         and not auth_refreshed_after_401
-                        and getattr(self._provider.config, "auth", None)
-                        and self._provider.config.auth.allow_401_refresh
+                        and auth_config is not None
+                        and auth_config.allow_401_refresh
                     ):
                         auth_refreshed_after_401 = True
                         await self._prepare_provider_auth(
@@ -684,7 +695,7 @@ class ModelClient:
                         await asyncio.sleep(delay)
                         delay *= backoff
 
-        except asyncio.TimeoutError:
+        except TimeoutError as error:
             error_msg = f"流式调用超时 ({self.config.timeout}s)"
             logger.error(error_msg)
             self._publish_error(
@@ -698,7 +709,7 @@ class ModelClient:
                     "endpoint": getattr(self._provider, "endpoint", None),
                 },
             )
-            raise ModelError(error_msg)
+            raise ModelError(error_msg) from error
 
         except Exception as e:
             normalized = (
@@ -754,7 +765,7 @@ class ModelClient:
     async def generate_image(
         self,
         prompt: str,
-        model: Optional[str] = None,
+        model: str | None = None,
         **kwargs,
     ) -> ImageGenerationResult:
         """统一图片生成入口。"""
@@ -789,10 +800,13 @@ class ModelClient:
                 model=call_model,
                 prompt_length=len(prompt),
             )
-            response = await self._call_with_retry(
-                lambda: self._provider.image_generation(request, **kwargs),
-                context="image_generation",
-                model=call_model,
+            response = cast(
+                ImageGenerationResult,
+                await self._call_with_retry(
+                    lambda: self._provider.image_generation(request, **kwargs),
+                    context="image_generation",
+                    model=call_model,
+                ),
             )
             self._finish_timing(timing)
             response.timing = timing
@@ -821,8 +835,8 @@ class ModelClient:
     async def embeddings(
         self,
         prompt: str,
-        model: Optional[str] = None,
-        timeout: Optional[float] = None,
+        model: str | None = None,
+        timeout: float | None = None,
         **kwargs,
     ) -> UnifiedEmbeddingResponse:
         """
@@ -864,18 +878,21 @@ class ModelClient:
                 model=call_model,
                 prompt_length=len(prompt),
             )
-            response = await self._call_with_retry(
-                lambda: embedding_provider.embeddings(
+            response = cast(
+                UnifiedEmbeddingResponse,
+                await self._call_with_retry(
+                    lambda: embedding_provider.embeddings(
+                        model=call_model,
+                        prompt=prompt,
+                        **embedding_kwargs,
+                    ),
+                    context="embeddings",
                     model=call_model,
-                    prompt=prompt,
-                    **embedding_kwargs,
+                    provider=embedding_provider,
+                    provider_name=embedding_model_config.provider,
+                    timeout=call_timeout,
+                    endpoint=getattr(embedding_provider, "endpoint", None),
                 ),
-                context="embeddings",
-                model=call_model,
-                provider=embedding_provider,
-                provider_name=embedding_model_config.provider,
-                timeout=call_timeout,
-                endpoint=getattr(embedding_provider, "endpoint", None),
             )
             timing.embedding_dimension = len(response.embedding)
             self._finish_timing(timing)
@@ -886,7 +903,7 @@ class ModelClient:
             )
             return response
 
-        except asyncio.TimeoutError:
+        except TimeoutError as error:
             effective_timeout = timeout or self._embedding_config.timeout or self.config.timeout
             error_msg = f"embeddings 调用超时 ({effective_timeout}秒)"
             logger.error(f"embeddings 调用超时 ({effective_timeout}s)")
@@ -900,7 +917,7 @@ class ModelClient:
                     "model": call_model,
                 },
             )
-            raise ModelError(error_msg)
+            raise ModelError(error_msg) from error
 
         except NotImplementedError as e:
             logger.warning(f"当前 Provider 不支持 embeddings: {e}")
@@ -943,8 +960,8 @@ class ModelClient:
     async def embeddings_batch(
         self,
         prompts: list[str],
-        model: Optional[str] = None,
-        timeout: Optional[float] = None,
+        model: str | None = None,
+        timeout: float | None = None,
         **kwargs,
     ) -> list[list[float]]:
         """

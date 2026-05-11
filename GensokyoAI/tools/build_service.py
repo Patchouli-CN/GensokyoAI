@@ -7,7 +7,6 @@ ToolRegistry 负责发现与注册工具；ToolBuildService 负责根据模型�
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 from GensokyoAI.core.agent.types import ProviderCapability
 from GensokyoAI.core.config import ModelConfig, ToolConfig
@@ -157,9 +156,7 @@ class ToolBuildService:
         web_search_config = context.tool_config.web_search
         if not web_search_config.enabled or web_search_config.trigger_strategy == "off":
             return False
-        if self._provider_builtin_web_search_enabled(context):
-            return False
-        return True
+        return not self._provider_builtin_web_search_enabled(context)
 
     @staticmethod
     def _provider_builtin_web_search_enabled(context: ToolBuildContext) -> bool:

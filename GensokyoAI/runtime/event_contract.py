@@ -5,9 +5,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
-
 
 SENSITIVE_FIELD_NAMES = {
     "api_key",

@@ -2,14 +2,14 @@
 """命令装饰器 - 直接使用统一的 CommandType"""
 
 import inspect
-from typing import Callable, Optional, get_type_hints
+from collections.abc import Callable
+from typing import get_type_hints
 
 from ..utils.logger import logger
 from .parser import CommandType  # 直接导入
 
-
 # 全局命令注册表
-_COMMAND_REGISTRY: dict[str, "CommandDefinition"] = {}
+_COMMAND_REGISTRY: dict[str, CommandDefinition] = {}
 
 
 class CommandDefinition:
@@ -47,7 +47,7 @@ class CommandDefinition:
 
     def parse_args(self, content: str) -> dict:
         args = {}
-        param_names = [p for p in self._sig.parameters.keys() if p not in ("cmd", "ctx")]
+        param_names = [p for p in self._sig.parameters if p not in ("cmd", "ctx")]
 
         if not param_names:
             return args
@@ -60,11 +60,11 @@ class CommandDefinition:
                 hint = self._type_hints.get(name, str)
 
                 try:
-                    if hint == bool:
+                    if hint is bool:
                         args[name] = parts[i].lower() in ("true", "1", "yes", "on")
-                    elif hint == int:
+                    elif hint is int:
                         args[name] = int(parts[i])
-                    elif hint == float:
+                    elif hint is float:
                         args[name] = float(parts[i])
                     else:
                         args[name] = parts[i]
@@ -87,7 +87,7 @@ class CommandDefinition:
 
 
 def command(
-    name: Optional[str] = None,
+    name: str | None = None,
     cmd_type: CommandType = CommandType.CUSTOM,
     aliases: list[str] | None = None,
     description: str = "",
@@ -116,11 +116,11 @@ def command(
     return decorator
 
 
-def get_command(name: str) -> Optional[CommandDefinition]:
+def get_command(name: str) -> CommandDefinition | None:
     return _COMMAND_REGISTRY.get(name.lower())
 
 
-def list_commands(cmd_type: Optional[CommandType] = None) -> list[CommandDefinition]:
+def list_commands(cmd_type: CommandType | None = None) -> list[CommandDefinition]:
     seen = set()
     result = []
     for cmd in _COMMAND_REGISTRY.values():

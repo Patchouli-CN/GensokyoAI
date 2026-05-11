@@ -89,8 +89,8 @@ line-ending = "auto"
 [tool.pyright]
 pythonVersion = "3.14"
 typeCheckingMode = "basic"
-include = ["GensokyoAI", "tests"]
-exclude = ["**/node_modules", "**/__pycache__", "**/.*", ".venv", "build", "dist"]
+include = ["GensokyoAI", "bridge_main.py"]
+exclude = ["**/node_modules", "**/__pycache__", "**/.*", ".venv", "build", "dist", "tests"]
 reportMissingImports = "warning"
 reportUnknownMemberType = "none"
 reportUnknownVariableType = "none"

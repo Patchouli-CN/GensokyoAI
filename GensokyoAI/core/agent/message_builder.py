@@ -4,21 +4,21 @@
 
 from typing import TYPE_CHECKING
 
-from ...tools.registry import ToolRegistry
 from ...tools.build_service import ToolBuildResult
+from ...tools.registry import ToolRegistry
 
 if TYPE_CHECKING:
-    from ..config import ModelConfig, WebSearchToolConfig
-    from ...memory.working import WorkingMemoryManager
     from ...memory.episodic import EpisodicMemoryManager
     from ...memory.semantic import SemanticMemoryManager
+    from ...memory.working import WorkingMemoryManager
+    from ..config import ModelConfig, WebSearchToolConfig
     
 
 class MessageOperation:
     def __init__(self, messages: list[dict]):
         self._messages = messages
     
-    def exclude(self, **conditions) -> "MessageOperation":
+    def exclude(self, **conditions) -> MessageOperation:
         """万能排除器"""
         def matches(msg):
             for key, value in conditions.items():
@@ -36,19 +36,19 @@ class MessageOperation:
         self._messages = [m for m in self._messages if not matches(m)]
         return self
 
-    def filter(self, predicate) -> "MessageOperation":
+    def filter(self, predicate) -> MessageOperation:
         self._messages = [m for m in self._messages if predicate(m)]
         return self
     
-    def filter_role(self, *roles: str) -> "MessageOperation":
+    def filter_role(self, *roles: str) -> MessageOperation:
         self._messages = [m for m in self._messages if m.get("role") in roles]
         return self
     
-    def exclude_role(self, *roles: str) -> "MessageOperation":
+    def exclude_role(self, *roles: str) -> MessageOperation:
         self._messages = [m for m in self._messages if m.get("role") not in roles]
         return self
     
-    def take(self, n: int) -> "MessageOperation":
+    def take(self, n: int) -> MessageOperation:
         self._messages = self._messages[-n:]
         return self
     
@@ -70,14 +70,14 @@ class MessageBuilder:
     def __init__(
         self,
         system_prompt: str,
-        working_memory: "WorkingMemoryManager",
-        episodic_memory: "EpisodicMemoryManager",
-        semantic_memory: "SemanticMemoryManager",
+        working_memory: WorkingMemoryManager,
+        episodic_memory: EpisodicMemoryManager,
+        semantic_memory: SemanticMemoryManager,
         tool_registry: ToolRegistry | None = None,
         tool_enabled: bool = False,
         character_name: str = "",
-        web_search_config: "WebSearchToolConfig | None" = None,
-        model_config: "ModelConfig | None" = None,
+        web_search_config: WebSearchToolConfig | None = None,
+        model_config: ModelConfig | None = None,
         tool_build_result: ToolBuildResult | None = None,
     ):
         """

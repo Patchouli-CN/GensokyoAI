@@ -12,13 +12,13 @@
 
 # GensokyoAI/core/agent/providers/openai_provider.py
 
-from typing import Any, AsyncIterator, TYPE_CHECKING
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any
 
-from .base import BaseProvider
+from ....utils.logger import logger
 from ....utils.request_utils import (
     endpoint_url,
     has_arbitrary_api_path,
-    merge_headers,
     normalize_openai_api_host_and_path,
     post_json,
     post_sse,
@@ -29,17 +29,16 @@ from ..types import (
     ImageGenerationRequest,
     ImageGenerationResult,
     ImageInput,
-    MessageContentPart,
-    UnifiedResponse,
-    UnifiedMessage,
-    UnifiedEmbeddingResponse,
+    ModelInfo,
+    ProviderCapability,
     StreamChunk,
     ToolCall,
     ToolCallFunction,
-    ProviderCapability,
-    ModelInfo,
+    UnifiedEmbeddingResponse,
+    UnifiedMessage,
+    UnifiedResponse,
 )
-from ....utils.logger import logger
+from .base import BaseProvider
 
 if TYPE_CHECKING:
     from ...config import ModelConfig
@@ -53,7 +52,7 @@ class OpenAIProvider(BaseProvider):
     通过 base_url 配置可以指向任何兼容端点。
     """
 
-    def __init__(self, config: "ModelConfig"):
+    def __init__(self, config: ModelConfig):
         super().__init__(config)
         self._endpoint = normalize_openai_api_host_and_path(config.base_url, config.api_path)
         self._client = self._build_client()
@@ -471,7 +470,7 @@ class OpenAIProvider(BaseProvider):
             model=model,
         )
 
-    def update_config(self, config: "ModelConfig") -> None:
+    def update_config(self, config: ModelConfig) -> None:
         """更新配置并重建客户端"""
         super().update_config(config)
         self._client = self._build_client()

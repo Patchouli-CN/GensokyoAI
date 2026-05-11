@@ -3,8 +3,10 @@
 蕾米莉亚：命运会告诉你，不是所有冲动都该被付诸行动。
 """
 
-from msgspec import Struct
 from enum import Enum, auto
+
+from msgspec import Struct
+
 from .motivation_evaluator import MotivationProfile
 
 
@@ -32,7 +34,7 @@ class ConflictDetector:
 
     def detect(
         self,
-        motivation: "MotivationProfile",
+        motivation: MotivationProfile,
         emotional_valence: float,
         is_first_meeting: bool = False,
     ) -> ConflictResult:

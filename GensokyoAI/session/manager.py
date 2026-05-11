@@ -2,11 +2,11 @@
 
 # GensokyoAI\session\manager.py
 
+from ..core.config import SessionConfig
+from ..memory.working import WorkingMemoryManager
+from ..utils.logger import logger
 from .context import SessionContext
 from .persistence import SessionPersistence
-from ..memory.working import WorkingMemoryManager
-from ..core.config import SessionConfig
-from ..utils.logger import logger
 
 
 class SessionManager:

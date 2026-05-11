@@ -3,20 +3,21 @@
 # GensokyoAI/core/agent/providers/ollama_provider.py
 
 import os
-from typing import AsyncIterator, TYPE_CHECKING
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
-from .base import BaseProvider
+from ....utils.logger import logger
 from ..types import (
-    UnifiedResponse,
-    UnifiedMessage,
-    UnifiedEmbeddingResponse,
+    ModelInfo,
+    ProviderCapability,
     StreamChunk,
     ToolCall,
     ToolCallFunction,
-    ProviderCapability,
-    ModelInfo,
+    UnifiedEmbeddingResponse,
+    UnifiedMessage,
+    UnifiedResponse,
 )
-from ....utils.logger import logger
+from .base import BaseProvider
 
 if TYPE_CHECKING:
     from ...config import ModelConfig
@@ -29,7 +30,7 @@ class OllamaProvider(BaseProvider):
     保持与原始 ModelClient 完全一致的行为
     """
 
-    def __init__(self, config: "ModelConfig"):
+    def __init__(self, config: ModelConfig):
         super().__init__(config)
         self._client = self._build_client()
         logger.debug(f"OllamaProvider 初始化完成，base_url: {config.base_url}")
@@ -199,7 +200,7 @@ class OllamaProvider(BaseProvider):
             model=model,
         )
 
-    def update_config(self, config: "ModelConfig") -> None:
+    def update_config(self, config: ModelConfig) -> None:
         """更新配置并重建客户端"""
         super().update_config(config)
         self._client = self._build_client()

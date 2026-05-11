@@ -11,11 +11,11 @@ from urllib.parse import urlencode, urljoin, urlsplit
 import aiohttp
 
 from ....utils.request_utils import normalize_search_url
-from .base import WebSearchProvider
 from ..types import ProviderSearchResult, SearchItem
+from .base import WebSearchProvider
 
 if TYPE_CHECKING:
-    from ....core.config import WebSearchToolConfig
+    pass
 
 
 @dataclass(slots=True)
@@ -106,9 +106,7 @@ def _is_probably_content_url(url: str) -> bool:
     if any(host.endswith(suffix) for suffix in (".bing.com", ".microsoft.com")):
         return False
     lowered_path = parts.path.lower()
-    if lowered_path.endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".ico", ".css", ".js")):
-        return False
-    return True
+    return not lowered_path.endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".ico", ".css", ".js"))
 
 
 def _make_snippet(candidate: _LinkCandidate, text_chunks: list[str], *, max_length: int = 220) -> str:
@@ -152,9 +150,11 @@ class BingSearchProvider(WebSearchProvider):
             "Referer": "https://www.bing.com/",
         }
         timeout = aiohttp.ClientTimeout(total=self.config.timeout)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(full_url, headers=headers) as response:
-                return await response.text(encoding="utf-8", errors="replace")
+        async with (
+            aiohttp.ClientSession(timeout=timeout) as session,
+            session.get(full_url, headers=headers) as response,
+        ):
+            return await response.text(encoding="utf-8", errors="replace")
 
     @staticmethod
     def _items_from_candidates(

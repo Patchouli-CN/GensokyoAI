@@ -2,9 +2,10 @@
 """命令解析器 - 从 utils 移动过来并简化"""
 
 import re
-from typing import Callable
+from collections.abc import Callable
 from enum import Enum, auto
-from msgspec import field, Struct
+
+from msgspec import Struct, field
 
 
 class CommandType(Enum):
@@ -67,7 +68,7 @@ class CommandParser:
         cmd_type: CommandType = CommandType.CUSTOM,
         description: str = "",
         handler: Callable | None = None,
-    ) -> "CommandParser":
+    ) -> CommandParser:
         """注册标签命令 <tag>content</tag>"""
         tag = TagDefinition(name, aliases, cmd_type, description, handler)
         for n in tag.all_names:
@@ -81,7 +82,7 @@ class CommandParser:
         cmd_type: CommandType = CommandType.CUSTOM,
         description: str = "",
         handler: Callable | None = None,
-    ) -> "CommandParser":
+    ) -> CommandParser:
         """注册前缀命令 /command"""
         tag = TagDefinition(name, aliases, cmd_type, description, handler)
         for n in tag.all_names:
@@ -162,7 +163,7 @@ class CommandParser:
         # 移除前缀命令行
         if self.mode in ("prefix", "smart"):
             lines = text.split("\n")
-            lines = [l for l in lines if not l.strip().startswith("/")]
+            lines = [line for line in lines if not line.strip().startswith("/")]
             text = "\n".join(lines)
 
         return text.strip()

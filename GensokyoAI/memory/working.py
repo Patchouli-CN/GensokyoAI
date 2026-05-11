@@ -3,6 +3,7 @@
 # GensokyoAI\memory\working.py
 
 from typing import Any
+
 from .types import WorkingMemory
 
 

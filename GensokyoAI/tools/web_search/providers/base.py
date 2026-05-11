@@ -16,7 +16,7 @@ class WebSearchProvider(ABC):
 
     name: str = "base"
 
-    def __init__(self, config: "WebSearchToolConfig"):
+    def __init__(self, config: WebSearchToolConfig):
         self.config = config
 
     @abstractmethod

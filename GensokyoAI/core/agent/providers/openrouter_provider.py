@@ -7,12 +7,12 @@ OpenRouter 使用 OpenAI-compatible Chat Completions 协议，但有独立的推
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from .openai_provider import OpenAIProvider
+from ....utils.logger import logger
 from ....utils.request_utils import merge_headers
 from ..types import ModelInfo, ProviderCapability
-from ....utils.logger import logger
+from .openai_provider import OpenAIProvider
 
 if TYPE_CHECKING:
     from ...config import ModelConfig
@@ -33,7 +33,7 @@ class OpenRouterProvider(OpenAIProvider):
         "X-Title": "GensokyoAI",
     }
 
-    def __init__(self, config: "ModelConfig"):
+    def __init__(self, config: ModelConfig):
         if not config.base_url:
             config.base_url = self.DEFAULT_BASE_URL
         super().__init__(config)

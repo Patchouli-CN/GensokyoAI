@@ -20,8 +20,8 @@ class _AsyncStream:
     async def __anext__(self):
         try:
             return next(self._iter)
-        except StopIteration:
-            raise StopAsyncIteration
+        except StopIteration as error:
+            raise StopAsyncIteration from error
 
 
 def _chunk(delta, finish_reason=None):

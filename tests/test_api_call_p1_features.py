@@ -1,21 +1,24 @@
+# pyright: reportAttributeAccessIssue=false, reportOptionalMemberAccess=false, reportOptionalSubscript=false, reportArgumentType=false
+
 import asyncio
 import tempfile
 import unittest
-import yaml
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import yaml
+
 from GensokyoAI.core.agent.model_client import ModelClient
 from GensokyoAI.core.agent.providers import ProviderFactory
 from GensokyoAI.core.agent.providers.base import BaseProvider
-from GensokyoAI.core.agent.providers.openai_provider import OpenAIProvider
-from GensokyoAI.core.agent.providers.openrouter_provider import OpenRouterProvider
-from GensokyoAI.core.agent.providers.openai_responses_provider import OpenAIResponsesProvider
-from GensokyoAI.core.agent.providers.deepseek_provider import DeepSeekProvider
-from GensokyoAI.core.agent.providers.ollama_provider import OllamaProvider
-from GensokyoAI.core.agent.providers.gemini_provider import GeminiProvider
 from GensokyoAI.core.agent.providers.claude_provider import ClaudeProvider
+from GensokyoAI.core.agent.providers.deepseek_provider import DeepSeekProvider
+from GensokyoAI.core.agent.providers.gemini_provider import GeminiProvider
+from GensokyoAI.core.agent.providers.ollama_provider import OllamaProvider
+from GensokyoAI.core.agent.providers.openai_provider import OpenAIProvider
+from GensokyoAI.core.agent.providers.openai_responses_provider import OpenAIResponsesProvider
+from GensokyoAI.core.agent.providers.openrouter_provider import OpenRouterProvider
 from GensokyoAI.core.agent.types import (
     GeneratedImage,
     ImageGenerationRequest,
@@ -29,11 +32,9 @@ from GensokyoAI.core.agent.types import (
     UnifiedEmbeddingResponse,
     UnifiedMessage,
     UnifiedResponse,
-    WebSearchDiagnostics,
-    WebSearchReference,
 )
-from GensokyoAI.core.events import SystemEvent
 from GensokyoAI.core.config import ConfigLoader, EmbeddingConfig, ModelConfig, ToolConfig
+from GensokyoAI.core.events import SystemEvent
 
 
 class _EmbeddingsProvider(BaseProvider):
@@ -749,7 +750,7 @@ class P1ApiCallFeatureTests(unittest.TestCase):
         async def collect():
             return [chunk async for chunk in client.chat_stream([{"role": "user", "content": "hi"}])]
 
-        with self.assertRaises(Exception):
+        with self.assertRaises(TimeoutError):
             asyncio.run(collect())
 
         self.assertTrue(event_bus.events)

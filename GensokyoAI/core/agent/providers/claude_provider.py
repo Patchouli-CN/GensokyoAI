@@ -6,23 +6,23 @@
 # GensokyoAI/core/agent/providers/claude_provider.py
 
 import json
-from typing import Any, AsyncIterator, TYPE_CHECKING
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any
 
-from .base import BaseProvider
+from ....utils.logger import logger
 from ....utils.request_utils import merge_headers
 from ..types import (
     ImageInput,
-    MessageContentPart,
-    UnifiedResponse,
-    UnifiedMessage,
-    UnifiedEmbeddingResponse,
+    ModelInfo,
+    ProviderCapability,
     StreamChunk,
     ToolCall,
     ToolCallFunction,
-    ProviderCapability,
-    ModelInfo,
+    UnifiedEmbeddingResponse,
+    UnifiedMessage,
+    UnifiedResponse,
 )
-from ....utils.logger import logger
+from .base import BaseProvider
 
 if TYPE_CHECKING:
     from ...config import ModelConfig
@@ -36,7 +36,7 @@ class ClaudeProvider(BaseProvider):
     注意：Claude 的消息格式与 OpenAI 有所不同，需要特殊处理。
     """
 
-    def __init__(self, config: "ModelConfig"):
+    def __init__(self, config: ModelConfig):
         super().__init__(config)
         self._client = self._build_client()
         logger.debug(f"ClaudeProvider 初始化完成，model: {config.name}")
@@ -254,11 +254,11 @@ class ClaudeProvider(BaseProvider):
         """Claude 不支持 embeddings"""
         raise NotImplementedError("Anthropic Claude 不提供 embeddings API")
 
-    def update_config(self, config: "ModelConfig") -> None:
+    def update_config(self, config: ModelConfig) -> None:
         """更新配置并重建客户端"""
         super().update_config(config)
         self._client = self._build_client()
-        logger.info(f"ClaudeProvider 配置已更新")
+        logger.info("ClaudeProvider 配置已更新")
 
     # ==================== 转换工具方法 ====================
 

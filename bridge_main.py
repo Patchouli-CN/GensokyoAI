@@ -18,14 +18,14 @@ import json
 import sys
 import traceback
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, cast
 
 ROOT_FOR_IMPORT = Path(__file__).resolve().parent
 if str(ROOT_FOR_IMPORT) not in sys.path:
     sys.path.insert(0, str(ROOT_FOR_IMPORT))
 
-from GensokyoAI.runtime import DependencyError
-from GensokyoAI.runtime.service import RuntimeService
+from GensokyoAI.runtime import DependencyError  # noqa: E402
+from GensokyoAI.runtime.service import RuntimeService  # noqa: E402
 
 
 def _json_default(value: Any) -> str:
@@ -110,13 +110,19 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+class _ReconfigurableTextIO(Protocol):
+    def reconfigure(self, **kwargs: Any) -> None: ...
+
+
+def _reconfigure_text_stream(stream: Any) -> None:
+    if hasattr(stream, "reconfigure"):
+        cast(_ReconfigurableTextIO, stream).reconfigure(encoding="utf-8")
+
+
 def main() -> None:
-    if hasattr(sys.stdin, "reconfigure"):
-        sys.stdin.reconfigure(encoding="utf-8")
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")
-    if hasattr(sys.stderr, "reconfigure"):
-        sys.stderr.reconfigure(encoding="utf-8")
+    _reconfigure_text_stream(sys.stdin)
+    _reconfigure_text_stream(sys.stdout)
+    _reconfigure_text_stream(sys.stderr)
 
     args = parse_args()
     raise SystemExit(asyncio.run(run_bridge(args.root.resolve())))

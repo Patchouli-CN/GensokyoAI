@@ -2,11 +2,12 @@
 
 # GensokyoAI\background\types.py
 
-from msgspec import Struct, field
 from datetime import datetime
 from enum import Enum, auto
 from typing import Any
 from uuid import uuid4
+
+from msgspec import Struct, field
 
 
 class TaskPriority(Enum):

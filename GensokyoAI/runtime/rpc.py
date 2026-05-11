@@ -15,7 +15,6 @@ from typing import Any
 from GensokyoAI.tools.errors import ToolExecutionError
 from GensokyoAI.tools.external_manager import ExternalToolSourceStatus
 
-
 _EXTERNAL_TOOL_STATUS_METHODS: dict[str, str] = {
     ExternalToolSourceStatus.STARTING.value: "external_tool.starting",
     ExternalToolSourceStatus.RUNNING.value: "external_tool.running",
@@ -311,11 +310,13 @@ def runtime_protocol_metadata() -> dict[str, Any]:
 
 def runtime_error_to_dict(error: Exception) -> dict[str, Any]:
     """将 Runtime 边界异常规范化为兼容旧字符串字段的结构化错误。"""
-    if hasattr(error, "to_dict") and callable(getattr(error, "to_dict")):
-        data = error.to_dict()  # type: ignore[no-any-return]
-        data.setdefault("message", str(error))
-        data.setdefault("error", data.get("technical_message") or str(error))
-        return data
+    to_dict = getattr(error, "to_dict", None)
+    if callable(to_dict):
+        data = to_dict()
+        if isinstance(data, dict):
+            data.setdefault("message", str(error))
+            data.setdefault("error", data.get("technical_message") or str(error))
+            return data
 
     if isinstance(error, ToolExecutionError):
         data = error.error.to_dict()

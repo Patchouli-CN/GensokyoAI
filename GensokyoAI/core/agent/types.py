@@ -2,10 +2,11 @@
 
 # GensokyoAI/core/agent/types.py
 
+from collections.abc import Iterable, Sequence
+from typing import Any
+
 import msgspec
 import msgspec.json
-from collections.abc import Iterable
-from typing import Any, Sequence
 from msgspec import Struct, field
 
 

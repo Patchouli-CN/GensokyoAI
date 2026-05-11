@@ -1,6 +1,5 @@
 import asyncio
 import unittest
-from types import SimpleNamespace
 
 from GensokyoAI.core.agent.model_client import ModelClient
 from GensokyoAI.core.agent.providers import ProviderFactory

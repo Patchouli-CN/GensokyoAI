@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import html as _html
 import json
 import re
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any, AsyncIterator
-import html as _html
+from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import aiohttp
-
 
 HTTP_STATUS_MESSAGES: dict[int, str] = {
     400: "Bad Request",
@@ -287,18 +287,20 @@ async def post_json(url: str, payload: dict[str, Any], headers: dict[str, str], 
     request_headers = {"Content-Type": "application/json", **headers}
     timeout_obj = aiohttp.ClientTimeout(total=timeout)
     try:
-        async with aiohttp.ClientSession(timeout=timeout_obj) as session:
-            async with session.post(url, json=payload, headers=request_headers) as response:
-                raw = await response.text(encoding="utf-8", errors="replace")
-                if response.status >= 400:
-                    raise ModelAPIError(
-                        f"API 状态码 {response.status} ({HTTP_STATUS_MESSAGES.get(response.status, f'HTTP {response.status}')}): {sanitize_response_body(response.status, raw)}",
-                        status_code=response.status,
-                        response_body=sanitize_response_body(response.status, raw) or raw,
-                        endpoint=url,
-                        retryable=response.status in DEFAULT_RETRY_STATUS_CODES,
-                    )
-                return json.loads(raw) if raw else {}
+        async with (
+            aiohttp.ClientSession(timeout=timeout_obj) as session,
+            session.post(url, json=payload, headers=request_headers) as response,
+        ):
+            raw = await response.text(encoding="utf-8", errors="replace")
+            if response.status >= 400:
+                raise ModelAPIError(
+                    f"API 状态码 {response.status} ({HTTP_STATUS_MESSAGES.get(response.status, f'HTTP {response.status}')}): {sanitize_response_body(response.status, raw)}",
+                    status_code=response.status,
+                    response_body=sanitize_response_body(response.status, raw) or raw,
+                    endpoint=url,
+                    retryable=response.status in DEFAULT_RETRY_STATUS_CODES,
+                )
+            return json.loads(raw) if raw else {}
     except aiohttp.ClientError as e:
         raise ModelAPIError(
             f"网络请求失败: {e}",
@@ -321,45 +323,57 @@ async def post_sse(url: str, payload: dict[str, Any], headers: dict[str, str], t
     request_headers = {"Content-Type": "application/json", "Accept": "text/event-stream", **headers}
     timeout_obj = aiohttp.ClientTimeout(total=timeout)
     try:
-        async with aiohttp.ClientSession(timeout=timeout_obj) as session:
-            async with session.post(url, json=payload, headers=request_headers) as response:
-                if response.status >= 400:
-                    raw = await response.text(encoding="utf-8", errors="replace")
-                    raise ModelAPIError(
-                        f"API 状态码 {response.status} ({HTTP_STATUS_MESSAGES.get(response.status, f'HTTP {response.status}')}): {sanitize_response_body(response.status, raw)}",
-                        status_code=response.status,
-                        response_body=sanitize_response_body(response.status, raw) or raw,
-                        endpoint=url,
-                        retryable=response.status in DEFAULT_RETRY_STATUS_CODES,
-                    )
-                event_lines: list[str] = []
-                ignored_lines = 0
-                event_index = 0
-                line_number = 0
-                while True:
-                    line_bytes = await response.content.readline()
-                    if not line_bytes:
-                        break
-                    line_number += 1
-                    line = line_bytes.decode("utf-8", errors="replace").rstrip("\r\n")
-                    stripped = line.strip()
-                    if not stripped:
-                        if event_lines:
-                            event_index += 1
-                            for event in _parse_sse_event(event_lines, event_index, line_number, ignored_lines):
-                                yield event
-                            event_lines = []
-                        continue
-                    if stripped.startswith(":"):
-                        continue
-                    if stripped.startswith("data:"):
-                        event_lines.append(stripped[5:].strip())
-                        continue
-                    ignored_lines += 1
-                if event_lines:
-                    event_index += 1
-                    for event in _parse_sse_event(event_lines, event_index, line_number, ignored_lines):
-                        yield event
+        async with (
+            aiohttp.ClientSession(timeout=timeout_obj) as session,
+            session.post(url, json=payload, headers=request_headers) as response,
+        ):
+            if response.status >= 400:
+                raw = await response.text(encoding="utf-8", errors="replace")
+                raise ModelAPIError(
+                    f"API 状态码 {response.status} ({HTTP_STATUS_MESSAGES.get(response.status, f'HTTP {response.status}')}): {sanitize_response_body(response.status, raw)}",
+                    status_code=response.status,
+                    response_body=sanitize_response_body(response.status, raw) or raw,
+                    endpoint=url,
+                    retryable=response.status in DEFAULT_RETRY_STATUS_CODES,
+                )
+            event_lines: list[str] = []
+            ignored_lines = 0
+            event_index = 0
+            line_number = 0
+            while True:
+                line_bytes = await response.content.readline()
+                if not line_bytes:
+                    break
+                line_number += 1
+                line = line_bytes.decode("utf-8", errors="replace").rstrip("\r\n")
+                stripped = line.strip()
+                if not stripped:
+                    if event_lines:
+                        event_index += 1
+                        for event in _parse_sse_event(
+                            event_lines,
+                            event_index,
+                            line_number,
+                            ignored_lines,
+                        ):
+                            yield event
+                        event_lines = []
+                    continue
+                if stripped.startswith(":"):
+                    continue
+                if stripped.startswith("data:"):
+                    event_lines.append(stripped[5:].strip())
+                    continue
+                ignored_lines += 1
+            if event_lines:
+                event_index += 1
+                for event in _parse_sse_event(
+                    event_lines,
+                    event_index,
+                    line_number,
+                    ignored_lines,
+                ):
+                    yield event
     except aiohttp.ClientError as e:
         raise ModelAPIError(
             f"网络请求失败: {e}",

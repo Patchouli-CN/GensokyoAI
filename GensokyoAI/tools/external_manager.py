@@ -10,12 +10,11 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Protocol
 
 from GensokyoAI.runtime.event_contract import sanitize_event_payload
 from GensokyoAI.tools.errors import ToolError, ToolExecutionError
-
 
 EXTERNAL_TOOL_PREFIX = "external"
 DEFAULT_EXTERNAL_TOOL_TIMEOUT_SECONDS = 30.0
@@ -24,7 +23,7 @@ _EXTERNAL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 _EXTERNAL_TOOL_NAME_PATTERN = re.compile(r"^external__[A-Za-z0-9_-]+__[A-Za-z0-9_-]+$")
 
 
-class ExternalToolSourceStatus(str, Enum):
+class ExternalToolSourceStatus(StrEnum):
     """外部工具源生命周期状态。"""
 
     STARTING = "starting"
@@ -35,7 +34,7 @@ class ExternalToolSourceStatus(str, Enum):
     RECONNECTING = "reconnecting"
 
 
-class ExternalToolPermission(str, Enum):
+class ExternalToolPermission(StrEnum):
     """外部工具权限标签。"""
 
     SAFE = "safe"
@@ -369,10 +368,7 @@ def split_external_tool_name(name: str) -> tuple[str, str]:
 def normalize_external_permissions(value: Any) -> set[str]:
     if value is None:
         return {ExternalToolPermission.SAFE.value}
-    if isinstance(value, str):
-        raw_permissions = [value]
-    else:
-        raw_permissions = list(value)
+    raw_permissions = [value] if isinstance(value, str) else list(value)
     permissions: set[str] = set()
     allowed = {item.value for item in ExternalToolPermission}
     for item in raw_permissions:

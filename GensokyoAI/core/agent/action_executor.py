@@ -3,10 +3,10 @@
 # GensokyoAI/core/agent/action_executor.py
 
 import asyncio
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
-from ..events import EventBus, Event, SystemEvent, EventPriority
 from ...utils.logger import logger
+from ..events import Event, EventBus, EventPriority, SystemEvent
 
 if TYPE_CHECKING:
     from ._impl import Agent
@@ -19,16 +19,16 @@ class ActionExecutor:
     咲夜：行动要快，比我的时停还快！
     """
 
-    def __init__(self, agent: "Agent", event_bus: EventBus):
+    def __init__(self, agent: Agent, event_bus: EventBus):
         self.agent = agent
         self.event_bus = event_bus
 
         # 流式响应管理
-        self._stream_queue: Optional[asyncio.Queue] = None
-        self._response_future: Optional[asyncio.Future] = None
+        self._stream_queue: asyncio.Queue | None = None
+        self._response_future: asyncio.Future | None = None
 
         self._subscribe_events()
-        logger.debug(f"⚡ [ActionExecutor] 初始化完成")
+        logger.debug("⚡ [ActionExecutor] 初始化完成")
 
     def _subscribe_events(self) -> None:
         """订阅行动决策事件"""

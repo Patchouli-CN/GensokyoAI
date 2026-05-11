@@ -4,13 +4,15 @@
 
 import importlib
 from abc import ABC, abstractmethod
-from typing import Any, AsyncIterator, TYPE_CHECKING
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any
 
-from .auth_utils import TokenRefreshManager
 from ....utils.request_utils import merge_headers
 from ..types import ProviderCapability
+from .auth_utils import TokenRefreshManager
 
 if TYPE_CHECKING:
+    from ...config import ModelConfig
     from ..types import (
         ImageGenerationRequest,
         ImageGenerationResult,
@@ -19,7 +21,6 @@ if TYPE_CHECKING:
         UnifiedEmbeddingResponse,
         UnifiedResponse,
     )
-    from ...config import ModelConfig
 
 
 class BaseProvider(ABC):
@@ -31,7 +32,7 @@ class BaseProvider(ABC):
     紫：「边界是幻想乡的秩序，Provider 是 LLM 的边界。」
     """
 
-    def __init__(self, config: "ModelConfig"):
+    def __init__(self, config: ModelConfig):
         self.config = config
         self._token_manager = TokenRefreshManager(config.auth) if config.auth else None
 
@@ -60,7 +61,7 @@ class BaseProvider(ABC):
         except ImportError as exc:
             raise ImportError(install_hint) from exc
 
-    async def list_models(self) -> list["ModelInfo"]:
+    async def list_models(self) -> list[ModelInfo]:
         """列出 Provider 可用模型；默认无远程模型列表。"""
         return []
 
@@ -95,7 +96,7 @@ class BaseProvider(ABC):
         tools: list[dict] | None = None,
         options: dict | None = None,
         **kwargs,
-    ) -> "UnifiedResponse":
+    ) -> UnifiedResponse:
         """
         非流式对话
 
@@ -119,7 +120,7 @@ class BaseProvider(ABC):
         tools: list[dict] | None = None,
         options: dict | None = None,
         **kwargs,
-    ) -> AsyncIterator["StreamChunk"]:
+    ) -> AsyncIterator[StreamChunk]:
         """
         流式对话
 
@@ -137,9 +138,9 @@ class BaseProvider(ABC):
 
     async def image_generation(
         self,
-        request: "ImageGenerationRequest",
+        request: ImageGenerationRequest,
         **kwargs,
-    ) -> "ImageGenerationResult":
+    ) -> ImageGenerationResult:
         """图片生成；默认不支持。"""
         raise NotImplementedError(f"{self.__class__.__name__} 不支持 image_generation")
 
@@ -148,7 +149,7 @@ class BaseProvider(ABC):
         model: str,
         prompt: str,
         **kwargs,
-    ) -> "UnifiedEmbeddingResponse":
+    ) -> UnifiedEmbeddingResponse:
         """
         文本向量化
 
@@ -165,7 +166,7 @@ class BaseProvider(ABC):
         """
         raise NotImplementedError(f"{self.__class__.__name__} 不支持 embeddings")
 
-    def update_config(self, config: "ModelConfig") -> None:
+    def update_config(self, config: ModelConfig) -> None:
         """更新配置"""
         self.config = config
         self._token_manager = TokenRefreshManager(config.auth) if config.auth else None

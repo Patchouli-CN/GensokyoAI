@@ -3,9 +3,11 @@
 古明地觉：动机就在你的潜意识里，让我帮你量化它们。
 """
 
-import json, re
-from msgspec import Struct
+import json
+import re
 from typing import TYPE_CHECKING
+
+from msgspec import Struct
 
 from ...utils.logger import logger
 
@@ -43,7 +45,7 @@ class MotivationProfile(Struct):
 class MotivationEvaluator:
     """动机评估器 - 量化角色说话的冲动"""
 
-    def __init__(self, character_name: str, model_client: "ModelClient"):
+    def __init__(self, character_name: str, model_client: ModelClient):
         self.character_name = character_name
         self.model_client = model_client
 
@@ -88,7 +90,8 @@ class MotivationEvaluator:
                 messages=[{"role": "user", "content": prompt}],
                 options={"temperature": 0.3, "num_predict": 200},
             )
-            text = response.message.content.strip()
+            content = response.message.content
+            text = content.strip() if isinstance(content, str) else ""
             match = re.search(r"\{[^{}]*\}", text)
             if match:
                 data = json.loads(match.group())

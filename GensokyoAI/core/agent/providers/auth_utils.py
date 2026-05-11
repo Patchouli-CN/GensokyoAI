@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 import aiohttp
@@ -32,7 +32,7 @@ class AuthRefreshError(RuntimeError):
 class TokenRefreshManager:
     """OAuth/token refresh 管理器，提供并发保护。"""
 
-    def __init__(self, auth_config: "AuthConfig"):
+    def __init__(self, auth_config: AuthConfig):
         self.auth_config = auth_config
         self._lock = asyncio.Lock()
 
@@ -93,15 +93,14 @@ class TokenRefreshManager:
         )
         timeout = aiohttp.ClientTimeout(total=30)
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(
-                    self.auth_config.token_url,
-                    data=urlencode(body),
-                    headers=headers,
-                ) as response:
-                    raw = await response.text(encoding="utf-8")
-                    if response.status >= 400:
-                        raise AuthRefreshError(f"刷新 token 请求失败: HTTP {response.status}")
+            async with aiohttp.ClientSession(timeout=timeout) as session, session.post(
+                self.auth_config.token_url,
+                data=urlencode(body),
+                headers=headers,
+            ) as response:
+                raw = await response.text(encoding="utf-8")
+                if response.status >= 400:
+                    raise AuthRefreshError(f"刷新 token 请求失败: HTTP {response.status}")
         except aiohttp.ClientError as e:
             raise AuthRefreshError(f"刷新 token 请求失败: {e}") from e
 

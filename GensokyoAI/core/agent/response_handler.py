@@ -3,21 +3,19 @@
 # GensokyoAI/core/agent/response_handler.py
 
 import re
-from typing import AsyncIterator, TYPE_CHECKING
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
-from .types import UnifiedMessage, StreamChunk
-from ...utils.logger import logger
 from ...utils.helpers import safe_get
-from ...memory.types import MemoryRecord
+from ...utils.logger import logger
+from .types import StreamChunk, UnifiedMessage
 
 if TYPE_CHECKING:
-    from ...memory.working import WorkingMemoryManager
-    from ...memory.episodic import EpisodicMemoryManager
-    from ...tools.executor import ToolExecutor
     from ...core.config import AppConfig
-    from .model_client import ModelClient
+    from ...memory.working import WorkingMemoryManager
+    from ...tools.executor import ToolExecutor
     from .message_builder import MessageBuilder
-    from .save_coordinator import SaveCoordinator
+    from .model_client import ModelClient
 
 # 🆕 模型可能意外输出的 XML 标签残留（如 <get_current_time>, </think> 等）
 _XML_TAG_PATTERN = re.compile(r"</?[a-z_]+[^>]*>")
@@ -32,11 +30,11 @@ class ResponseHandler:
 
     def __init__(
         self,
-        config: "AppConfig",
-        working_memory: "WorkingMemoryManager",
-        tool_executor: "ToolExecutor",
-        model_client: "ModelClient",
-        message_builder: "MessageBuilder",
+        config: AppConfig,
+        working_memory: WorkingMemoryManager,
+        tool_executor: ToolExecutor,
+        model_client: ModelClient,
+        message_builder: MessageBuilder,
     ):
         self._config = config
         self._working_memory = working_memory
@@ -97,7 +95,9 @@ class ResponseHandler:
         if tool_calls_message.tool_calls:
             self._working_memory.add_message(
                 role="assistant",
-                content=tool_calls_message.content or "",
+                content=(
+                    tool_calls_message.content if isinstance(tool_calls_message.content, str) else ""
+                ),
                 tool_calls=tool_calls_message.tool_calls,
                 reasoning_content=tool_calls_message.reasoning_content,
             )
@@ -131,7 +131,10 @@ class ResponseHandler:
                 assistant_reasoning += chunk.reasoning_content
                 continue
             if chunk.is_tool_call and chunk.tool_info:
-                tool_calls_message = chunk.tool_info["message"]
+                message = chunk.tool_info.get("message")
+                if not isinstance(message, UnifiedMessage):
+                    continue
+                tool_calls_message = message
                 if assistant_reasoning and not tool_calls_message.reasoning_content:
                     tool_calls_message.reasoning_content = assistant_reasoning
             else:

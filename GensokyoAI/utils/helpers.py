@@ -3,8 +3,9 @@
 # GensokyoAI\utils\helpers.py
 
 import asyncio
-from typing import Any, Callable, Awaitable
+from collections.abc import Awaitable, Callable
 from functools import wraps
+from typing import Any
 
 
 def async_to_sync(func: Callable[..., Awaitable[Any]]):
@@ -74,10 +75,7 @@ def safe_get(obj: Any, path: str, default: Any = None) -> Any:
     """安全获取嵌套属性"""
     try:
         for key in path.split("."):
-            if isinstance(obj, dict):
-                obj = obj.get(key, default)
-            else:
-                obj = getattr(obj, key, default)
+            obj = obj.get(key, default) if isinstance(obj, dict) else getattr(obj, key, default)
             if obj is None:
                 return default
         return obj

@@ -3,19 +3,19 @@
 # GensokyoAI/core/agent/action_planner.py
 import json
 import re
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from .actions import Action, ActionType, ActionFactory
-from ..events import EventBus, Event, SystemEvent, EventPriority
 from ...utils.logger import logger
+from ..events import Event, EventBus, EventPriority, SystemEvent
+from .actions import Action, ActionFactory, ActionType
+from .conflict_detector import ConflictDetector
 from .message_builder import MessageBuilder
 from .motivation_evaluator import MotivationEvaluator
-from .conflict_detector import ConflictDetector
 
 if TYPE_CHECKING:
-    from .model_client import ModelClient
-    from ...memory.working import WorkingMemoryManager
     from ...memory.semantic import SemanticMemoryManager
+    from ...memory.working import WorkingMemoryManager
+    from .model_client import ModelClient
 
 
 class ActionPlanner:
@@ -30,9 +30,9 @@ class ActionPlanner:
     def __init__(
         self,
         character_name: str,
-        model_client: "ModelClient",
-        working_memory: "WorkingMemoryManager",
-        semantic_memory: "SemanticMemoryManager",
+        model_client: ModelClient,
+        working_memory: WorkingMemoryManager,
+        semantic_memory: SemanticMemoryManager,
         event_bus: EventBus,
         debug_silent_output: bool = False,
     ):
@@ -46,7 +46,7 @@ class ActionPlanner:
         self.motivation_evaluator = MotivationEvaluator(self.character_name, self.model_client)
         self.conflict_detector = ConflictDetector()
 
-        self._last_action: Optional[Action] = None
+        self._last_action: Action | None = None
         self._action_history: list[Action] = []
 
         self._subscribe_events()
@@ -195,7 +195,8 @@ class ActionPlanner:
                 options={"temperature": 0.7, "num_predict": 300},
             )
 
-            text = response.message.content.strip()
+            content = response.message.content
+            text = content.strip() if isinstance(content, str) else ""
             match = re.search(r"\{[^{}]*\}", text)
             if match:
                 data = json.loads(match.group())
@@ -230,7 +231,7 @@ class ActionPlanner:
 
     # ==================== 行动发布 ====================
 
-    def _publish_action(self, action: Action, trigger_event: Optional[Event] = None) -> None:
+    def _publish_action(self, action: Action, trigger_event: Event | None = None) -> None:
         """发布行动决策事件"""
         self.event_bus.publish(
             Event(
@@ -252,5 +253,5 @@ class ActionPlanner:
             self._action_history = self._action_history[-50:]
 
     @property
-    def last_action(self) -> Optional[Action]:
+    def last_action(self) -> Action | None:
         return self._last_action

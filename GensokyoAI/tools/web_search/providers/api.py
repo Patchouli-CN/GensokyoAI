@@ -9,8 +9,8 @@ from urllib.parse import urlencode
 import aiohttp
 
 from ....utils.request_utils import sanitize_response_body
-from .base import WebSearchProvider
 from ..types import ProviderSearchResult, SearchItem
+from .base import WebSearchProvider
 
 
 class GenericAPISearchProvider(WebSearchProvider):
@@ -60,12 +60,14 @@ class GenericAPISearchProvider(WebSearchProvider):
         body = None if method == "GET" else json.dumps(payload).encode("utf-8")
         timeout = aiohttp.ClientTimeout(total=self.config.timeout)
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.request(method, endpoint, data=body, headers=headers) as response:
-                    text = await response.text(encoding="utf-8", errors="replace")
-                    if response.status >= 400:
-                        sanitized = sanitize_response_body(response.status, text)
-                        raise RuntimeError(f"API 搜索 HTTP {response.status}: {sanitized}")
+            async with (
+                aiohttp.ClientSession(timeout=timeout) as session,
+                session.request(method, endpoint, data=body, headers=headers) as response,
+            ):
+                text = await response.text(encoding="utf-8", errors="replace")
+                if response.status >= 400:
+                    sanitized = sanitize_response_body(response.status, text)
+                    raise RuntimeError(f"API 搜索 HTTP {response.status}: {sanitized}")
         except aiohttp.ClientError as e:
             raise RuntimeError(f"API 搜索网络错误: {e}") from e
         try:
