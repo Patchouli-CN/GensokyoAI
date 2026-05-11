@@ -8,11 +8,20 @@ from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import patch
 
+import msgspec
 import yaml
 
 from GensokyoAI.core.agent.types import ModelInfo, ProviderCapability, StreamChunk
-from GensokyoAI.core.config import ConfigLoader, ModelConfig
+from GensokyoAI.core.config import (
+    CharacterValidator,
+    ConfigLoader,
+    EmbeddingConfig,
+    ModelConfig,
+    ResourceControlConfig,
+)
 from GensokyoAI.core.events import Event, EventBus, SystemEvent
+from GensokyoAI.core.schema_versions import MEMORY_SCHEMA_VERSION, SESSION_SCHEMA_VERSION
+from GensokyoAI.memory.topic_store import TopicAwareStore
 from GensokyoAI.runtime.dependencies import (
     OPTIONAL_PROVIDER_DEPENDENCIES,
     DependencyError,
@@ -159,6 +168,7 @@ class SessionPersistenceIndexTests(unittest.TestCase):
             current_data = json.loads(session_file.read_text(encoding="utf-8"))
             self.assertEqual(backup_data["session"]["metadata"]["title"], "old")
             self.assertEqual(current_data["session"]["metadata"]["title"], "new")
+            self.assertEqual(current_data["schema_version"], SESSION_SCHEMA_VERSION)
             self.assertFalse(list(session_file.parent.glob("*.tmp")))
 
     def test_load_messages_recovers_from_backup_when_json_is_corrupt(self):
@@ -211,6 +221,71 @@ class SessionPersistenceIndexTests(unittest.TestCase):
 
             self.assertEqual(messages, [])
             self.assertTrue(session_file.exists())
+
+    def test_load_legacy_session_file_migrates_schema_metadata_and_preserves_messages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            persistence = SessionPersistence(Path(tmp))
+            session = SessionContext(character_id="reimu", metadata={"title": "legacy"})
+            session_file = Path(tmp) / "reimu" / f"{session.session_id}.json"
+            session_file.parent.mkdir(parents=True)
+            legacy_payload = {
+                "session": session.to_dict(),
+                "messages": [{"role": "user", "content": "legacy"}],
+            }
+            session_file.write_text(json.dumps(legacy_payload, ensure_ascii=False), encoding="utf-8")
+            persistence.rebuild_index()
+
+            loaded = persistence.load_session("reimu", session.session_id)
+            messages = persistence.load_messages(session.session_id)
+
+            self.assertIsNotNone(loaded)
+            self.assertEqual(messages, legacy_payload["messages"])
+            migrated = json.loads(session_file.read_text(encoding="utf-8"))
+            backup = json.loads(session_file.with_name(f"{session_file.name}.bak").read_text(encoding="utf-8"))
+            self.assertEqual(migrated["schema_version"], SESSION_SCHEMA_VERSION)
+            self.assertEqual(migrated["format"], "gensokyoai.session.file")
+            self.assertEqual(migrated["created_by"], "GensokyoAI")
+            self.assertEqual(migrated["migration_history"][0]["to_version"], SESSION_SCHEMA_VERSION)
+            self.assertNotIn("schema_version", backup)
+
+    def test_topic_store_migrates_legacy_payload_and_writes_schema_version(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "topics.json"
+            legacy_payload = {
+                "topics": [
+                    {
+                        "id": "topic-1",
+                        "name": "偏好",
+                        "summary": "喝茶",
+                        "created_at": "2024-01-01T00:00:00",
+                        "last_updated": "2024-01-01T00:00:00",
+                        "last_accessed": "2024-01-01T00:00:00",
+                        "message_count": 1,
+                        "message_ids": ["memory-1"],
+                    }
+                ],
+                "memories": [
+                    {
+                        "id": "memory-1",
+                        "content": "灵梦喜欢喝茶",
+                        "topic_id": "topic-1",
+                        "timestamp": "2024-01-01T00:00:00",
+                    }
+                ],
+            }
+            path.write_bytes(msgspec.json.encode(legacy_payload))
+
+            store = TopicAwareStore(path)
+            memories = store.get_all()
+            migrated = msgspec.json.decode(path.read_bytes())
+
+            self.assertEqual(store.topic_count, 1)
+            self.assertEqual(store.memory_count, 1)
+            self.assertEqual(memories[0]["topic_name"], "偏好")
+            self.assertEqual(migrated["schema_version"], MEMORY_SCHEMA_VERSION)
+            self.assertEqual(migrated["format"], "gensokyoai.memory.topic_store")
+            self.assertEqual(migrated["created_by"], "GensokyoAI")
+            self.assertEqual(migrated["migration_history"][0]["to_version"], MEMORY_SCHEMA_VERSION)
 
 
 class PackagingConfigurationTests(unittest.TestCase):
@@ -321,6 +396,7 @@ class RuntimeRpcDispatchTests(unittest.TestCase):
         self.assertIn("memory.update", rpc_methods())
         self.assertIn("memory.delete", rpc_methods())
         self.assertIn("memory.graph", rpc_methods())
+        self.assertIn("character.validate", rpc_methods())
 
     def test_runtime_protocol_metadata_documents_versions_and_deprecations(self):
         service = RuntimeService()
@@ -378,6 +454,10 @@ class RuntimeRpcDispatchTests(unittest.TestCase):
         self.assertEqual(resolve_rpc_handler(service, "memory.list").__name__, "memory_list")
         self.assertEqual(resolve_rpc_handler(service, "memory.search").__name__, "memory_search")
         self.assertEqual(resolve_rpc_handler(service, "memory.graph").__name__, "memory_graph")
+        self.assertEqual(
+            resolve_rpc_handler(service, "character.validate").__name__,
+            "validate_character",
+        )
 
     def test_dispatch_rpc_raises_structured_method_not_found_error(self):
         service = RuntimeService()
@@ -629,6 +709,9 @@ class RuntimeSessionRpcTests(unittest.TestCase):
 
         self.assertEqual(exported["format"], "gensokyoai.session.export")
         self.assertEqual(exported["version"], 1)
+        self.assertEqual(exported["schema_version"], 1)
+        self.assertEqual(exported["session_schema_version"], SESSION_SCHEMA_VERSION)
+        self.assertEqual(exported["memory_schema_version"], MEMORY_SCHEMA_VERSION)
         self.assertTrue(exported["is_current"])
         self.assertEqual(exported["character"]["name"], "博丽灵梦")
         self.assertEqual(exported["session"]["session_id"], session_id)
@@ -738,6 +821,187 @@ class RuntimeStreamingRpcTests(unittest.TestCase):
         self.assertEqual(result["session"]["session_id"], manager.current.session_id)
 
 
+class RuntimeResourceControlTests(unittest.TestCase):
+    def test_resource_control_config_validation_reports_invalid_limits(self):
+        diagnostics = ConfigLoader().validate_dict(
+            {
+                "resource_control": {
+                    "runtime_max_concurrent": 0,
+                    "runtime_queue_size": -1,
+                    "overflow_policy": "wait",
+                    "acquire_timeout_seconds": 0,
+                }
+            }
+        )
+
+        codes = {item.code for item in diagnostics}
+        paths = {item.path for item in diagnostics}
+        self.assertIn("config.field.range", codes)
+        self.assertIn("config.resource_control.wait_without_timeout", codes)
+        self.assertIn("resource_control.runtime_max_concurrent", paths)
+        self.assertIn("resource_control.runtime_queue_size", paths)
+
+    def test_runtime_info_exposes_resource_control_capability_and_snapshot(self):
+        service = RuntimeService()
+
+        async def run():
+            return await service.handle("runtime.info")
+
+        info = asyncio.run(run())
+
+        self.assertIn("resource_control.runtime_gates", info["capabilities"])
+        self.assertTrue(info["resource_control"]["enabled"])
+        self.assertIn("runtime", info["resource_control"]["gates"])
+        self.assertIn("dependency_install", info["resource_control"]["categories"])
+
+    def test_send_message_returns_structured_resource_limit_when_gate_is_full(self):
+        service = RuntimeService()
+        started = asyncio.Event()
+        release = asyncio.Event()
+        manager = FakeRuntimeSessionManager()
+
+        async def send(message, system_contexts=None):
+            started.set()
+            await release.wait()
+            return SimpleNamespace(content="ok")
+
+        resource_control = ResourceControlConfig(
+            runtime_max_concurrent=1,
+            runtime_queue_size=0,
+            session_max_concurrent=1,
+            acquire_timeout_seconds=0,
+        )
+        cast(Any, service.state).agent = SimpleNamespace(
+            config=SimpleNamespace(resource_control=resource_control),
+            send=send,
+            session_manager=manager,
+        )
+        service.state.started = True
+        cast(Any, service)._resource_gates = service._build_resource_gates(resource_control)
+
+        async def run():
+            first = asyncio.create_task(service.handle("agent.send_message", {"message": "one"}))
+            await started.wait()
+            second = await service.handle("agent.send_message", {"message": "two"})
+            release.set()
+            first_result = await first
+            return first_result, second
+
+        first_result, second = asyncio.run(run())
+
+        self.assertEqual(first_result["content"], "ok")
+        self.assertFalse(second["ok"])
+        self.assertEqual(second["error_code"], "resource.limit_exceeded")
+        self.assertEqual(second["error_object"]["details"]["resource"], "runtime")
+        self.assertEqual(service._resource_gates["runtime"].active, 0)
+
+    def test_send_message_wait_policy_times_out_when_session_gate_is_full(self):
+        service = RuntimeService()
+        started = asyncio.Event()
+        release = asyncio.Event()
+        manager = FakeRuntimeSessionManager()
+
+        async def send(message, system_contexts=None):
+            started.set()
+            await release.wait()
+            return SimpleNamespace(content="ok")
+
+        resource_control = ResourceControlConfig(
+            runtime_max_concurrent=2,
+            runtime_queue_size=1,
+            session_max_concurrent=1,
+            acquire_timeout_seconds=0.01,
+            overflow_policy="wait",
+        )
+        cast(Any, service.state).agent = SimpleNamespace(
+            config=SimpleNamespace(resource_control=resource_control),
+            send=send,
+            session_manager=manager,
+        )
+        service.state.started = True
+        cast(Any, service)._resource_gates = service._build_resource_gates(resource_control)
+
+        async def run():
+            first = asyncio.create_task(service.handle("agent.send_message", {"message": "one"}))
+            await started.wait()
+            second = await service.handle("agent.send_message", {"message": "two"})
+            release.set()
+            first_result = await first
+            return first_result, second
+
+        first_result, second = asyncio.run(run())
+
+        self.assertEqual(first_result["content"], "ok")
+        self.assertFalse(second["ok"])
+        self.assertEqual(second["error_code"], "resource.limit_exceeded")
+        self.assertEqual(second["error_object"]["details"]["resource"], "agent_message")
+        self.assertEqual(second["error_object"]["details"]["reason"], "acquire_timeout")
+        self.assertEqual(service._resource_gates["agent_message"].active, 0)
+
+    def test_stream_cancellation_releases_resource_gates(self):
+        service = RuntimeService()
+        manager = FakeRuntimeSessionManager()
+        resource_control = ResourceControlConfig(
+            runtime_max_concurrent=1,
+            runtime_queue_size=1,
+            session_max_concurrent=1,
+            stream_max_concurrent=1,
+            acquire_timeout_seconds=0.05,
+        )
+
+        async def send_stream(message, system_contexts=None):
+            yield StreamChunk(content="首")
+            await asyncio.sleep(60)
+
+        cast(Any, service.state).agent = SimpleNamespace(
+            config=SimpleNamespace(resource_control=resource_control),
+            send_stream=send_stream,
+            session_manager=manager,
+        )
+        service.state.started = True
+        cast(Any, service)._resource_gates = service._build_resource_gates(resource_control)
+
+        async def run():
+            iterator = service.iter_message_stream("hi")
+            first = await iterator.__anext__()
+            await cast(Any, iterator).aclose()
+            return first
+
+        first = asyncio.run(run())
+
+        self.assertEqual(first["content"], "首")
+        self.assertEqual(service._resource_gates["runtime"].active, 0)
+        self.assertEqual(service._resource_gates["agent_message"].active, 0)
+        self.assertEqual(service._resource_gates["stream"].active, 0)
+
+    def test_dependency_install_uses_configured_timeout_and_releases_gate(self):
+        service = RuntimeService()
+        resource_control = ResourceControlConfig(
+            dependency_install_max_concurrent=1,
+            dependency_install_timeout_seconds=7,
+        )
+        cast(Any, service.state).agent = SimpleNamespace(
+            config=SimpleNamespace(resource_control=resource_control)
+        )
+        cast(Any, service)._resource_gates = service._build_resource_gates(resource_control)
+
+        def fake_install(providers, scope="current_runtime", timeout=600):
+            return {"providers": providers, "scope": scope, "timeout": timeout}
+
+        async def run():
+            with patch("GensokyoAI.runtime.service.install_dependencies", side_effect=fake_install):
+                return await service.handle(
+                    "dependency.install",
+                    {"providers": ["openai"]},
+                )
+
+        result = asyncio.run(run())
+
+        self.assertEqual(result["timeout"], 7)
+        self.assertEqual(service._resource_gates["runtime"].active, 0)
+        self.assertEqual(service._resource_gates["dependency_install"].active, 0)
+
+
 class RuntimeEventSubscriptionTests(unittest.TestCase):
     def test_runtime_event_payload_redacts_sensitive_fields_recursively(self):
         event = Event(
@@ -809,12 +1073,66 @@ class RuntimeEventSubscriptionTests(unittest.TestCase):
 
 class ConfigValidationAndRuntimePathTests(unittest.TestCase):
     def test_config_loader_rejects_unknown_fields_and_invalid_ranges(self):
-        with self.assertRaisesRegex(ValueError, "Unknown config fields in model"):
+        with self.assertRaisesRegex(ValueError, "model.unknown"):
             ConfigLoader()._dict_to_config({"model": {"unknown": True}})
         with self.assertRaisesRegex(ValueError, "model.temperature"):
             ConfigLoader()._dict_to_config({"model": {"temperature": 9}})
         with self.assertRaisesRegex(ValueError, "tool.web_search.max_results"):
             ConfigLoader()._dict_to_config({"tool": {"web_search": {"max_results": 0}}})
+
+    def test_config_loader_returns_structured_diagnostics(self):
+        diagnostics = ConfigLoader().validate_dict(
+            {
+                "model": {
+                    "temperature": 3,
+                    "web_search_enabled": True,
+                    "web_search_strategy": "off",
+                },
+                "think_engine": {
+                    "random_walk_steps_min": 5,
+                    "random_walk_steps_max": 2,
+                },
+            }
+        )
+
+        payloads = [item.to_dict() for item in diagnostics]
+        paths = {item["path"] for item in payloads}
+        codes = {item["code"] for item in payloads}
+
+        self.assertIn("model.temperature", paths)
+        self.assertIn("model.web_search_strategy", paths)
+        self.assertIn("think_engine.random_walk_steps_max", paths)
+        self.assertIn("config.model.web_search_conflict", codes)
+        self.assertTrue(all("severity" in item for item in payloads))
+
+    def test_config_loader_warns_for_provider_missing_api_key(self):
+        diagnostics = ConfigLoader().validate_dict({"model": {"provider": "openai"}})
+
+        self.assertTrue(
+            any(
+                item.code == "config.model.api_key_missing"
+                and item.severity == "warning"
+                and item.path == "model.api_key"
+                for item in diagnostics
+            )
+        )
+        ConfigLoader()._dict_to_config({"model": {"provider": "openai"}})
+
+    def test_config_loader_warns_for_provider_field_matrix(self):
+        diagnostics = ConfigLoader().validate_dict(
+            {
+                "model": {
+                    "provider": "ollama",
+                    "api_key": "sk-not-needed",
+                    "web_search_enabled": True,
+                    "web_search_strategy": "explicit",
+                }
+            }
+        )
+
+        codes = {item.code for item in diagnostics}
+        self.assertIn("config.provider.field_discouraged", codes)
+        self.assertIn("config.provider.web_search_unsupported", codes)
 
     def test_runtime_resolve_optional_rejects_paths_outside_root(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -858,7 +1176,181 @@ class EventBusP0Tests(unittest.TestCase):
         self.assertEqual(stats["queue_max_size"], 1)
 
 
+class RuntimeConfigValidationApiTests(unittest.TestCase):
+    def test_config_validate_rpc_returns_structured_diagnostics(self):
+        service = RuntimeService()
+
+        async def run():
+            return await service.handle(
+                "config.validate",
+                {
+                    "config": {
+                        "model": {
+                            "provider": "ollama",
+                            "api_key": "sk-not-needed",
+                            "temperature": 3,
+                        }
+                    },
+                    "model_overrides": {"retry_status_codes": [99]},
+                    "embedding_overrides": {"dimensions": 0},
+                },
+            )
+
+        result = asyncio.run(run())
+        paths = {item["path"] for item in result["diagnostics"]}
+        codes = {item["code"] for item in result["diagnostics"]}
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["source"], "inline")
+        self.assertIn("model.temperature", paths)
+        self.assertIn("model.retry_status_codes", paths)
+        self.assertIn("embedding.dimensions", paths)
+        self.assertIn("config.provider.field_discouraged", codes)
+        self.assertGreaterEqual(result["error_count"], 3)
+
+    def test_config_validate_method_is_advertised(self):
+        service = RuntimeService()
+
+        async def run():
+            info = await service.handle("runtime.info")
+            return info
+
+        info = asyncio.run(run())
+
+        self.assertIn("config.validate", info["methods"])
+        self.assertIn("config.validation", info["capabilities"])
+
+
+class CharacterValidationTests(unittest.TestCase):
+    def test_character_validator_reports_structured_errors_and_warnings(self):
+        diagnostics = CharacterValidator().validate_character_dict(
+            {
+                "name": " ",
+                "system_prompt": "x" * 12001,
+                "unknown": True,
+                "example_dialogue": [
+                    {"user": "hi", "assistant": "hello", "extra": "no"},
+                    {"user": "", "assistant": 1},
+                    "bad item",
+                ],
+                "metadata": [],
+            }
+        )
+
+        payloads = [item.to_dict() for item in diagnostics]
+        paths = {item["path"] for item in payloads}
+        codes = {item["code"] for item in payloads}
+
+        self.assertIn("name", paths)
+        self.assertIn("unknown", paths)
+        self.assertIn("example_dialogue.0.extra", paths)
+        self.assertIn("example_dialogue.1.user", paths)
+        self.assertIn("example_dialogue.1.assistant", paths)
+        self.assertIn("example_dialogue.2", paths)
+        self.assertIn("metadata", paths)
+        self.assertIn("character.prompt.length_warning", codes)
+        self.assertTrue(any(item["severity"] == "warning" for item in payloads))
+
+    def test_config_loader_load_character_rejects_invalid_character_yaml(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "bad.yaml"
+            path.write_text(
+                yaml.safe_dump({"name": "Bad", "example_dialogue": [{"user": "hi"}]}),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "system_prompt"):
+                ConfigLoader().load_character(path)
+
+    def test_character_validate_rpc_returns_preview_and_diagnostics(self):
+        service = RuntimeService()
+
+        async def run():
+            return await service.handle(
+                "character.validate",
+                {
+                    "character_data": {
+                        "name": "测试角色",
+                        "system_prompt": "你是测试角色。",
+                        "greeting": "你好",
+                        "example_dialogue": [{"user": "hi", "assistant": "hello"}],
+                        "metadata": {"species": "test"},
+                    }
+                },
+            )
+
+        result = asyncio.run(run())
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["source"], "inline")
+        self.assertEqual(result["preview"]["name"], "测试角色")
+        self.assertEqual(result["preview"]["system_prompt_length"], 7)
+        self.assertEqual(result["preview"]["example_count"], 1)
+        self.assertEqual(result["preview"]["metadata"], {"species": "test"})
+
+    def test_character_list_returns_structured_diagnostics_for_invalid_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            characters_dir = root / "characters"
+            characters_dir.mkdir()
+            (characters_dir / "good.yaml").write_text(
+                yaml.safe_dump({"name": "Good", "system_prompt": "ok"}),
+                encoding="utf-8",
+            )
+            (characters_dir / "bad.yaml").write_text(
+                yaml.safe_dump({"name": "Bad", "metadata": []}),
+                encoding="utf-8",
+            )
+            service = RuntimeService(root_dir=root)
+
+            async def run():
+                return await service.handle("character.list")
+
+            result = asyncio.run(run())
+
+            by_id = {item["id"]: item for item in result}
+            self.assertTrue(by_id["good"]["ok"])
+            self.assertFalse(by_id["bad"]["ok"])
+            self.assertIn("diagnostics", by_id["bad"])
+            self.assertIn("preview", by_id["good"])
+
+    def test_builtin_character_files_have_no_validation_errors(self):
+        validator = CharacterValidator()
+        character_paths = [
+            *Path("characters").glob("*.yaml"),
+            *Path("characters").glob("*.yml"),
+            *Path("characters/zh_cn").glob("*.yaml"),
+            *Path("characters/zh_cn").glob("*.yml"),
+        ]
+
+        errors_by_file = {}
+        for path in character_paths:
+            errors = [
+                item
+                for item in validator.validate_character_file(path)
+                if item.severity == "error"
+            ]
+            if errors:
+                errors_by_file[str(path)] = [item.to_dict() for item in errors]
+
+        self.assertEqual(errors_by_file, {})
+
+
 class RuntimeOverrideTests(unittest.TestCase):
+    def test_model_overrides_reject_invalid_values(self):
+        config = ModelConfig(provider="openai", name="old")
+
+        with self.assertRaisesRegex(ValueError, "model.temperature"):
+            RuntimeService._apply_model_overrides(config, {"temperature": 9})
+        with self.assertRaisesRegex(ValueError, "model.retry_status_codes"):
+            RuntimeService._apply_model_overrides(config, {"retry_status_codes": [99]})
+
+    def test_embedding_overrides_reject_invalid_values(self):
+        config = EmbeddingConfig(provider="openai", name="embed")
+
+        with self.assertRaisesRegex(ValueError, "embedding.dimensions"):
+            RuntimeService._apply_embedding_overrides(config, {"dimensions": 0})
+
     def test_model_overrides_allow_runtime_api_related_fields(self):
         config = ModelConfig(provider="openai", name="old")
 

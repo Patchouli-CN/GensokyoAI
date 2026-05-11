@@ -1,0 +1,326 @@
+"""角色 YAML 诊断与校验工具。"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from .config_schema import CharacterConfig
+from .config_validator import ConfigDiagnostic, ConfigValidationError
+
+
+class CharacterValidator:
+    """角色 YAML 字典校验器。"""
+
+    ALLOWED_TOP_LEVEL_FIELDS = {
+        "name",
+        "system_prompt",
+        "greeting",
+        "example_dialogue",
+        "metadata",
+    }
+    REQUIRED_FIELDS = {"name", "system_prompt"}
+    SYSTEM_PROMPT_WARNING_LENGTH = 12000
+    GREETING_WARNING_LENGTH = 500
+    EXAMPLE_DIALOGUE_WARNING_LENGTH = 1200
+    EXAMPLE_DIALOGUE_TOTAL_WARNING_LENGTH = 6000
+
+    def validate_character_file(self, path: Path) -> list[ConfigDiagnostic]:
+        """读取并校验角色 YAML 文件，返回结构化诊断列表。"""
+
+        try:
+            with open(path, encoding="utf-8") as file:
+                data = yaml.safe_load(file) or {}
+        except yaml.YAMLError as error:
+            return [
+                self._error(
+                    "$",
+                    f"Character YAML is invalid: {error}",
+                    "请检查 YAML 缩进、冒号和列表格式。",
+                    code="character.yaml.invalid",
+                )
+            ]
+        return self.validate_character_dict(data)
+
+    def validate_character_dict(self, data: Any) -> list[ConfigDiagnostic]:
+        """校验角色 YAML 解析后的字典。"""
+
+        diagnostics: list[ConfigDiagnostic] = []
+        if not isinstance(data, dict):
+            diagnostics.append(
+                self._error(
+                    "$",
+                    "Character root must be an object",
+                    "请确认角色 YAML 顶层是 key/value 对象。",
+                    code="character.type.invalid",
+                )
+            )
+            return diagnostics
+
+        self._validate_unknown_fields(data, diagnostics)
+        self._validate_required_fields(data, diagnostics)
+        self._validate_string_field("name", data.get("name"), diagnostics, required=True)
+        self._validate_string_field(
+            "system_prompt",
+            data.get("system_prompt"),
+            diagnostics,
+            required=True,
+            warning_length=self.SYSTEM_PROMPT_WARNING_LENGTH,
+            warning_code="character.prompt.length_warning",
+            warning_suggestion="请确认人设 prompt 是否过长；过长会增加上下文成本并可能挤占对话记忆。",
+        )
+        self._validate_string_field(
+            "greeting",
+            data.get("greeting"),
+            diagnostics,
+            warning_length=self.GREETING_WARNING_LENGTH,
+            warning_code="character.greeting.length_warning",
+            warning_suggestion="建议保持开场白简洁，避免首次回复占用过多上下文。",
+        )
+        self._validate_example_dialogue(data.get("example_dialogue"), diagnostics)
+        self._validate_metadata(data.get("metadata"), diagnostics)
+        return diagnostics
+
+    def build_preview(
+        self,
+        data: Any,
+        *,
+        fallback_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """从角色字典构建安全预览结构。"""
+
+        if not isinstance(data, dict):
+            return None
+        system_prompt = data.get("system_prompt")
+        greeting = data.get("greeting")
+        example_dialogue = data.get("example_dialogue")
+        metadata = data.get("metadata")
+        return {
+            "id": fallback_id,
+            "name": data.get("name") if isinstance(data.get("name"), str) else fallback_id,
+            "system_prompt_length": len(system_prompt) if isinstance(system_prompt, str) else 0,
+            "greeting_length": len(greeting) if isinstance(greeting, str) else 0,
+            "example_count": len(example_dialogue) if isinstance(example_dialogue, list) else 0,
+            "metadata": metadata if isinstance(metadata, dict) else {},
+        }
+
+    @staticmethod
+    def raise_for_errors(diagnostics: list[ConfigDiagnostic]) -> None:
+        """若存在 error 诊断则抛出兼容配置校验异常。"""
+
+        errors = [item for item in diagnostics if item.severity == "error"]
+        if errors:
+            raise ConfigValidationError(errors)
+
+    def to_character_config(self, data: dict[str, Any]) -> CharacterConfig:
+        """在调用方完成校验后构造角色配置对象。"""
+
+        return CharacterConfig(
+            name=data["name"],
+            system_prompt=data["system_prompt"],
+            greeting=data.get("greeting", ""),
+            example_dialogue=data.get("example_dialogue"),
+            metadata=data.get("metadata", {}),
+        )
+
+    def _validate_unknown_fields(
+        self,
+        data: dict[str, Any],
+        diagnostics: list[ConfigDiagnostic],
+    ) -> None:
+        for field_name in sorted(set(data) - self.ALLOWED_TOP_LEVEL_FIELDS):
+            diagnostics.append(
+                self._error(
+                    field_name,
+                    f"Unknown character field '{field_name}'",
+                    "请检查字段名拼写，或确认当前角色 YAML 版本是否支持该字段。",
+                    code="character.field.unknown",
+                )
+            )
+
+    def _validate_required_fields(
+        self,
+        data: dict[str, Any],
+        diagnostics: list[ConfigDiagnostic],
+    ) -> None:
+        for field_name in sorted(self.REQUIRED_FIELDS - set(data)):
+            diagnostics.append(
+                self._error(
+                    field_name,
+                    f"Required character field '{field_name}' is missing",
+                    "请补充角色名称和 system_prompt。",
+                    code="character.field.required",
+                )
+            )
+
+    def _validate_string_field(
+        self,
+        path: str,
+        value: Any,
+        diagnostics: list[ConfigDiagnostic],
+        *,
+        required: bool = False,
+        warning_length: int | None = None,
+        warning_code: str = "character.field.length_warning",
+        warning_suggestion: str | None = None,
+    ) -> None:
+        if value is None:
+            return
+        if not isinstance(value, str):
+            diagnostics.append(
+                self._error(
+                    path,
+                    f"Character field '{path}' must be a string",
+                    "请填写字符串文本。",
+                    code="character.field.type",
+                )
+            )
+            return
+        if required and not value.strip():
+            diagnostics.append(
+                self._error(
+                    path,
+                    f"Character field '{path}' must not be empty",
+                    "请填写非空文本。",
+                    code="character.field.empty",
+                )
+            )
+            return
+        if warning_length is not None and len(value) > warning_length:
+            diagnostics.append(
+                self._warning(
+                    path,
+                    f"Character field '{path}' is long ({len(value)} chars)",
+                    warning_suggestion,
+                    code=warning_code,
+                )
+            )
+
+    def _validate_example_dialogue(
+        self,
+        value: Any,
+        diagnostics: list[ConfigDiagnostic],
+    ) -> None:
+        if value is None:
+            return
+        if not isinstance(value, list):
+            diagnostics.append(
+                self._error(
+                    "example_dialogue",
+                    "Character field 'example_dialogue' must be a list",
+                    "请使用列表格式，每项包含 user 和 assistant。",
+                    code="character.example_dialogue.type",
+                )
+            )
+            return
+
+        total_length = 0
+        for index, item in enumerate(value):
+            item_path = f"example_dialogue.{index}"
+            if not isinstance(item, dict):
+                diagnostics.append(
+                    self._error(
+                        item_path,
+                        "Example dialogue item must be an object",
+                        "请将每条示例对话写成包含 user 和 assistant 的对象。",
+                        code="character.example_dialogue.item_type",
+                    )
+                )
+                continue
+            unknown = sorted(set(item) - {"user", "assistant"})
+            for field_name in unknown:
+                diagnostics.append(
+                    self._error(
+                        f"{item_path}.{field_name}",
+                        f"Unknown example dialogue field '{field_name}'",
+                        "示例对话每项仅支持 user 和 assistant。",
+                        code="character.example_dialogue.field_unknown",
+                    )
+                )
+            for field_name in ("user", "assistant"):
+                field_path = f"{item_path}.{field_name}"
+                field_value = item.get(field_name)
+                if field_value is None:
+                    diagnostics.append(
+                        self._error(
+                            field_path,
+                            f"Example dialogue field '{field_name}' is required",
+                            "请为每条示例对话补充 user 和 assistant。",
+                            code="character.example_dialogue.field_required",
+                        )
+                    )
+                    continue
+                if not isinstance(field_value, str):
+                    diagnostics.append(
+                        self._error(
+                            field_path,
+                            f"Example dialogue field '{field_name}' must be a string",
+                            "请填写字符串文本。",
+                            code="character.example_dialogue.field_type",
+                        )
+                    )
+                    continue
+                if not field_value.strip():
+                    diagnostics.append(
+                        self._error(
+                            field_path,
+                            f"Example dialogue field '{field_name}' must not be empty",
+                            "请填写非空文本。",
+                            code="character.example_dialogue.field_empty",
+                        )
+                    )
+                    continue
+                total_length += len(field_value)
+                if len(field_value) > self.EXAMPLE_DIALOGUE_WARNING_LENGTH:
+                    diagnostics.append(
+                        self._warning(
+                            field_path,
+                            f"Example dialogue field '{field_name}' is long ({len(field_value)} chars)",
+                            "建议缩短单条示例对话，保留最能体现角色风格的内容。",
+                            code="character.example_dialogue.length_warning",
+                        )
+                    )
+        if total_length > self.EXAMPLE_DIALOGUE_TOTAL_WARNING_LENGTH:
+            diagnostics.append(
+                self._warning(
+                    "example_dialogue",
+                    f"Example dialogue total length is long ({total_length} chars)",
+                    "建议控制示例对话总长度，避免挤占运行时上下文。",
+                    code="character.example_dialogue.total_length_warning",
+                )
+            )
+
+    def _validate_metadata(self, value: Any, diagnostics: list[ConfigDiagnostic]) -> None:
+        if value is None:
+            return
+        if not isinstance(value, dict):
+            diagnostics.append(
+                self._error(
+                    "metadata",
+                    "Character field 'metadata' must be an object",
+                    "请将 metadata 写成 key/value 对象。",
+                    code="character.metadata.type",
+                )
+            )
+
+    @staticmethod
+    def _error(
+        path: str,
+        message: str,
+        suggestion: str | None = None,
+        *,
+        code: str = "character.validation.error",
+    ) -> ConfigDiagnostic:
+        return ConfigDiagnostic(code=code, path=path, severity="error", message=message, suggestion=suggestion)
+
+    @staticmethod
+    def _warning(
+        path: str,
+        message: str,
+        suggestion: str | None = None,
+        *,
+        code: str = "character.validation.warning",
+    ) -> ConfigDiagnostic:
+        return ConfigDiagnostic(code=code, path=path, severity="warning", message=message, suggestion=suggestion)

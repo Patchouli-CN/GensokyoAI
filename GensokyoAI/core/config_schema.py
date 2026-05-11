@@ -203,6 +203,26 @@ class SessionConfig(Struct):
             object.__setattr__(self, "save_path", Path(self.save_path))
 
 
+class ResourceControlConfig(Struct):
+    """Runtime 资源控制配置。"""
+
+    enabled: bool = True
+    runtime_max_concurrent: int = 4
+    runtime_queue_size: int = 8
+    session_max_concurrent: int = 1
+    provider_max_concurrent: int = 2
+    stream_max_concurrent: int = 1
+    model_max_concurrent: int = 2
+    tool_max_concurrent: int = 2
+    web_search_max_concurrent: int = 1
+    image_generation_max_concurrent: int = 1
+    dependency_install_max_concurrent: int = 1
+    acquire_timeout_seconds: float = 0.25
+    default_timeout_seconds: float = 120.0
+    dependency_install_timeout_seconds: int = 600
+    overflow_policy: Literal["reject", "wait"] = "reject"
+
+
 class CharacterConfig(Struct):
     """角色配置"""
 
@@ -234,6 +254,7 @@ class AppConfig(Struct):
     tool: ToolConfig = field(default_factory=ToolConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
     think_engine: ThinkEngineConfig = field(default_factory=ThinkEngineConfig)
+    resource_control: ResourceControlConfig = field(default_factory=ResourceControlConfig)
 
     # 角色
     character: CharacterConfig | None = None

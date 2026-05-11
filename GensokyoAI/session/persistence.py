@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from ..core.migrations import make_session_file_payload, migrate_session_file_payload
 from ..utils.logger import logger
 from .context import SessionContext
 
@@ -86,6 +87,19 @@ class SessionPersistence:
             self._quarantine_file(path)
             raise original_error
 
+    def _read_session_file(self, path: Path) -> dict:
+        """读取并迁移会话 JSON 文件。"""
+        data = self._read_json_file(path)
+        migrated, changed = migrate_session_file_payload(data)
+        if changed:
+            self._atomic_write_json(path, migrated, backup_existing=True)
+            logger.info(f"会话文件已迁移到当前 schema: {path}")
+        return migrated
+
+    async def _read_session_file_async(self, path: Path) -> dict:
+        """异步读取并迁移会话 JSON 文件。"""
+        return await asyncio.to_thread(self._read_session_file, path)
+
     async def _read_json_file_async(self, path: Path) -> dict:
         """异步读取 JSON 文件；复用同步容错逻辑避免两套恢复语义。"""
         return await asyncio.to_thread(self._read_json_file, path)
@@ -133,10 +147,10 @@ class SessionPersistence:
 
         existing_messages = []
         if path.exists():
-            data = self._read_json_file(path)
+            data = self._read_session_file(path)
             existing_messages = data.get("messages", [])
 
-        data = {"session": session.to_dict(), "messages": existing_messages}
+        data = make_session_file_payload(session.to_dict(), existing_messages)
         self._atomic_write_json(path, data)
         logger.debug(f"会话已保存: {path}")
 
@@ -148,10 +162,10 @@ class SessionPersistence:
 
             existing_messages = []
             if path.exists():
-                data = await self._read_json_file_async(path)
+                data = await self._read_session_file_async(path)
                 existing_messages = data.get("messages", [])
 
-            data = {"session": session.to_dict(), "messages": existing_messages}
+            data = make_session_file_payload(session.to_dict(), existing_messages)
             await self._atomic_write_json_async(path, data)
         logger.debug(f"会话已异步保存: {path}")
 
@@ -161,7 +175,7 @@ class SessionPersistence:
         if char_id:
             session_file = self.base_path / char_id / f"{session_id}.json"
             if session_file.exists():
-                data = self._read_json_file(session_file)
+                data = self._read_session_file(session_file)
                 data["messages"] = messages
                 if "session" in data:
                     data["session"]["total_turns"] = len(messages) // 2
@@ -177,7 +191,7 @@ class SessionPersistence:
             if char_id:
                 session_file = self.base_path / char_id / f"{session_id}.json"
                 if session_file.exists():
-                    data = await self._read_json_file_async(session_file)
+                    data = await self._read_session_file_async(session_file)
                     data["messages"] = messages
                     if "session" in data:
                         data["session"]["total_turns"] = len(messages) // 2
@@ -191,7 +205,7 @@ class SessionPersistence:
                     session_file = char_dir / f"{session_id}.json"
                     if session_file.exists():
                         self._add_to_index(char_dir.name, session_id)
-                        data = await self._read_json_file_async(session_file)
+                        data = await self._read_session_file_async(session_file)
                         data["messages"] = messages
                         if "session" in data:
                             data["session"]["total_turns"] = len(messages) // 2
@@ -208,7 +222,7 @@ class SessionPersistence:
         if char_id:
             session_file = self.base_path / char_id / f"{session_id}.json"
             if session_file.exists():
-                data = self._read_json_file(session_file)
+                data = self._read_session_file(session_file)
                 messages = data.get("messages", [])
                 logger.debug(f"加载消息: {session_id}, {len(messages)} 条")
                 return messages
@@ -219,7 +233,7 @@ class SessionPersistence:
                 session_file = char_dir / f"{session_id}.json"
                 if session_file.exists():
                     self._add_to_index(char_dir.name, session_id)
-                    data = self._read_json_file(session_file)
+                    data = self._read_session_file(session_file)
                     messages = data.get("messages", [])
                     logger.debug(f"加载消息: {session_id}, {len(messages)} 条")
                     return messages
@@ -232,7 +246,7 @@ class SessionPersistence:
         if char_id:
             session_file = self.base_path / char_id / f"{session_id}.json"
             if session_file.exists():
-                data = await self._read_json_file_async(session_file)
+                data = await self._read_session_file_async(session_file)
                 messages = data.get("messages", [])
                 logger.debug(f"异步加载消息: {session_id}, {len(messages)} 条")
                 return messages
@@ -243,7 +257,7 @@ class SessionPersistence:
                 session_file = char_dir / f"{session_id}.json"
                 if session_file.exists():
                     self._add_to_index(char_dir.name, session_id)
-                    data = await self._read_json_file_async(session_file)
+                    data = await self._read_session_file_async(session_file)
                     messages = data.get("messages", [])
                     logger.debug(f"异步加载消息: {session_id}, {len(messages)} 条")
                     return messages
@@ -255,7 +269,7 @@ class SessionPersistence:
         if not path.exists():
             return None
 
-        data = self._read_json_file(path)
+        data = self._read_session_file(path)
         return SessionContext.from_dict(data["session"])
 
     async def load_session_async(self, character_id: str, session_id: str) -> SessionContext | None:
@@ -264,7 +278,7 @@ class SessionPersistence:
         if not path.exists():
             return None
 
-        data = await self._read_json_file_async(path)
+        data = await self._read_session_file_async(path)
         return SessionContext.from_dict(data["session"])
 
     def list_sessions(self, character_id: str) -> list[SessionContext]:
@@ -274,7 +288,7 @@ class SessionPersistence:
         if char_path.exists():
             for file in char_path.glob("*.json"):
                 try:
-                    data = self._read_json_file(file)
+                    data = self._read_session_file(file)
                     sessions.append(SessionContext.from_dict(data["session"]))
                 except Exception as e:
                     logger.warning(f"加载会话失败 {file}: {e}")
@@ -287,7 +301,7 @@ class SessionPersistence:
         if char_path.exists():
             for file in char_path.glob("*.json"):
                 try:
-                    data = await self._read_json_file_async(file)
+                    data = await self._read_session_file_async(file)
                     sessions.append(SessionContext.from_dict(data["session"]))
                 except Exception as e:
                     logger.warning(f"加载会话失败 {file}: {e}")

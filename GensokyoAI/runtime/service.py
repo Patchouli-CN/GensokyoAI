@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Iterable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,10 +21,19 @@ import yaml
 from GensokyoAI.core.agent import Agent
 from GensokyoAI.core.agent.model_registry import ModelRegistryService
 from GensokyoAI.core.agent.types import ModelInfo
+from GensokyoAI.core.character_validator import CharacterValidator
 from GensokyoAI.core.config import ConfigLoader
+from GensokyoAI.core.config_validator import ConfigDiagnostic, ConfigValidator
 from GensokyoAI.core.events import Event, SystemEvent
+from GensokyoAI.core.schema_versions import (
+    MEMORY_SCHEMA_VERSION,
+    SESSION_EXPORT_FORMAT,
+    SESSION_EXPORT_SCHEMA_VERSION,
+    SESSION_SCHEMA_VERSION,
+)
 from GensokyoAI.runtime.dependencies import InstallScope, dependency_status, install_dependencies
 from GensokyoAI.runtime.rpc import (
+    RpcError,
     dispatch_rpc,
     legacy_rpc_methods,
     rpc_method_specs,
@@ -54,6 +64,84 @@ SENSITIVE_EVENT_FIELD_NAMES = {
 }
 
 
+@dataclass
+class ResourceGate:
+    """Small async gate with bounded waiting queue for Runtime resource classes."""
+
+    name: str
+    max_concurrent: int
+    queue_size: int
+    acquire_timeout_seconds: float
+    overflow_policy: str = "reject"
+    active: int = 0
+    waiting: int = 0
+
+    def __post_init__(self) -> None:
+        self.max_concurrent = max(1, int(self.max_concurrent))
+        self.queue_size = max(0, int(self.queue_size))
+        self.acquire_timeout_seconds = max(0.0, float(self.acquire_timeout_seconds))
+        self._semaphore = asyncio.BoundedSemaphore(self.max_concurrent)
+        self._lock = asyncio.Lock()
+
+    async def acquire(self) -> None:
+        async with self._lock:
+            if self._semaphore.locked() and self.waiting >= self.queue_size:
+                raise self._limit_error("queue_full")
+            wait_timeout = self.acquire_timeout_seconds
+            self.waiting += 1
+        try:
+            if self.overflow_policy == "wait" and wait_timeout > 0:
+                await asyncio.wait_for(self._semaphore.acquire(), timeout=wait_timeout)
+            elif self.overflow_policy == "wait":
+                await self._semaphore.acquire()
+            elif wait_timeout > 0:
+                await asyncio.wait_for(self._semaphore.acquire(), timeout=wait_timeout)
+            else:
+                if self._semaphore.locked():
+                    raise TimeoutError("resource acquire timeout")
+                await self._semaphore.acquire()
+        except TimeoutError as error:
+            raise self._limit_error("acquire_timeout") from error
+        finally:
+            async with self._lock:
+                self.waiting = max(0, self.waiting - 1)
+        async with self._lock:
+            self.active += 1
+
+    async def release(self) -> None:
+        async with self._lock:
+            self.active = max(0, self.active - 1)
+        self._semaphore.release()
+
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "max_concurrent": self.max_concurrent,
+            "queue_size": self.queue_size,
+            "active": self.active,
+            "waiting": self.waiting,
+            "acquire_timeout_seconds": self.acquire_timeout_seconds,
+            "overflow_policy": self.overflow_policy,
+        }
+
+    def _limit_error(self, reason: str) -> RpcError:
+        return RpcError(
+            f"Runtime resource gate '{self.name}' rejected request: {reason}",
+            code="resource.limit_exceeded",
+            user_message="Runtime 当前资源繁忙，请稍后重试。",
+            recoverable=True,
+            action_hint="请稍后重试，或调大 resource_control 中对应并发 / 队列配置。",
+            details={
+                "resource": self.name,
+                "reason": reason,
+                "max_concurrent": self.max_concurrent,
+                "queue_size": self.queue_size,
+                "active": self.active,
+                "waiting": self.waiting,
+            },
+        )
+
+
 @dataclass(slots=True)
 class RuntimeState:
     """Mutable state owned by a single runtime service instance."""
@@ -79,6 +167,9 @@ class RuntimeService:
         self._model_registry = ModelRegistryService()
         self.external_tool_manager = ExternalToolManager()
         self._runtime_event_subscriptions: dict[str, list[str]] = {}
+        self._config_validator = ConfigValidator()
+        self._character_validator = CharacterValidator()
+        self._resource_gates = self._build_resource_gates()
 
     async def handle(
         self,
@@ -112,12 +203,15 @@ class RuntimeService:
                 "agent.messaging",
                 "agent.streaming",
                 "character.discovery",
+                "character.validation",
                 "dependency.management",
                 "external_tool.status",
                 "memory.management",
                 "memory.search",
                 "memory.graph",
                 "model.discovery",
+                "config.validation",
+                "resource_control.runtime_gates",
                 "runtime.events",
                 "runtime.health",
                 "session.management",
@@ -126,7 +220,77 @@ class RuntimeService:
             "legacy_methods": legacy_rpc_methods(),
             "method_specs": rpc_method_specs(),
             "external_tools": self.external_tool_manager.source_status(include_tools=False),
+            "resource_control": self._resource_control_payload(),
         }
+
+    async def validate_config(
+        self,
+        config_path: str | None = None,
+        config: dict[str, Any] | None = None,
+        model_overrides: dict[str, Any] | None = None,
+        embedding_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Return structured configuration diagnostics without initializing Agent."""
+
+        loader = ConfigLoader()
+        diagnostics: list[ConfigDiagnostic] = []
+        resolved_config_path = None
+        if config is not None:
+            diagnostics.extend(loader.validate_dict(config))
+        else:
+            resolved_config_path = (
+                self._resolve_optional(config_path)
+                or self.state.config_path
+                or self.state.root_dir / "config" / "default.yaml"
+            )
+            with open(resolved_config_path, encoding="utf-8") as file:
+                config_data = yaml.safe_load(file) or {}
+            diagnostics.extend(loader.validate_dict(config_data))
+
+        if model_overrides:
+            diagnostics.extend(self._config_validator.validate_model_overrides(model_overrides))
+        if embedding_overrides:
+            diagnostics.extend(
+                self._config_validator.validate_embedding_overrides(embedding_overrides)
+            )
+
+        return self._config_validation_payload(
+            diagnostics,
+            config_path=resolved_config_path,
+            source="inline" if config is not None else "file",
+        )
+
+    async def validate_character(
+        self,
+        character_path: str | None = None,
+        character: str | None = None,
+        character_data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Return structured character YAML diagnostics and preview."""
+
+        resolved_character_path: Path | None = None
+        source = "inline" if character_data is not None else "file"
+        if character_data is None:
+            resolved_character_path = self._resolve_character(
+                character_path=character_path,
+                character=character,
+            )
+            if resolved_character_path is None:
+                raise ValueError("Character path or inline character_data is required")
+            with open(resolved_character_path, encoding="utf-8") as file:
+                character_data = yaml.safe_load(file) or {}
+
+        diagnostics = self._character_validator.validate_character_dict(character_data)
+        preview = self._character_validator.build_preview(
+            character_data,
+            fallback_id=resolved_character_path.stem if resolved_character_path else None,
+        )
+        return self._character_validation_payload(
+            diagnostics,
+            character_path=resolved_character_path,
+            source=source,
+            preview=preview,
+        )
 
     async def init(
         self,
@@ -180,6 +344,7 @@ class RuntimeService:
             self.state.agent = agent
             self.state.config_path = config_file
             self.state.character_path = char_file
+            self._resource_gates = self._build_resource_gates(config.resource_control)
 
             current = agent.session_manager.get_current_session()
             character_name = agent.config.character.name if agent.config.character else None
@@ -211,22 +376,54 @@ class RuntimeService:
                 try:
                     with open(path, encoding="utf-8") as file:
                         data = yaml.safe_load(file) or {}
+                    diagnostics = self._character_validator.validate_character_dict(data)
+                    preview = self._character_validator.build_preview(data, fallback_id=path.stem) or {}
                     characters.append(
                         {
                             "id": path.stem,
-                            "name": data.get("name", path.stem),
+                            "name": preview.get("name") or path.stem,
                             "path": str(path.relative_to(self.state.root_dir)),
-                            "greeting": data.get("greeting", ""),
-                            "metadata": data.get("metadata", {}),
+                            "greeting": data.get("greeting", "") if isinstance(data, dict) else "",
+                            "metadata": preview.get("metadata", {}),
+                            "preview": preview,
+                            "diagnostics": [item.to_dict() for item in diagnostics],
+                            "ok": not any(item.severity == "error" for item in diagnostics),
                         }
                     )
-                except Exception as exc:  # keep listing robust for broken user files
+                except yaml.YAMLError as exc:  # keep listing robust for broken user files
+                    diagnostic = ConfigDiagnostic(
+                        code="character.yaml.invalid",
+                        path="$",
+                        severity="error",
+                        message=f"Character YAML is invalid: {exc}",
+                        suggestion="请检查 YAML 缩进、冒号和列表格式。",
+                    )
                     characters.append(
                         {
                             "id": path.stem,
                             "name": path.stem,
                             "path": str(path.relative_to(self.state.root_dir)),
                             "error": str(exc),
+                            "diagnostics": [diagnostic.to_dict()],
+                            "ok": False,
+                        }
+                    )
+                except Exception as exc:  # keep listing robust for broken user files
+                    diagnostic = ConfigDiagnostic(
+                        code="character.load.failed",
+                        path="$",
+                        severity="error",
+                        message=str(exc),
+                        suggestion="请确认角色文件可读取且格式正确。",
+                    )
+                    characters.append(
+                        {
+                            "id": path.stem,
+                            "name": path.stem,
+                            "path": str(path.relative_to(self.state.root_dir)),
+                            "error": str(exc),
+                            "diagnostics": [diagnostic.to_dict()],
+                            "ok": False,
                         }
                     )
         return characters
@@ -337,8 +534,11 @@ class RuntimeService:
         is_current = bool(current and current.session_id == target_session_id)
         character_name = agent.config.character.name if agent.config.character else None
         return {
-            "format": "gensokyoai.session.export",
-            "version": 1,
+            "format": SESSION_EXPORT_FORMAT,
+            "version": SESSION_EXPORT_SCHEMA_VERSION,
+            "schema_version": SESSION_EXPORT_SCHEMA_VERSION,
+            "session_schema_version": SESSION_SCHEMA_VERSION,
+            "memory_schema_version": MEMORY_SCHEMA_VERSION,
             "exported_at": datetime.now(UTC).isoformat(),
             "is_current": is_current,
             "character": self._character_payload(self.state.character_path, character_name),
@@ -418,15 +618,19 @@ class RuntimeService:
         message: str,
         system_contexts: list[str] | None = None,
     ) -> dict[str, Any]:
-        agent = await self._ensure_started()
-        response = await agent.send(message, system_contexts)
-        content = response.content if response else ""
-        session = agent.session_manager.get_current_session()
-        return {
-            "role": "assistant",
-            "content": content,
-            "session": self._session_payload(session) if session else None,
-        }
+        async with (
+            self._resource_scope("runtime", "agent_message"),
+            self._resource_scope("agent_message", "agent_message"),
+        ):
+            agent = await self._ensure_started()
+            response = await agent.send(message, system_contexts)
+            content = response.content if response else ""
+            session = agent.session_manager.get_current_session()
+            return {
+                "role": "assistant",
+                "content": content,
+                "session": self._session_payload(session) if session else None,
+            }
 
     async def iter_message_stream(
         self,
@@ -435,6 +639,19 @@ class RuntimeService:
     ) -> AsyncIterator[dict[str, Any]]:
         """Yield Runtime stream events as soon as Agent stream chunks are produced."""
 
+        async with (
+            self._resource_scope("runtime", "agent_stream"),
+            self._resource_scope("agent_message", "agent_stream"),
+            self._resource_scope("stream", "agent_stream"),
+        ):
+            async for event in self._iter_message_stream_locked(message, system_contexts):
+                yield event
+
+    async def _iter_message_stream_locked(
+        self,
+        message: str,
+        system_contexts: list[str] | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
         agent = await self._ensure_started()
         full_content = ""
         index = 0
@@ -502,7 +719,13 @@ class RuntimeService:
     ) -> dict[str, Any]:
         """Install whitelisted optional Provider dependencies."""
 
-        return install_dependencies(providers, scope=scope, timeout=timeout)
+        async with (
+            self._resource_scope("runtime", "dependency_install"),
+            self._resource_scope("dependency_install", "dependency_install"),
+        ):
+            configured_timeout = self._resource_control_config().dependency_install_timeout_seconds
+            effective_timeout = configured_timeout if timeout == 600 else timeout
+            return install_dependencies(providers, scope=scope, timeout=effective_timeout)
 
     async def external_tool_status(self, include_tools: bool = True) -> dict[str, Any]:
         """Return external tool source status without exposing transport details."""
@@ -686,6 +909,93 @@ class RuntimeService:
             await self._shutdown_locked()
         return {"ok": True}
 
+    def _resource_control_config(self) -> Any:
+        agent = self.state.agent
+        if agent is not None and hasattr(agent, "config"):
+            config = agent.config
+            resource_control = getattr(config, "resource_control", None)
+            if resource_control is not None:
+                return resource_control
+        return ConfigLoader().load().resource_control
+
+    def _build_resource_gates(self, resource_control: Any | None = None) -> dict[str, ResourceGate]:
+        config = resource_control or ConfigLoader().load().resource_control
+        queue_size = getattr(config, "runtime_queue_size", 8)
+        acquire_timeout = getattr(config, "acquire_timeout_seconds", 0.25)
+        overflow_policy = getattr(config, "overflow_policy", "reject")
+        if not getattr(config, "enabled", True):
+            high_limit = 1_000_000
+            queue_size = high_limit
+            acquire_timeout = 0
+            overflow_policy = "wait"
+        return {
+            "runtime": ResourceGate(
+                "runtime",
+                getattr(config, "runtime_max_concurrent", 4),
+                queue_size,
+                acquire_timeout,
+                overflow_policy,
+            ),
+            "agent_message": ResourceGate(
+                "agent_message",
+                getattr(config, "session_max_concurrent", 1),
+                queue_size,
+                acquire_timeout,
+                overflow_policy,
+            ),
+            "stream": ResourceGate(
+                "stream",
+                getattr(config, "stream_max_concurrent", 1),
+                queue_size,
+                acquire_timeout,
+                overflow_policy,
+            ),
+            "dependency_install": ResourceGate(
+                "dependency_install",
+                getattr(config, "dependency_install_max_concurrent", 1),
+                queue_size,
+                acquire_timeout,
+                overflow_policy,
+            ),
+        }
+
+    @asynccontextmanager
+    async def _resource_scope(self, gate_name: str, action: str) -> AsyncIterator[None]:
+        gate = self._resource_gates.get(gate_name)
+        if gate is None:
+            yield
+            return
+        try:
+            await gate.acquire()
+        except RpcError as error:
+            error.details.setdefault("action", action)
+            raise
+        try:
+            yield
+        finally:
+            await gate.release()
+
+    def _resource_control_payload(self) -> dict[str, Any]:
+        config = self._resource_control_config()
+        return {
+            "enabled": bool(getattr(config, "enabled", True)),
+            "categories": {
+                "model": getattr(config, "model_max_concurrent", 2),
+                "tool": getattr(config, "tool_max_concurrent", 2),
+                "web_search": getattr(config, "web_search_max_concurrent", 1),
+                "image_generation": getattr(config, "image_generation_max_concurrent", 1),
+                "dependency_install": getattr(config, "dependency_install_max_concurrent", 1),
+            },
+            "provider_max_concurrent": getattr(config, "provider_max_concurrent", 2),
+            "default_timeout_seconds": getattr(config, "default_timeout_seconds", 120.0),
+            "dependency_install_timeout_seconds": getattr(
+                config,
+                "dependency_install_timeout_seconds",
+                600,
+            ),
+            "gates": {name: gate.snapshot() for name, gate in self._resource_gates.items()},
+        }
+
     async def _ensure_started(self) -> Agent:
         agent = self._require_agent()
         if not self.state.started:
@@ -770,52 +1080,21 @@ class RuntimeService:
     def _apply_model_overrides(model: Any, overrides: dict[str, Any] | None) -> None:
         if not overrides:
             return
-        allowed = {
-            "provider",
-            "name",
-            "base_url",
-            "api_path",
-            "api_key",
-            "extra_headers",
-            "model_capabilities_add",
-            "model_capabilities_remove",
-            "web_search_enabled",
-            "web_search_strategy",
-            "web_search_context_size",
-            "web_search_user_location",
-            "web_search_allow_fallback",
-            "web_search_metadata",
-            "stream",
-            "think",
-            "thinking_enabled",
-            "reasoning_effort",
-            "temperature",
-            "top_p",
-            "max_tokens",
-            "timeout",
-            "use_proxy",
-            "retry_max_attempts",
-            "retry_initial_delay",
-            "retry_backoff_factor",
-            "retry_status_codes",
-        }
-        RuntimeService._apply_overrides(model, overrides, allowed)
+        validator = ConfigValidator()
+        validator.raise_for_errors(validator.validate_model_overrides(overrides))
+        RuntimeService._apply_overrides(model, overrides, ConfigValidator.MODEL_OVERRIDE_FIELDS)
 
     @staticmethod
     def _apply_embedding_overrides(embedding: Any, overrides: dict[str, Any] | None) -> None:
         if not overrides:
             return
-        allowed = {
-            "provider",
-            "name",
-            "base_url",
-            "api_key",
-            "dimensions",
-            "encoding_format",
-            "timeout",
-            "use_proxy",
-        }
-        RuntimeService._apply_overrides(embedding, overrides, allowed)
+        validator = ConfigValidator()
+        validator.raise_for_errors(validator.validate_embedding_overrides(overrides))
+        RuntimeService._apply_overrides(
+            embedding,
+            overrides,
+            ConfigValidator.EMBEDDING_OVERRIDE_FIELDS,
+        )
 
     @staticmethod
     def _apply_overrides(target: Any, overrides: dict[str, Any], allowed: set[str]) -> None:
@@ -823,6 +1102,44 @@ class RuntimeService:
             if key not in allowed or value == "":
                 continue
             setattr(target, key, value)
+
+    def _character_validation_payload(
+        self,
+        diagnostics: list[ConfigDiagnostic],
+        *,
+        character_path: Path | None,
+        source: str,
+        preview: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        errors = [item for item in diagnostics if item.severity == "error"]
+        warnings = [item for item in diagnostics if item.severity == "warning"]
+        return {
+            "ok": not errors,
+            "source": source,
+            "character_path": str(character_path) if character_path else None,
+            "preview": preview,
+            "diagnostics": [item.to_dict() for item in diagnostics],
+            "error_count": len(errors),
+            "warning_count": len(warnings),
+        }
+
+    def _config_validation_payload(
+        self,
+        diagnostics: list[ConfigDiagnostic],
+        *,
+        config_path: Path | None,
+        source: str,
+    ) -> dict[str, Any]:
+        errors = [item for item in diagnostics if item.severity == "error"]
+        warnings = [item for item in diagnostics if item.severity == "warning"]
+        return {
+            "ok": not errors,
+            "source": source,
+            "config_path": str(config_path) if config_path else None,
+            "diagnostics": [item.to_dict() for item in diagnostics],
+            "error_count": len(errors),
+            "warning_count": len(warnings),
+        }
 
     @staticmethod
     def _model_payload(model: ModelInfo) -> dict[str, Any]:

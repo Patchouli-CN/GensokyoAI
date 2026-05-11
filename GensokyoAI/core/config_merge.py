@@ -9,6 +9,7 @@ from .config_schema import (
     LogLevel,
     MemoryConfig,
     ModelConfig,
+    ResourceControlConfig,
     SessionConfig,
     ThinkEngineConfig,
     ToolConfig,
@@ -65,6 +66,10 @@ class ConfigMerger:
         result.tool = self._merge_tool(base.tool, override.tool)
         result.session = self._merge_session(base.session, override.session)
         result.think_engine = self._merge_think_engine(base.think_engine, override.think_engine)
+        result.resource_control = self._merge_resource_control(
+            base.resource_control,
+            override.resource_control,
+        )
         result.character = override.character or base.character
         result.character_file = override.character_file or base.character_file
 
@@ -495,6 +500,114 @@ class ConfigMerger:
             max_sessions=choose(
                 "max_sessions",
                 override.max_sessions if override.max_sessions != 100 else base.max_sessions,
+            ),
+        )
+
+    def _merge_resource_control(
+        self,
+        base: ResourceControlConfig,
+        override: ResourceControlConfig,
+    ) -> ResourceControlConfig:
+        """合并 Runtime 资源控制配置。"""
+        provided = self._provided_fields.get(id(override))
+
+        def choose(field_name: str, legacy_value: Any) -> Any:
+            if provided is not None:
+                return (
+                    getattr(override, field_name)
+                    if field_name in provided
+                    else getattr(base, field_name)
+                )
+            return legacy_value
+
+        defaults = ResourceControlConfig()
+        return ResourceControlConfig(
+            enabled=choose("enabled", override.enabled if override.enabled != base.enabled else base.enabled),
+            runtime_max_concurrent=choose(
+                "runtime_max_concurrent",
+                override.runtime_max_concurrent
+                if override.runtime_max_concurrent != defaults.runtime_max_concurrent
+                else base.runtime_max_concurrent,
+            ),
+            runtime_queue_size=choose(
+                "runtime_queue_size",
+                override.runtime_queue_size
+                if override.runtime_queue_size != defaults.runtime_queue_size
+                else base.runtime_queue_size,
+            ),
+            session_max_concurrent=choose(
+                "session_max_concurrent",
+                override.session_max_concurrent
+                if override.session_max_concurrent != defaults.session_max_concurrent
+                else base.session_max_concurrent,
+            ),
+            provider_max_concurrent=choose(
+                "provider_max_concurrent",
+                override.provider_max_concurrent
+                if override.provider_max_concurrent != defaults.provider_max_concurrent
+                else base.provider_max_concurrent,
+            ),
+            stream_max_concurrent=choose(
+                "stream_max_concurrent",
+                override.stream_max_concurrent
+                if override.stream_max_concurrent != defaults.stream_max_concurrent
+                else base.stream_max_concurrent,
+            ),
+            model_max_concurrent=choose(
+                "model_max_concurrent",
+                override.model_max_concurrent
+                if override.model_max_concurrent != defaults.model_max_concurrent
+                else base.model_max_concurrent,
+            ),
+            tool_max_concurrent=choose(
+                "tool_max_concurrent",
+                override.tool_max_concurrent
+                if override.tool_max_concurrent != defaults.tool_max_concurrent
+                else base.tool_max_concurrent,
+            ),
+            web_search_max_concurrent=choose(
+                "web_search_max_concurrent",
+                override.web_search_max_concurrent
+                if override.web_search_max_concurrent != defaults.web_search_max_concurrent
+                else base.web_search_max_concurrent,
+            ),
+            image_generation_max_concurrent=choose(
+                "image_generation_max_concurrent",
+                override.image_generation_max_concurrent
+                if override.image_generation_max_concurrent != defaults.image_generation_max_concurrent
+                else base.image_generation_max_concurrent,
+            ),
+            dependency_install_max_concurrent=choose(
+                "dependency_install_max_concurrent",
+                override.dependency_install_max_concurrent
+                if override.dependency_install_max_concurrent
+                != defaults.dependency_install_max_concurrent
+                else base.dependency_install_max_concurrent,
+            ),
+            acquire_timeout_seconds=choose(
+                "acquire_timeout_seconds",
+                override.acquire_timeout_seconds
+                if override.acquire_timeout_seconds != defaults.acquire_timeout_seconds
+                else base.acquire_timeout_seconds,
+            ),
+            default_timeout_seconds=choose(
+                "default_timeout_seconds",
+                override.default_timeout_seconds
+                if override.default_timeout_seconds != defaults.default_timeout_seconds
+                else base.default_timeout_seconds,
+            ),
+            dependency_install_timeout_seconds=choose(
+                "dependency_install_timeout_seconds",
+                override.dependency_install_timeout_seconds
+                if override.dependency_install_timeout_seconds
+                != defaults.dependency_install_timeout_seconds
+                else base.dependency_install_timeout_seconds,
+            ),
+            overflow_policy=choose(
+                "overflow_policy",
+                override.overflow_policy
+                if override.overflow_policy != defaults.overflow_policy
+                else base.overflow_policy,
             ),
         )
 

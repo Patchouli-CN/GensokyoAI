@@ -206,6 +206,24 @@ tool:
       snippet_path: "content"
       published_at_path: null
 
+# Runtime 资源控制配置
+resource_control:
+  enabled: true
+  runtime_max_concurrent: 4          # Runtime 入口总并发，覆盖高成本 RPC / stream
+  runtime_queue_size: 8              # 资源占满时最多允许等待的请求数；超过后直接返回资源限制错误
+  session_max_concurrent: 1          # 单 Runtime 当前会话消息并发；默认保持单会话串行
+  provider_max_concurrent: 2         # 预留 Provider 并发上限，阶段五先用于配置与诊断
+  stream_max_concurrent: 1           # 流式消息并发上限
+  model_max_concurrent: 2            # 模型类动作并发上限
+  tool_max_concurrent: 2             # 工具类动作并发上限
+  web_search_max_concurrent: 1       # 联网搜索类动作并发上限
+  image_generation_max_concurrent: 1 # 图片生成类动作并发上限，当前预留
+  dependency_install_max_concurrent: 1 # 依赖安装类动作并发上限
+  acquire_timeout_seconds: 0.25      # 排队获取资源的最长等待秒数；reject 策略下建议保持较小
+  default_timeout_seconds: 120.0     # Runtime 高成本动作默认总超时预留
+  dependency_install_timeout_seconds: 600 # dependency.install 默认安装超时
+  overflow_policy: "reject"          # reject / wait；reject 会快速返回结构化资源限制错误
+
 # 会话配置
 session:
   auto_save: true

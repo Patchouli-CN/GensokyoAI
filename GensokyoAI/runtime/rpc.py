@@ -59,6 +59,8 @@ RPC_METHOD_SPECS: tuple[RpcMethodSpec, ...] = (
     RpcMethodSpec("runtime.info", "info"),
     RpcMethodSpec("runtime.health", "health"),
     RpcMethodSpec("runtime.shutdown", "shutdown"),
+    RpcMethodSpec("config.validate", "validate_config"),
+    RpcMethodSpec("character.validate", "validate_character"),
     RpcMethodSpec("agent.init", "init"),
     RpcMethodSpec("agent.send_message", "send_message"),
     RpcMethodSpec("agent.send_message_stream", "send_message_stream"),

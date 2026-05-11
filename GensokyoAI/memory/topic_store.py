@@ -26,6 +26,7 @@ import msgspec
 
 from ..core.agent.model_client import ModelClient
 from ..core.config import TopicGenerationConfig
+from ..core.migrations import make_memory_store_payload, migrate_memory_store_payload
 from ..utils.logger import logger
 from .types import Topic, TopicMemory, TopicMemoryType
 
@@ -79,6 +80,10 @@ class TopicAwareStore:
         try:
             with open(self.path, "rb") as f:
                 data = msgspec.json.decode(f.read())
+            data, changed = migrate_memory_store_payload(data)
+            if changed:
+                self._write_sync(data)
+                logger.info(f"话题存储已迁移到当前 schema: {self.path}")
 
             for t_data in data.get("topics", []):
                 if "created_at" in t_data and isinstance(t_data["created_at"], str):
@@ -104,15 +109,24 @@ class TopicAwareStore:
         except Exception as e:
             logger.warning(f"加载话题存储失败: {e}")
 
+    def _write_sync(self, data: dict) -> None:
+        """同步写入话题存储，用于启动时迁移。"""
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        json_bytes = msgspec.json.format(
+            msgspec.json.encode(data, enc_hook=_json_encoder), indent=2
+        )
+        with open(self.path, "wb") as f:
+            f.write(json_bytes)
+
     async def _save_async(self) -> None:
         """异步保存"""
         async with self._lock:
             self.path.parent.mkdir(parents=True, exist_ok=True)
 
-            data = {
-                "topics": list(self._topics.values()),
-                "memories": list(self._memories.values()),
-            }
+            data = make_memory_store_payload(
+                list(self._topics.values()),
+                list(self._memories.values()),
+            )
 
             json_bytes = msgspec.json.format(
                 msgspec.json.encode(data, enc_hook=_json_encoder), indent=2

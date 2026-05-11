@@ -4,6 +4,7 @@
 旧代码仍可继续从本模块导入 AppConfig、ConfigLoader 等名称。
 """
 
+from .character_validator import CharacterValidator
 from .config_env import apply_env_overrides
 from .config_loader import ConfigLoader
 from .config_merge import ConfigMerger
@@ -15,6 +16,7 @@ from .config_schema import (
     LogLevel,
     MemoryConfig,
     ModelConfig,
+    ResourceControlConfig,
     SessionConfig,
     ThinkEngineConfig,
     ToolConfig,
@@ -22,17 +24,23 @@ from .config_schema import (
     WebSearchAPIConfig,
     WebSearchToolConfig,
 )
+from .config_validator import ConfigDiagnostic, ConfigValidationError, ConfigValidator
 
 __all__ = [
     "AppConfig",
     "AuthConfig",
     "CharacterConfig",
+    "CharacterValidator",
     "ConfigLoader",
+    "ConfigDiagnostic",
     "ConfigMerger",
+    "ConfigValidationError",
+    "ConfigValidator",
     "EmbeddingConfig",
     "LogLevel",
     "MemoryConfig",
     "ModelConfig",
+    "ResourceControlConfig",
     "SessionConfig",
     "ThinkEngineConfig",
     "ToolConfig",
