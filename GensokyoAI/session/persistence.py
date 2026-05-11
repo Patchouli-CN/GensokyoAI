@@ -9,7 +9,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from ..core.migrations import make_session_file_payload, migrate_session_file_payload
+from ..core.migrations import (
+    make_migration_diagnostic,
+    make_session_file_payload,
+    migrate_session_file_payload,
+    record_migration_diagnostic,
+)
+from ..core.schema_versions import SESSION_FILE_FORMAT, SESSION_SCHEMA_VERSION
 from ..utils.logger import logger
 from .context import SessionContext
 
@@ -84,17 +90,110 @@ class SessionPersistence:
                 except Exception as backup_error:
                     logger.warning(f"备份恢复失败 {backup_path}: {backup_error}")
 
-            self._quarantine_file(path)
+            quarantine_path = self._quarantine_file(path)
+            self._record_failed_migration(
+                path,
+                backup_path=backup_path if backup_path.exists() else None,
+                message="Session file could not be read or recovered before migration.",
+                error=original_error,
+                diagnostics=[
+                    {
+                        "code": "migration.session.read_failed",
+                        "path": str(path),
+                        "severity": "error",
+                        "message": str(original_error),
+                        "suggestion": "请检查会话 JSON 是否损坏；如存在可用备份，可手动恢复。",
+                    },
+                    {
+                        "code": "migration.session.quarantined",
+                        "path": str(quarantine_path) if quarantine_path else str(path),
+                        "severity": "warning",
+                        "message": "Corrupt session file was quarantined.",
+                        "suggestion": "可在 quarantine 目录中查看损坏文件。",
+                    },
+                ],
+            )
             raise original_error
 
     def _read_session_file(self, path: Path) -> dict:
         """读取并迁移会话 JSON 文件。"""
         data = self._read_json_file(path)
-        migrated, changed = migrate_session_file_payload(data)
-        if changed:
-            self._atomic_write_json(path, migrated, backup_existing=True)
-            logger.info(f"会话文件已迁移到当前 schema: {path}")
-        return migrated
+        from_schema_version = data.get("schema_version")
+        try:
+            migrated, changed = migrate_session_file_payload(data)
+            if changed:
+                backup_path = self._backup_path(path)
+                self._atomic_write_json(path, migrated, backup_existing=True)
+                record_migration_diagnostic(
+                    make_migration_diagnostic(
+                        source="session",
+                        status="migrated",
+                        from_schema_version=(
+                            from_schema_version if isinstance(from_schema_version, int) else None
+                        ),
+                        to_schema_version=SESSION_SCHEMA_VERSION,
+                        format=SESSION_FILE_FORMAT,
+                        path=path,
+                        backup_path=backup_path,
+                        message="Session file migrated to current schema version.",
+                    )
+                )
+                logger.info(f"会话文件已迁移到当前 schema: {path}")
+            return migrated
+        except Exception as error:
+            self._record_failed_migration(
+                path,
+                backup_path=self._backup_path(path) if path.exists() else None,
+                from_schema_version=(
+                    from_schema_version if isinstance(from_schema_version, int) else None
+                ),
+                message="Session file migration failed.",
+                error=error,
+                diagnostics=[
+                    {
+                        "code": "migration.session.failed",
+                        "path": str(path),
+                        "severity": "error",
+                        "message": str(error),
+                        "suggestion": "请保留原始会话文件和 .bak 备份，并检查 schema 或文件权限。",
+                    }
+                ],
+            )
+            raise
+
+    def _record_failed_migration(
+        self,
+        path: Path,
+        *,
+        backup_path: Path | None = None,
+        from_schema_version: int | None = None,
+        message: str,
+        error: Exception,
+        diagnostics: list[dict] | None = None,
+    ) -> None:
+        """Record a failed session migration diagnostic without changing control flow."""
+
+        record_migration_diagnostic(
+            make_migration_diagnostic(
+                source="session",
+                status="failed",
+                from_schema_version=from_schema_version,
+                to_schema_version=SESSION_SCHEMA_VERSION,
+                format=SESSION_FILE_FORMAT,
+                path=path,
+                backup_path=backup_path,
+                message=message,
+                diagnostics=diagnostics
+                or [
+                    {
+                        "code": "migration.session.failed",
+                        "path": str(path),
+                        "severity": "error",
+                        "message": str(error),
+                    }
+                ],
+            )
+        )
 
     async def _read_session_file_async(self, path: Path) -> dict:
         """异步读取并迁移会话 JSON 文件。"""

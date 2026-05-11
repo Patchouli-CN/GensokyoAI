@@ -522,7 +522,9 @@ class ConfigMerger:
 
         defaults = ResourceControlConfig()
         return ResourceControlConfig(
-            enabled=choose("enabled", override.enabled if override.enabled != base.enabled else base.enabled),
+            enabled=choose(
+                "enabled", override.enabled if override.enabled != base.enabled else base.enabled
+            ),
             runtime_max_concurrent=choose(
                 "runtime_max_concurrent",
                 override.runtime_max_concurrent
@@ -574,7 +576,8 @@ class ConfigMerger:
             image_generation_max_concurrent=choose(
                 "image_generation_max_concurrent",
                 override.image_generation_max_concurrent
-                if override.image_generation_max_concurrent != defaults.image_generation_max_concurrent
+                if override.image_generation_max_concurrent
+                != defaults.image_generation_max_concurrent
                 else base.image_generation_max_concurrent,
             ),
             dependency_install_max_concurrent=choose(

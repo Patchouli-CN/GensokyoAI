@@ -26,7 +26,13 @@ import msgspec
 
 from ..core.agent.model_client import ModelClient
 from ..core.config import TopicGenerationConfig
-from ..core.migrations import make_memory_store_payload, migrate_memory_store_payload
+from ..core.migrations import (
+    make_memory_store_payload,
+    make_migration_diagnostic,
+    migrate_memory_store_payload,
+    record_migration_diagnostic,
+)
+from ..core.schema_versions import MEMORY_SCHEMA_VERSION, MEMORY_STORE_FORMAT
 from ..utils.logger import logger
 from .types import Topic, TopicMemory, TopicMemoryType
 
@@ -77,13 +83,56 @@ class TopicAwareStore:
         if not self.path.exists():
             return
 
+        migration_failed_recorded = False
         try:
             with open(self.path, "rb") as f:
                 data = msgspec.json.decode(f.read())
-            data, changed = migrate_memory_store_payload(data)
-            if changed:
-                self._write_sync(data)
-                logger.info(f"话题存储已迁移到当前 schema: {self.path}")
+            from_schema_version = data.get("schema_version") if isinstance(data, dict) else None
+            try:
+                data, changed = migrate_memory_store_payload(data)
+                if changed:
+                    self._write_sync(data)
+                    record_migration_diagnostic(
+                        make_migration_diagnostic(
+                            source="memory.topic_store",
+                            status="migrated",
+                            from_schema_version=(
+                                from_schema_version if isinstance(from_schema_version, int) else None
+                            ),
+                            to_schema_version=MEMORY_SCHEMA_VERSION,
+                            format=MEMORY_STORE_FORMAT,
+                            path=self.path,
+                            backup_path=None,
+                            message="Memory topic store migrated to current schema version.",
+                        )
+                    )
+                    logger.info(f"话题存储已迁移到当前 schema: {self.path}")
+            except Exception as migration_error:
+                migration_failed_recorded = True
+                record_migration_diagnostic(
+                    make_migration_diagnostic(
+                        source="memory.topic_store",
+                        status="failed",
+                        from_schema_version=(
+                            from_schema_version if isinstance(from_schema_version, int) else None
+                        ),
+                        to_schema_version=MEMORY_SCHEMA_VERSION,
+                        format=MEMORY_STORE_FORMAT,
+                        path=self.path,
+                        backup_path=None,
+                        message="Memory topic store migration failed.",
+                        diagnostics=[
+                            {
+                                "code": "migration.memory.topic_store.failed",
+                                "path": str(self.path),
+                                "severity": "error",
+                                "message": str(migration_error),
+                                "suggestion": "请检查 topics.json 结构、文件权限或从备份恢复。",
+                            }
+                        ],
+                    )
+                )
+                raise
 
             for t_data in data.get("topics", []):
                 if "created_at" in t_data and isinstance(t_data["created_at"], str):
@@ -107,6 +156,28 @@ class TopicAwareStore:
             logger.debug(f"加载话题存储: {len(self._topics)} 个话题, {len(self._memories)} 条记忆")
 
         except Exception as e:
+            if not migration_failed_recorded:
+                record_migration_diagnostic(
+                    make_migration_diagnostic(
+                        source="memory.topic_store",
+                        status="failed",
+                        from_schema_version=None,
+                        to_schema_version=MEMORY_SCHEMA_VERSION,
+                        format=MEMORY_STORE_FORMAT,
+                        path=self.path,
+                        backup_path=None,
+                        message="Memory topic store could not be loaded before migration.",
+                        diagnostics=[
+                            {
+                                "code": "migration.memory.topic_store.load_failed",
+                                "path": str(self.path),
+                                "severity": "error",
+                                "message": str(e),
+                                "suggestion": "请检查 topics.json 是否为有效 JSON，或从备份恢复。",
+                            }
+                        ],
+                    )
+                )
             logger.warning(f"加载话题存储失败: {e}")
 
     def _write_sync(self, data: dict) -> None:

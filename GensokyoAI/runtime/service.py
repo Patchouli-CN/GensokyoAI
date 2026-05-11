@@ -25,12 +25,16 @@ from GensokyoAI.core.character_validator import CharacterValidator
 from GensokyoAI.core.config import ConfigLoader
 from GensokyoAI.core.config_validator import ConfigDiagnostic, ConfigValidator
 from GensokyoAI.core.events import Event, SystemEvent
+from GensokyoAI.core.migrations import migration_diagnostics_summary
 from GensokyoAI.core.schema_versions import (
+    CONFIG_SCHEMA_VERSION,
     MEMORY_SCHEMA_VERSION,
     SESSION_EXPORT_FORMAT,
     SESSION_EXPORT_SCHEMA_VERSION,
     SESSION_SCHEMA_VERSION,
+    schema_versions_payload,
 )
+from GensokyoAI.core.version import package_version
 from GensokyoAI.runtime.dependencies import InstallScope, dependency_status, install_dependencies
 from GensokyoAI.runtime.rpc import (
     RpcError,
@@ -196,6 +200,7 @@ class RuntimeService:
         protocol_metadata = runtime_protocol_metadata()
         return {
             "name": "GensokyoAI Runtime",
+            "package_version": package_version(self.state.root_dir),
             "protocol": "json-lines-rpc",
             **protocol_metadata,
             "capabilities": [
@@ -211,14 +216,21 @@ class RuntimeService:
                 "memory.graph",
                 "model.discovery",
                 "config.validation",
+                "migration.diagnostics",
                 "resource_control.runtime_gates",
                 "runtime.events",
                 "runtime.health",
+                "runtime.versioning",
                 "session.management",
             ],
             "methods": rpc_methods(),
             "legacy_methods": legacy_rpc_methods(),
             "method_specs": rpc_method_specs(),
+            "schema_versions": schema_versions_payload(),
+            "config_schema_version": CONFIG_SCHEMA_VERSION,
+            "deprecated_fields": [],
+            "compatibility_notes": [],
+            "migration_diagnostics": migration_diagnostics_summary(),
             "external_tools": self.external_tool_manager.source_status(include_tools=False),
             "resource_control": self._resource_control_payload(),
         }
@@ -377,7 +389,9 @@ class RuntimeService:
                     with open(path, encoding="utf-8") as file:
                         data = yaml.safe_load(file) or {}
                     diagnostics = self._character_validator.validate_character_dict(data)
-                    preview = self._character_validator.build_preview(data, fallback_id=path.stem) or {}
+                    preview = (
+                        self._character_validator.build_preview(data, fallback_id=path.stem) or {}
+                    )
                     characters.append(
                         {
                             "id": path.stem,

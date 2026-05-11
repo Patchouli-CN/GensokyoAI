@@ -16,12 +16,21 @@
 ```json
 {
   "name": "GensokyoAI Runtime",
+  "package_version": "0.1.0",
   "protocol": "json-lines-rpc",
   "protocol_version": "1.1.0",
   "protocol_major_version": 1,
-  "capabilities": ["agent.messaging", "config.validation", "character.validation", "resource_control.runtime_gates", "runtime.events"],
+  "capabilities": ["agent.messaging", "config.validation", "character.validation", "migration.diagnostics", "resource_control.runtime_gates", "runtime.events", "runtime.versioning"],
   "methods": ["runtime.info", "runtime.health", "config.validate", "character.validate"],
   "legacy_methods": ["init"],
+  "schema_versions": {
+    "config": 1,
+    "session": 1,
+    "memory": 1,
+    "session_export": 1,
+    "character_package": null
+  },
+  "config_schema_version": 1,
   "deprecated_methods": [
     {
       "method": "init",
@@ -30,6 +39,12 @@
     }
   ],
   "breaking_changes": [],
+  "deprecated_fields": [],
+  "compatibility_notes": [],
+  "migration_diagnostics": {
+    "recent": [],
+    "counts": {"migrated": 0, "skipped": 0, "failed": 0}
+  },
   "resource_control": {
     "enabled": true,
     "categories": {"model": 2, "tool": 2, "web_search": 1, "image_generation": 1, "dependency_install": 1},
@@ -42,6 +57,55 @@
   }
 }
 ```
+
+## Runtime 版本与迁移诊断
+
+`runtime.info` 会暴露 package version、Runtime 版本和 schema version 摘要：
+
+- `package_version`：当前 GensokyoAI 包 / 项目版本；优先来自安装包 metadata，源码运行时回退读取 `pyproject.toml`。
+- `protocol_version` / `protocol_major_version`：Runtime RPC 协议版本。
+- `schema_versions.config`：配置 schema version。
+- `schema_versions.session`：会话文件 schema version。
+- `schema_versions.memory`：记忆 topic store schema version。
+- `schema_versions.session_export`：会话导出包 schema version。
+- `schema_versions.character_package`：角色包 schema version；角色包尚未落地时为 `null`。
+- `deprecated_methods`：已废弃 RPC 方法及替代方法。
+- `deprecated_fields`：已废弃字段；当前为空数组。
+- `compatibility_notes`：兼容性提示；当前为空数组。
+
+`runtime.info.migration_diagnostics` 返回最近迁移摘要：
+
+```json
+{
+  "recent": [
+    {
+      "source": "session",
+      "status": "migrated",
+      "from_schema_version": null,
+      "to_schema_version": 1,
+      "format": "gensokyoai.session.file",
+      "path": "sessions/reimu/example.json",
+      "backup_path": "sessions/reimu/example.json.bak",
+      "message": "Session file migrated to current schema version.",
+      "diagnostics": [],
+      "migrated_at": "2026-05-11T00:00:00+00:00"
+    }
+  ],
+  "counts": {"migrated": 1, "skipped": 0, "failed": 0}
+}
+```
+
+迁移诊断字段说明：
+
+- `source`：迁移来源，例如 `session` 或 `memory.topic_store`。
+- `status`：迁移状态，当前会产生 `migrated` 和 `failed`；`skipped` 为预留计数。
+- `from_schema_version` / `to_schema_version`：迁移前后 schema version；无版本旧格式为 `null`。
+- `format`：迁移后的目标格式名。
+- `path`：被迁移文件路径。
+- `backup_path`：迁移前备份路径；memory topic store 当前没有备份时为 `null`。
+- `message`：用户可读摘要。
+- `diagnostics`：结构化诊断列表；失败时包含稳定 `code`、`severity`、`message` 和修复建议。
+- `migrated_at`：迁移诊断记录时间。
 
 ## RPC 请求格式
 

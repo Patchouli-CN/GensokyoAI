@@ -313,7 +313,9 @@ class CharacterValidator:
         *,
         code: str = "character.validation.error",
     ) -> ConfigDiagnostic:
-        return ConfigDiagnostic(code=code, path=path, severity="error", message=message, suggestion=suggestion)
+        return ConfigDiagnostic(
+            code=code, path=path, severity="error", message=message, suggestion=suggestion
+        )
 
     @staticmethod
     def _warning(
@@ -323,4 +325,6 @@ class CharacterValidator:
         *,
         code: str = "character.validation.warning",
     ) -> ConfigDiagnostic:
-        return ConfigDiagnostic(code=code, path=path, severity="warning", message=message, suggestion=suggestion)
+        return ConfigDiagnostic(
+            code=code, path=path, severity="warning", message=message, suggestion=suggestion
+        )

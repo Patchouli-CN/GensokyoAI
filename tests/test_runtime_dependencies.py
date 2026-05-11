@@ -20,7 +20,14 @@ from GensokyoAI.core.config import (
     ResourceControlConfig,
 )
 from GensokyoAI.core.events import Event, EventBus, SystemEvent
-from GensokyoAI.core.schema_versions import MEMORY_SCHEMA_VERSION, SESSION_SCHEMA_VERSION
+from GensokyoAI.core.migrations import clear_migration_diagnostics
+from GensokyoAI.core.schema_versions import (
+    CONFIG_SCHEMA_VERSION,
+    MEMORY_SCHEMA_VERSION,
+    SESSION_EXPORT_SCHEMA_VERSION,
+    SESSION_SCHEMA_VERSION,
+)
+from GensokyoAI.core.version import package_version
 from GensokyoAI.memory.topic_store import TopicAwareStore
 from GensokyoAI.runtime.dependencies import (
     OPTIONAL_PROVIDER_DEPENDENCIES,
@@ -118,6 +125,162 @@ class FakeModelRegistry:
             owned_by="tests",
             metadata={"selected": True},
         )
+
+
+class MigrationDiagnosticsTests(unittest.TestCase):
+    def setUp(self):
+        clear_migration_diagnostics()
+
+    def tearDown(self):
+        clear_migration_diagnostics()
+
+    def test_runtime_info_exposes_empty_migration_diagnostics_and_schema_versions(self):
+        service = RuntimeService()
+
+        async def run():
+            return await service.handle("runtime.info")
+
+        info = asyncio.run(run())
+
+        self.assertEqual(info["package_version"], package_version())
+        self.assertIn("migration.diagnostics", info["capabilities"])
+        self.assertIn("runtime.versioning", info["capabilities"])
+        self.assertEqual(info["schema_versions"]["config"], CONFIG_SCHEMA_VERSION)
+        self.assertEqual(info["schema_versions"]["session"], SESSION_SCHEMA_VERSION)
+        self.assertEqual(info["schema_versions"]["memory"], MEMORY_SCHEMA_VERSION)
+        self.assertEqual(
+            info["schema_versions"]["session_export"], SESSION_EXPORT_SCHEMA_VERSION
+        )
+        self.assertIsNone(info["schema_versions"]["character_package"])
+        self.assertEqual(info["deprecated_fields"], [])
+        self.assertEqual(info["compatibility_notes"], [])
+        self.assertEqual(info["migration_diagnostics"]["recent"], [])
+        self.assertEqual(info["migration_diagnostics"]["counts"]["migrated"], 0)
+
+    def test_session_migration_records_runtime_diagnostic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            persistence = SessionPersistence(Path(tmp))
+            session = SessionContext(character_id="reimu", metadata={"title": "legacy"})
+            session_file = Path(tmp) / "reimu" / f"{session.session_id}.json"
+            session_file.parent.mkdir(parents=True)
+            session_file.write_text(
+                json.dumps(
+                    {
+                        "session": session.to_dict(),
+                        "messages": [{"role": "user", "content": "legacy"}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            persistence.rebuild_index()
+
+            persistence.load_session("reimu", session.session_id)
+            info = asyncio.run(RuntimeService().handle("runtime.info"))
+
+            diagnostics = info["migration_diagnostics"]
+            self.assertEqual(diagnostics["counts"]["migrated"], 1)
+            item = diagnostics["recent"][-1]
+            self.assertEqual(item["source"], "session")
+            self.assertEqual(item["status"], "migrated")
+            self.assertIsNone(item["from_schema_version"])
+            self.assertEqual(item["to_schema_version"], SESSION_SCHEMA_VERSION)
+            self.assertEqual(item["format"], "gensokyoai.session.file")
+            self.assertEqual(item["path"], str(session_file))
+            self.assertEqual(
+                item["backup_path"], str(session_file.with_name(f"{session_file.name}.bak"))
+            )
+            self.assertEqual(item["diagnostics"], [])
+            self.assertIn("migrated_at", item)
+
+    def test_session_read_failure_records_failed_migration_diagnostic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            persistence = SessionPersistence(Path(tmp))
+            session = SessionContext(character_id="marisa")
+            session_file = Path(tmp) / "marisa" / f"{session.session_id}.json"
+            session_file.parent.mkdir(parents=True)
+            session_file.write_text("{ broken json", encoding="utf-8")
+            session_file.with_name(f"{session_file.name}.bak").write_text(
+                "{ also broken", encoding="utf-8"
+            )
+            persistence.rebuild_index()
+
+            with self.assertRaises(json.JSONDecodeError):
+                persistence.load_session("marisa", session.session_id)
+            info = asyncio.run(RuntimeService().handle("runtime.info"))
+
+            diagnostics = info["migration_diagnostics"]
+            self.assertEqual(diagnostics["counts"]["failed"], 1)
+            item = diagnostics["recent"][-1]
+            self.assertEqual(item["source"], "session")
+            self.assertEqual(item["status"], "failed")
+            self.assertEqual(item["to_schema_version"], SESSION_SCHEMA_VERSION)
+            self.assertEqual(item["format"], "gensokyoai.session.file")
+            self.assertEqual(item["path"], str(session_file))
+            self.assertIn("could not be read", item["message"])
+            codes = {diag["code"] for diag in item["diagnostics"]}
+            self.assertIn("migration.session.read_failed", codes)
+            self.assertIn("migration.session.quarantined", codes)
+
+    def test_memory_topic_store_migration_records_runtime_diagnostic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "topics.json"
+            legacy_payload = {
+                "topics": [
+                    {
+                        "id": "topic-1",
+                        "name": "偏好",
+                        "summary": "喝茶",
+                        "created_at": "2024-01-01T00:00:00",
+                        "last_updated": "2024-01-01T00:00:00",
+                        "last_accessed": "2024-01-01T00:00:00",
+                        "message_count": 1,
+                        "message_ids": ["memory-1"],
+                    }
+                ],
+                "memories": [
+                    {
+                        "id": "memory-1",
+                        "content": "灵梦喜欢喝茶",
+                        "topic_id": "topic-1",
+                        "timestamp": "2024-01-01T00:00:00",
+                    }
+                ],
+            }
+            path.write_bytes(msgspec.json.encode(legacy_payload))
+
+            TopicAwareStore(path)
+            info = asyncio.run(RuntimeService().handle("runtime.info"))
+
+            diagnostics = info["migration_diagnostics"]
+            self.assertEqual(diagnostics["counts"]["migrated"], 1)
+            item = diagnostics["recent"][-1]
+            self.assertEqual(item["source"], "memory.topic_store")
+            self.assertEqual(item["status"], "migrated")
+            self.assertIsNone(item["from_schema_version"])
+            self.assertEqual(item["to_schema_version"], MEMORY_SCHEMA_VERSION)
+            self.assertEqual(item["format"], "gensokyoai.memory.topic_store")
+            self.assertEqual(item["path"], str(path))
+            self.assertIsNone(item["backup_path"])
+
+    def test_memory_topic_store_load_failure_records_failed_migration_diagnostic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "topics.json"
+            path.write_bytes(b"{ broken json")
+
+            TopicAwareStore(path)
+            info = asyncio.run(RuntimeService().handle("runtime.info"))
+
+            diagnostics = info["migration_diagnostics"]
+            self.assertEqual(diagnostics["counts"]["failed"], 1)
+            item = diagnostics["recent"][-1]
+            self.assertEqual(item["source"], "memory.topic_store")
+            self.assertEqual(item["status"], "failed")
+            self.assertEqual(item["to_schema_version"], MEMORY_SCHEMA_VERSION)
+            self.assertEqual(item["format"], "gensokyoai.memory.topic_store")
+            self.assertEqual(item["path"], str(path))
+            self.assertIn("could not be loaded", item["message"])
+            self.assertEqual(item["diagnostics"][0]["code"], "migration.memory.topic_store.load_failed")
 
 
 class SessionPersistenceIndexTests(unittest.TestCase):
@@ -232,7 +395,9 @@ class SessionPersistenceIndexTests(unittest.TestCase):
                 "session": session.to_dict(),
                 "messages": [{"role": "user", "content": "legacy"}],
             }
-            session_file.write_text(json.dumps(legacy_payload, ensure_ascii=False), encoding="utf-8")
+            session_file.write_text(
+                json.dumps(legacy_payload, ensure_ascii=False), encoding="utf-8"
+            )
             persistence.rebuild_index()
 
             loaded = persistence.load_session("reimu", session.session_id)
@@ -241,7 +406,9 @@ class SessionPersistenceIndexTests(unittest.TestCase):
             self.assertIsNotNone(loaded)
             self.assertEqual(messages, legacy_payload["messages"])
             migrated = json.loads(session_file.read_text(encoding="utf-8"))
-            backup = json.loads(session_file.with_name(f"{session_file.name}.bak").read_text(encoding="utf-8"))
+            backup = json.loads(
+                session_file.with_name(f"{session_file.name}.bak").read_text(encoding="utf-8")
+            )
             self.assertEqual(migrated["schema_version"], SESSION_SCHEMA_VERSION)
             self.assertEqual(migrated["format"], "gensokyoai.session.file")
             self.assertEqual(migrated["created_by"], "GensokyoAI")
@@ -1326,9 +1493,7 @@ class CharacterValidationTests(unittest.TestCase):
         errors_by_file = {}
         for path in character_paths:
             errors = [
-                item
-                for item in validator.validate_character_file(path)
-                if item.severity == "error"
+                item for item in validator.validate_character_file(path) if item.severity == "error"
             ]
             if errors:
                 errors_by_file[str(path)] = [item.to_dict() for item in errors]

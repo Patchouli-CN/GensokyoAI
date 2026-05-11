@@ -200,7 +200,9 @@ class ConfigValidator:
             return diagnostics
 
         if "log_level" in data:
-            self._validate_enum("log_level", data["log_level"], {item.value for item in LogLevel}, diagnostics)
+            self._validate_enum(
+                "log_level", data["log_level"], {item.value for item in LogLevel}, diagnostics
+            )
         if "model" in data:
             self._validate_model_data(data.get("model") or {}, diagnostics)
         if "embedding" in data:
@@ -265,39 +267,123 @@ class ConfigValidator:
         self._validate_object("model", data, diagnostics)
         if not isinstance(data, dict):
             return
-        self._validate_unknown_fields("model", data, self._struct_field_names(ModelConfig), diagnostics)
+        self._validate_unknown_fields(
+            "model", data, self._struct_field_names(ModelConfig), diagnostics
+        )
         self._validate_model_values("model", data, diagnostics)
 
     def _validate_model_values(
         self, section: str, data: dict[str, Any], diagnostics: list[ConfigDiagnostic]
     ) -> None:
-        self._validate_numeric_range(f"{section}.temperature", data.get("temperature"), diagnostics, minimum=0, maximum=2)
-        self._validate_numeric_range(f"{section}.top_p", data.get("top_p"), diagnostics, minimum=0, maximum=1)
-        self._validate_numeric_range(f"{section}.max_tokens", data.get("max_tokens"), diagnostics, minimum=1)
-        self._validate_numeric_range(f"{section}.timeout", data.get("timeout"), diagnostics, minimum=0.001)
-        self._validate_numeric_range(f"{section}.retry_max_attempts", data.get("retry_max_attempts"), diagnostics, minimum=1)
-        self._validate_numeric_range(f"{section}.retry_initial_delay", data.get("retry_initial_delay"), diagnostics, minimum=0)
-        self._validate_numeric_range(f"{section}.retry_backoff_factor", data.get("retry_backoff_factor"), diagnostics, minimum=1)
-        self._validate_int_list(f"{section}.retry_status_codes", data.get("retry_status_codes"), diagnostics, minimum=100, maximum=599)
-        self._validate_enum(f"{section}.web_search_strategy", data.get("web_search_strategy"), {"off", "explicit", "auto"}, diagnostics)
-        self._validate_string_list(f"{section}.model_capabilities_add", data.get("model_capabilities_add"), diagnostics)
-        self._validate_string_list(f"{section}.model_capabilities_remove", data.get("model_capabilities_remove"), diagnostics)
+        self._validate_numeric_range(
+            f"{section}.temperature", data.get("temperature"), diagnostics, minimum=0, maximum=2
+        )
+        self._validate_numeric_range(
+            f"{section}.top_p", data.get("top_p"), diagnostics, minimum=0, maximum=1
+        )
+        self._validate_numeric_range(
+            f"{section}.max_tokens", data.get("max_tokens"), diagnostics, minimum=1
+        )
+        self._validate_numeric_range(
+            f"{section}.timeout", data.get("timeout"), diagnostics, minimum=0.001
+        )
+        self._validate_numeric_range(
+            f"{section}.retry_max_attempts", data.get("retry_max_attempts"), diagnostics, minimum=1
+        )
+        self._validate_numeric_range(
+            f"{section}.retry_initial_delay",
+            data.get("retry_initial_delay"),
+            diagnostics,
+            minimum=0,
+        )
+        self._validate_numeric_range(
+            f"{section}.retry_backoff_factor",
+            data.get("retry_backoff_factor"),
+            diagnostics,
+            minimum=1,
+        )
+        self._validate_int_list(
+            f"{section}.retry_status_codes",
+            data.get("retry_status_codes"),
+            diagnostics,
+            minimum=100,
+            maximum=599,
+        )
+        self._validate_enum(
+            f"{section}.web_search_strategy",
+            data.get("web_search_strategy"),
+            {"off", "explicit", "auto"},
+            diagnostics,
+        )
+        self._validate_string_list(
+            f"{section}.model_capabilities_add", data.get("model_capabilities_add"), diagnostics
+        )
+        self._validate_string_list(
+            f"{section}.model_capabilities_remove",
+            data.get("model_capabilities_remove"),
+            diagnostics,
+        )
 
         provider = data.get("provider")
         if provider is not None:
             if not isinstance(provider, str) or not provider.strip():
-                diagnostics.append(self._error(f"{section}.provider", "Provider must be a non-empty string", "请填写模型服务名称，例如 ollama、openai 或 deepseek。"))
+                diagnostics.append(
+                    self._error(
+                        f"{section}.provider",
+                        "Provider must be a non-empty string",
+                        "请填写模型服务名称，例如 ollama、openai 或 deepseek。",
+                    )
+                )
             elif provider not in self.KNOWN_PROVIDERS:
-                diagnostics.append(self._warning(f"{section}.provider", f"Unknown provider '{provider}'", "如果这是自定义 Provider，请确认已注册；否则请检查 provider 拼写。", code="config.provider.unknown"))
+                diagnostics.append(
+                    self._warning(
+                        f"{section}.provider",
+                        f"Unknown provider '{provider}'",
+                        "如果这是自定义 Provider，请确认已注册；否则请检查 provider 拼写。",
+                        code="config.provider.unknown",
+                    )
+                )
 
         if data.get("web_search_enabled") is True and data.get("web_search_strategy") == "off":
-            diagnostics.append(self._error(f"{section}.web_search_strategy", "web_search_enabled is true but web_search_strategy is off", "启用 Provider 内置联网搜索时，请将 web_search_strategy 设置为 explicit 或 auto。", code="config.model.web_search_conflict"))
+            diagnostics.append(
+                self._error(
+                    f"{section}.web_search_strategy",
+                    "web_search_enabled is true but web_search_strategy is off",
+                    "启用 Provider 内置联网搜索时，请将 web_search_strategy 设置为 explicit 或 auto。",
+                    code="config.model.web_search_conflict",
+                )
+            )
         if data.get("api_path") is not None and not data.get("base_url"):
-            diagnostics.append(self._warning(f"{section}.api_path", "api_path is usually meaningful only with base_url", "如果使用自定义代理路径，请同时配置 base_url。", code="config.model.api_path_without_base_url"))
+            diagnostics.append(
+                self._warning(
+                    f"{section}.api_path",
+                    "api_path is usually meaningful only with base_url",
+                    "如果使用自定义代理路径，请同时配置 base_url。",
+                    code="config.model.api_path_without_base_url",
+                )
+            )
         if data.get("auth") is not None and data.get("api_key"):
-            diagnostics.append(self._warning(f"{section}.auth", "Both api_key and auth are configured", "请确认是否确实需要同时配置静态 API Key 与动态认证。", code="config.model.auth_overlap"))
-        if provider in self.PROVIDERS_REQUIRING_API_KEY and not data.get("api_key") and not data.get("auth"):
-            diagnostics.append(self._warning(f"{section}.api_key", f"Provider '{provider}' usually requires api_key or auth", "请通过配置文件或环境变量提供 API Key；如果由网关注入认证，可忽略此警告。", code="config.model.api_key_missing"))
+            diagnostics.append(
+                self._warning(
+                    f"{section}.auth",
+                    "Both api_key and auth are configured",
+                    "请确认是否确实需要同时配置静态 API Key 与动态认证。",
+                    code="config.model.auth_overlap",
+                )
+            )
+        if (
+            provider in self.PROVIDERS_REQUIRING_API_KEY
+            and not data.get("api_key")
+            and not data.get("auth")
+        ):
+            diagnostics.append(
+                self._warning(
+                    f"{section}.api_key",
+                    f"Provider '{provider}' usually requires api_key or auth",
+                    "请通过配置文件或环境变量提供 API Key；如果由网关注入认证，可忽略此警告。",
+                    code="config.model.api_key_missing",
+                )
+            )
         if isinstance(provider, str):
             self._validate_provider_field_matrix(section, provider, data, diagnostics)
 
@@ -346,38 +432,80 @@ class ConfigValidator:
         self._validate_object("embedding", data, diagnostics)
         if not isinstance(data, dict):
             return
-        self._validate_unknown_fields("embedding", data, self._struct_field_names(EmbeddingConfig), diagnostics)
+        self._validate_unknown_fields(
+            "embedding", data, self._struct_field_names(EmbeddingConfig), diagnostics
+        )
         self._validate_embedding_values("embedding", data, diagnostics)
 
     def _validate_embedding_values(
         self, section: str, data: dict[str, Any], diagnostics: list[ConfigDiagnostic]
     ) -> None:
-        self._validate_numeric_range(f"{section}.timeout", data.get("timeout"), diagnostics, minimum=0.001)
-        self._validate_numeric_range(f"{section}.dimensions", data.get("dimensions"), diagnostics, minimum=1)
+        self._validate_numeric_range(
+            f"{section}.timeout", data.get("timeout"), diagnostics, minimum=0.001
+        )
+        self._validate_numeric_range(
+            f"{section}.dimensions", data.get("dimensions"), diagnostics, minimum=1
+        )
 
     def _validate_memory_data(self, data: Any, diagnostics: list[ConfigDiagnostic]) -> None:
         self._validate_object("memory", data, diagnostics)
         if not isinstance(data, dict):
             return
-        self._validate_unknown_fields("memory", data, self._struct_field_names(MemoryConfig), diagnostics)
-        self._validate_numeric_range("memory.working_max_turns", data.get("working_max_turns"), diagnostics, minimum=1)
-        self._validate_numeric_range("memory.episodic_threshold", data.get("episodic_threshold"), diagnostics, minimum=1)
-        self._validate_numeric_range("memory.episodic_keep_recent", data.get("episodic_keep_recent"), diagnostics, minimum=0)
-        self._validate_numeric_range("memory.semantic_top_k", data.get("semantic_top_k"), diagnostics, minimum=1)
-        self._validate_numeric_range("memory.semantic_similarity_threshold", data.get("semantic_similarity_threshold"), diagnostics, minimum=0, maximum=1)
+        self._validate_unknown_fields(
+            "memory", data, self._struct_field_names(MemoryConfig), diagnostics
+        )
+        self._validate_numeric_range(
+            "memory.working_max_turns", data.get("working_max_turns"), diagnostics, minimum=1
+        )
+        self._validate_numeric_range(
+            "memory.episodic_threshold", data.get("episodic_threshold"), diagnostics, minimum=1
+        )
+        self._validate_numeric_range(
+            "memory.episodic_keep_recent", data.get("episodic_keep_recent"), diagnostics, minimum=0
+        )
+        self._validate_numeric_range(
+            "memory.semantic_top_k", data.get("semantic_top_k"), diagnostics, minimum=1
+        )
+        self._validate_numeric_range(
+            "memory.semantic_similarity_threshold",
+            data.get("semantic_similarity_threshold"),
+            diagnostics,
+            minimum=0,
+            maximum=1,
+        )
         topic_generation = data.get("topic_generation")
         if topic_generation is not None:
             self._validate_object("memory.topic_generation", topic_generation, diagnostics)
             if isinstance(topic_generation, dict):
-                self._validate_unknown_fields("memory.topic_generation", topic_generation, self._struct_field_names(TopicGenerationConfig), diagnostics)
-                self._validate_numeric_range("memory.topic_generation.name_max_length", topic_generation.get("name_max_length"), diagnostics, minimum=1)
-                self._validate_numeric_range("memory.topic_generation.summary_max_length", topic_generation.get("summary_max_length"), diagnostics, minimum=1)
+                self._validate_unknown_fields(
+                    "memory.topic_generation",
+                    topic_generation,
+                    self._struct_field_names(TopicGenerationConfig),
+                    diagnostics,
+                )
+                self._validate_numeric_range(
+                    "memory.topic_generation.name_max_length",
+                    topic_generation.get("name_max_length"),
+                    diagnostics,
+                    minimum=1,
+                )
+                self._validate_numeric_range(
+                    "memory.topic_generation.summary_max_length",
+                    topic_generation.get("summary_max_length"),
+                    diagnostics,
+                    minimum=1,
+                )
 
     def _validate_tool_data(self, data: Any, diagnostics: list[ConfigDiagnostic]) -> None:
         self._validate_object("tool", data, diagnostics)
         if not isinstance(data, dict):
             return
-        self._validate_unknown_fields("tool", data, {"enabled", "builtin_tools", "custom_tools_path", "web_search"}, diagnostics)
+        self._validate_unknown_fields(
+            "tool",
+            data,
+            {"enabled", "builtin_tools", "custom_tools_path", "web_search"},
+            diagnostics,
+        )
         self._validate_string_list("tool.builtin_tools", data.get("builtin_tools"), diagnostics)
         web_search = data.get("web_search")
         if web_search is not None:
@@ -404,12 +532,39 @@ class ConfigValidator:
                     },
                     diagnostics,
                 )
-                self._validate_enum("tool.web_search.provider", web_search.get("provider"), {"bing", "api", "mixed"}, diagnostics)
-                self._validate_enum("tool.web_search.trigger_strategy", web_search.get("trigger_strategy"), {"off", "explicit", "auto"}, diagnostics)
-                self._validate_numeric_range("tool.web_search.max_results", web_search.get("max_results"), diagnostics, minimum=1)
-                self._validate_numeric_range("tool.web_search.timeout", web_search.get("timeout"), diagnostics, minimum=0.001)
-                self._validate_numeric_range("tool.web_search.cache_ttl_seconds", web_search.get("cache_ttl_seconds"), diagnostics, minimum=0)
-                self._validate_numeric_range("tool.web_search.snippet_max_length", web_search.get("snippet_max_length"), diagnostics, minimum=1)
+                self._validate_enum(
+                    "tool.web_search.provider",
+                    web_search.get("provider"),
+                    {"bing", "api", "mixed"},
+                    diagnostics,
+                )
+                self._validate_enum(
+                    "tool.web_search.trigger_strategy",
+                    web_search.get("trigger_strategy"),
+                    {"off", "explicit", "auto"},
+                    diagnostics,
+                )
+                self._validate_numeric_range(
+                    "tool.web_search.max_results",
+                    web_search.get("max_results"),
+                    diagnostics,
+                    minimum=1,
+                )
+                self._validate_numeric_range(
+                    "tool.web_search.timeout", web_search.get("timeout"), diagnostics, minimum=0.001
+                )
+                self._validate_numeric_range(
+                    "tool.web_search.cache_ttl_seconds",
+                    web_search.get("cache_ttl_seconds"),
+                    diagnostics,
+                    minimum=0,
+                )
+                self._validate_numeric_range(
+                    "tool.web_search.snippet_max_length",
+                    web_search.get("snippet_max_length"),
+                    diagnostics,
+                    minimum=1,
+                )
                 self._validate_web_search_api(web_search.get("api"), diagnostics)
 
     def _validate_web_search_api(self, data: Any, diagnostics: list[ConfigDiagnostic]) -> None:
@@ -438,35 +593,102 @@ class ConfigValidator:
             },
             diagnostics,
         )
-        self._validate_enum("tool.web_search.api.method", data.get("method"), {"GET", "POST"}, diagnostics)
+        self._validate_enum(
+            "tool.web_search.api.method", data.get("method"), {"GET", "POST"}, diagnostics
+        )
 
     def _validate_session_data(self, data: Any, diagnostics: list[ConfigDiagnostic]) -> None:
         self._validate_object("session", data, diagnostics)
         if not isinstance(data, dict):
             return
-        self._validate_unknown_fields("session", data, self._struct_field_names(SessionConfig), diagnostics)
-        self._validate_numeric_range("session.max_sessions", data.get("max_sessions"), diagnostics, minimum=1)
+        self._validate_unknown_fields(
+            "session", data, self._struct_field_names(SessionConfig), diagnostics
+        )
+        self._validate_numeric_range(
+            "session.max_sessions", data.get("max_sessions"), diagnostics, minimum=1
+        )
 
     def _validate_think_engine_data(self, data: Any, diagnostics: list[ConfigDiagnostic]) -> None:
         self._validate_object("think_engine", data, diagnostics)
         if not isinstance(data, dict):
             return
-        self._validate_unknown_fields("think_engine", data, self._struct_field_names(ThinkEngineConfig), diagnostics)
-        self._validate_numeric_range("think_engine.think_interval_minutes", data.get("think_interval_minutes"), diagnostics, minimum=1)
-        self._validate_numeric_range("think_engine.random_walk_steps_min", data.get("random_walk_steps_min"), diagnostics, minimum=0)
-        self._validate_numeric_range("think_engine.random_walk_steps_max", data.get("random_walk_steps_max"), diagnostics, minimum=0)
-        self._validate_numeric_range("think_engine.emotional_trigger_threshold", data.get("emotional_trigger_threshold"), diagnostics, minimum=0, maximum=1)
-        self._validate_numeric_range("think_engine.emotional_priority_probability", data.get("emotional_priority_probability"), diagnostics, minimum=0, maximum=1)
-        self._validate_numeric_range("think_engine.think_temperature", data.get("think_temperature"), diagnostics, minimum=0, maximum=2)
-        self._validate_numeric_range("think_engine.think_max_tokens", data.get("think_max_tokens"), diagnostics, minimum=1)
-        self._validate_numeric_range("think_engine.initiative_temperature", data.get("initiative_temperature"), diagnostics, minimum=0, maximum=2)
-        self._validate_numeric_range("think_engine.initiative_max_tokens", data.get("initiative_max_tokens"), diagnostics, minimum=1)
+        self._validate_unknown_fields(
+            "think_engine", data, self._struct_field_names(ThinkEngineConfig), diagnostics
+        )
+        self._validate_numeric_range(
+            "think_engine.think_interval_minutes",
+            data.get("think_interval_minutes"),
+            diagnostics,
+            minimum=1,
+        )
+        self._validate_numeric_range(
+            "think_engine.random_walk_steps_min",
+            data.get("random_walk_steps_min"),
+            diagnostics,
+            minimum=0,
+        )
+        self._validate_numeric_range(
+            "think_engine.random_walk_steps_max",
+            data.get("random_walk_steps_max"),
+            diagnostics,
+            minimum=0,
+        )
+        self._validate_numeric_range(
+            "think_engine.emotional_trigger_threshold",
+            data.get("emotional_trigger_threshold"),
+            diagnostics,
+            minimum=0,
+            maximum=1,
+        )
+        self._validate_numeric_range(
+            "think_engine.emotional_priority_probability",
+            data.get("emotional_priority_probability"),
+            diagnostics,
+            minimum=0,
+            maximum=1,
+        )
+        self._validate_numeric_range(
+            "think_engine.think_temperature",
+            data.get("think_temperature"),
+            diagnostics,
+            minimum=0,
+            maximum=2,
+        )
+        self._validate_numeric_range(
+            "think_engine.think_max_tokens", data.get("think_max_tokens"), diagnostics, minimum=1
+        )
+        self._validate_numeric_range(
+            "think_engine.initiative_temperature",
+            data.get("initiative_temperature"),
+            diagnostics,
+            minimum=0,
+            maximum=2,
+        )
+        self._validate_numeric_range(
+            "think_engine.initiative_max_tokens",
+            data.get("initiative_max_tokens"),
+            diagnostics,
+            minimum=1,
+        )
         min_steps = data.get("random_walk_steps_min")
         max_steps = data.get("random_walk_steps_max")
-        if isinstance(min_steps, (int, float)) and isinstance(max_steps, (int, float)) and min_steps > max_steps:
-            diagnostics.append(self._error("think_engine.random_walk_steps_max", "random_walk_steps_max must be >= random_walk_steps_min", "请确保随机游走最大步数不小于最小步数。", code="config.range.cross_field"))
+        if (
+            isinstance(min_steps, (int, float))
+            and isinstance(max_steps, (int, float))
+            and min_steps > max_steps
+        ):
+            diagnostics.append(
+                self._error(
+                    "think_engine.random_walk_steps_max",
+                    "random_walk_steps_max must be >= random_walk_steps_min",
+                    "请确保随机游走最大步数不小于最小步数。",
+                    code="config.range.cross_field",
+                )
+            )
 
-    def _validate_resource_control_data(self, data: Any, diagnostics: list[ConfigDiagnostic]) -> None:
+    def _validate_resource_control_data(
+        self, data: Any, diagnostics: list[ConfigDiagnostic]
+    ) -> None:
         self._validate_object("resource_control", data, diagnostics)
         if not isinstance(data, dict):
             return
@@ -519,7 +741,14 @@ class ConfigValidator:
 
     def _validate_object(self, path: str, value: Any, diagnostics: list[ConfigDiagnostic]) -> None:
         if not isinstance(value, dict):
-            diagnostics.append(self._error(path, f"Config section '{path}' must be an object", "请确认该配置段使用 YAML 对象写法。", code="config.section.type"))
+            diagnostics.append(
+                self._error(
+                    path,
+                    f"Config section '{path}' must be an object",
+                    "请确认该配置段使用 YAML 对象写法。",
+                    code="config.section.type",
+                )
+            )
 
     def _validate_unknown_fields(
         self,
@@ -531,7 +760,14 @@ class ConfigValidator:
         unknown = sorted(set(data) - allowed)
         for field_name in unknown:
             path = field_name if section == "$" else f"{section}.{field_name}"
-            diagnostics.append(self._error(path, f"Unknown config field '{field_name}'", "请检查字段名拼写，或确认当前版本是否支持该配置项。", code="config.field.unknown"))
+            diagnostics.append(
+                self._error(
+                    path,
+                    f"Unknown config field '{field_name}'",
+                    "请检查字段名拼写，或确认当前版本是否支持该配置项。",
+                    code="config.field.unknown",
+                )
+            )
 
     def _validate_numeric_range(
         self,
@@ -545,12 +781,33 @@ class ConfigValidator:
         if value is None:
             return
         if not isinstance(value, (int, float)) or isinstance(value, bool):
-            diagnostics.append(self._error(path, f"Config field '{path}' must be numeric", "请填写数字。", code="config.field.type"))
+            diagnostics.append(
+                self._error(
+                    path,
+                    f"Config field '{path}' must be numeric",
+                    "请填写数字。",
+                    code="config.field.type",
+                )
+            )
             return
         if minimum is not None and value < minimum:
-            diagnostics.append(self._error(path, f"Config field '{path}' must be >= {minimum}", f"请填写不小于 {minimum} 的数字。", code="config.field.range"))
+            diagnostics.append(
+                self._error(
+                    path,
+                    f"Config field '{path}' must be >= {minimum}",
+                    f"请填写不小于 {minimum} 的数字。",
+                    code="config.field.range",
+                )
+            )
         if maximum is not None and value > maximum:
-            diagnostics.append(self._error(path, f"Config field '{path}' must be <= {maximum}", f"请填写不大于 {maximum} 的数字。", code="config.field.range"))
+            diagnostics.append(
+                self._error(
+                    path,
+                    f"Config field '{path}' must be <= {maximum}",
+                    f"请填写不大于 {maximum} 的数字。",
+                    code="config.field.range",
+                )
+            )
 
     def _validate_enum(
         self,
@@ -562,7 +819,14 @@ class ConfigValidator:
         if value is None:
             return
         if value not in allowed:
-            diagnostics.append(self._error(path, f"Config field '{path}' must be one of: {', '.join(sorted(allowed))}", f"请从这些值中选择一个：{', '.join(sorted(allowed))}。", code="config.field.enum"))
+            diagnostics.append(
+                self._error(
+                    path,
+                    f"Config field '{path}' must be one of: {', '.join(sorted(allowed))}",
+                    f"请从这些值中选择一个：{', '.join(sorted(allowed))}。",
+                    code="config.field.enum",
+                )
+            )
 
     def _validate_string_list(
         self, path: str, value: Any, diagnostics: list[ConfigDiagnostic]
@@ -570,7 +834,14 @@ class ConfigValidator:
         if value is None:
             return
         if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
-            diagnostics.append(self._error(path, f"Config field '{path}' must be a list of strings", "请使用字符串列表，例如 [\"time\", \"memory\"]。", code="config.field.type"))
+            diagnostics.append(
+                self._error(
+                    path,
+                    f"Config field '{path}' must be a list of strings",
+                    '请使用字符串列表，例如 ["time", "memory"]。',
+                    code="config.field.type",
+                )
+            )
 
     def _validate_int_list(
         self,
@@ -583,12 +854,28 @@ class ConfigValidator:
     ) -> None:
         if value is None:
             return
-        if not isinstance(value, list) or any(not isinstance(item, int) or isinstance(item, bool) for item in value):
-            diagnostics.append(self._error(path, f"Config field '{path}' must be a list of integers", "请使用整数列表，例如 [500, 502, 503, 504]。", code="config.field.type"))
+        if not isinstance(value, list) or any(
+            not isinstance(item, int) or isinstance(item, bool) for item in value
+        ):
+            diagnostics.append(
+                self._error(
+                    path,
+                    f"Config field '{path}' must be a list of integers",
+                    "请使用整数列表，例如 [500, 502, 503, 504]。",
+                    code="config.field.type",
+                )
+            )
             return
         for item in value:
             if minimum is not None and item < minimum or maximum is not None and item > maximum:
-                diagnostics.append(self._error(path, f"Config field '{path}' contains invalid status code {item}", "HTTP 状态码应在 100 到 599 之间。", code="config.field.range"))
+                diagnostics.append(
+                    self._error(
+                        path,
+                        f"Config field '{path}' contains invalid status code {item}",
+                        "HTTP 状态码应在 100 到 599 之间。",
+                        code="config.field.range",
+                    )
+                )
                 return
 
     @staticmethod
@@ -622,7 +909,9 @@ class ConfigValidator:
         *,
         code: str = "config.validation.error",
     ) -> ConfigDiagnostic:
-        return ConfigDiagnostic(code=code, path=path, severity="error", message=message, suggestion=suggestion)
+        return ConfigDiagnostic(
+            code=code, path=path, severity="error", message=message, suggestion=suggestion
+        )
 
     @staticmethod
     def _warning(
@@ -632,4 +921,6 @@ class ConfigValidator:
         *,
         code: str = "config.validation.warning",
     ) -> ConfigDiagnostic:
-        return ConfigDiagnostic(code=code, path=path, severity="warning", message=message, suggestion=suggestion)
+        return ConfigDiagnostic(
+            code=code, path=path, severity="warning", message=message, suggestion=suggestion
+        )
