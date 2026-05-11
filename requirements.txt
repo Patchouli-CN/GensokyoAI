@@ -1,6 +1,13 @@
 # requirements.txt
-aiohttp>=3.9     # 异步 HTTP 客户端
+# 最小运行依赖；默认不强制安装任何 LLM Provider SDK。
+# 安装方式：
+# - 最小安装：pip install -r requirements.txt
+# - 默认本地启动（Ollama）：pip install -e .[default]
+# - 指定 Provider：pip install -e .[openai] / .[claude] / .[gemini]
+# - 完整安装：pip install -e .[all]
+
 # ===== 核心依赖 =====
+aiohttp>=3.9     # 异步 HTTP 客户端 / Runtime HTTP adapter
 msgspec          # 高性能序列化
 loguru           # 日志系统
 rich             # 终端美化
@@ -10,8 +17,8 @@ aioconsole       # 异步控制台输入
 # ===== 自研高性能库 =====
 ayafileio>=1.1.4 # 真异步文件 I/O
 
-# ===== LLM Provider（按需安装）=====
-ollama           # Ollama 本地模型（默认 Provider）
-# openai         # OpenAI / Deepseek / SiliconFlow 等兼容 API
-# anthropic      # Anthropic Claude
-# google-genai   # Google Gemini
+# ===== LLM Provider（按需安装，不在最小依赖中启用）=====
+# ollama          # pip install -e .[default] 或 pip install -e .[ollama]
+# openai          # pip install -e .[openai] / .[deepseek] / .[openrouter] / .[openai_responses]
+# anthropic       # pip install -e .[claude]
+# google-genai    # pip install -e .[gemini]

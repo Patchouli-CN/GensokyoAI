@@ -1,5 +1,7 @@
 import asyncio
+import json
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -7,6 +9,7 @@ from typing import Any, cast
 from unittest.mock import patch
 
 from GensokyoAI.core.agent.types import ModelInfo, ProviderCapability, StreamChunk
+from GensokyoAI.core.events import Event, EventBus, SystemEvent
 from GensokyoAI.core.config import ModelConfig
 from GensokyoAI.session.context import SessionContext
 from GensokyoAI.session.persistence import SessionPersistence
@@ -137,6 +140,114 @@ class SessionPersistenceIndexTests(unittest.TestCase):
             self.assertTrue(deleted)
             self.assertFalse(session_file.exists())
             self.assertNotIn(session.session_id, persistence._session_index)
+
+
+    def test_save_session_creates_backup_before_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            persistence = SessionPersistence(Path(tmp))
+            session = SessionContext(character_id="reimu", metadata={"title": "old"})
+            persistence.save_session(session)
+            session.metadata["title"] = "new"
+
+            persistence.save_session(session)
+
+            session_file = Path(tmp) / "reimu" / f"{session.session_id}.json"
+            backup_file = session_file.with_name(f"{session_file.name}.bak")
+            self.assertTrue(backup_file.exists())
+            backup_data = json.loads(backup_file.read_text(encoding="utf-8"))
+            current_data = json.loads(session_file.read_text(encoding="utf-8"))
+            self.assertEqual(backup_data["session"]["metadata"]["title"], "old")
+            self.assertEqual(current_data["session"]["metadata"]["title"], "new")
+            self.assertFalse(list(session_file.parent.glob("*.tmp")))
+
+    def test_load_messages_recovers_from_backup_when_json_is_corrupt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            persistence = SessionPersistence(Path(tmp))
+            session = SessionContext(character_id="reimu")
+            persistence.save_session(session)
+            persistence.save_messages(session.session_id, [{"role": "user", "content": "backup"}])
+            session_file = Path(tmp) / "reimu" / f"{session.session_id}.json"
+            backup_file = session_file.with_name(f"{session_file.name}.bak")
+            self.assertTrue(backup_file.exists())
+            session_file.write_text("{ broken json", encoding="utf-8")
+
+            messages = persistence.load_messages(session.session_id)
+
+            self.assertEqual(messages, [])
+            restored_data = json.loads(session_file.read_text(encoding="utf-8"))
+            self.assertEqual(restored_data["session"]["session_id"], session.session_id)
+            self.assertFalse((session_file.parent / "quarantine").exists())
+
+    def test_load_session_quarantines_corrupt_json_when_backup_is_unusable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            persistence = SessionPersistence(Path(tmp))
+            session = SessionContext(character_id="marisa")
+            persistence.save_session(session)
+            session_file = Path(tmp) / "marisa" / f"{session.session_id}.json"
+            session_file.write_text("{ broken json", encoding="utf-8")
+            session_file.with_name(f"{session_file.name}.bak").write_text("{ also broken", encoding="utf-8")
+
+            with self.assertRaises(json.JSONDecodeError):
+                persistence.load_session("marisa", session.session_id)
+
+            self.assertFalse(session_file.exists())
+            quarantined = list((Path(tmp) / "marisa" / "quarantine").glob("*.bad"))
+            self.assertEqual(len(quarantined), 1)
+            self.assertIn(session.session_id, quarantined[0].name)
+
+    def test_async_load_messages_recovers_from_backup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            persistence = SessionPersistence(Path(tmp))
+            session = SessionContext(character_id="sanae")
+            persistence.save_session(session)
+            persistence.save_messages(session.session_id, [{"role": "user", "content": "backup"}])
+            session_file = Path(tmp) / "sanae" / f"{session.session_id}.json"
+            session_file.write_text("{ broken json", encoding="utf-8")
+
+            messages = asyncio.run(persistence.load_messages_async(session.session_id))
+
+            self.assertEqual(messages, [])
+            self.assertTrue(session_file.exists())
+
+
+class PackagingConfigurationTests(unittest.TestCase):
+    def _load_pyproject(self) -> dict[str, Any]:
+        with open(Path("pyproject.toml"), "rb") as f:
+            return tomllib.load(f)
+
+    def _requirements_entries(self) -> list[str]:
+        entries = []
+        for line in Path("requirements.txt").read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            entries.append(stripped.split("#", 1)[0].strip())
+        return entries
+
+    def test_requirements_are_minimal_core_dependencies_without_provider_sdks(self):
+        requirements = self._requirements_entries()
+
+        self.assertIn("aiohttp>=3.9", requirements)
+        self.assertIn("ayafileio>=1.1.4", requirements)
+        self.assertNotIn("ollama", requirements)
+        self.assertNotIn("openai", requirements)
+        self.assertNotIn("anthropic", requirements)
+        self.assertNotIn("google-genai", requirements)
+
+    def test_pyproject_declares_default_all_and_dev_dependency_groups(self):
+        pyproject = self._load_pyproject()
+        optional = pyproject["project"]["optional-dependencies"]
+        groups = pyproject["dependency-groups"]
+
+        self.assertEqual(optional["default"], ["ollama"])
+        self.assertEqual(optional["deepseek"], OPTIONAL_PROVIDER_DEPENDENCIES["deepseek"])
+        self.assertEqual(optional["openrouter"], OPTIONAL_PROVIDER_DEPENDENCIES["openrouter"])
+        self.assertIn("ollama", optional["all"])
+        self.assertIn("openai>=1.0.0", optional["all"])
+        self.assertIn("pytest>=8.0", groups["dev"])
+        self.assertIn("ruff>=0.6.0", groups["dev"])
+        self.assertEqual(pyproject["tool"]["pytest"]["ini_options"]["testpaths"], ["tests"])
+        self.assertNotIn("asyncio_mode", pyproject["tool"]["pytest"]["ini_options"])
 
 
 class RuntimeModelRpcTests(unittest.TestCase):
@@ -492,6 +603,75 @@ class RuntimeStreamingRpcTests(unittest.TestCase):
         self.assertEqual(result["events"][-1]["content"], "你好")
         assert manager.current is not None
         self.assertEqual(result["session"]["session_id"], manager.current.session_id)
+
+
+class RuntimeEventSubscriptionTests(unittest.TestCase):
+    def test_runtime_event_payload_redacts_sensitive_fields_recursively(self):
+        event = Event(
+            type=SystemEvent.MODEL_AUTH,
+            source="test",
+            data={
+                "api_key": "sk-secret",
+                "Authorization": "Bearer token",
+                "nested": {
+                    "refresh_token": "refresh-secret",
+                    "safe": "visible",
+                },
+                "items": [{"password": "pw", "value": 1}],
+            },
+            metadata={"headers": {"X-Test": "1"}, "safe_meta": "ok"},
+        )
+
+        payload = RuntimeService._runtime_event_payload(event)
+
+        self.assertEqual(payload["data"]["api_key"], "[redacted]")
+        self.assertEqual(payload["data"]["Authorization"], "[redacted]")
+        self.assertEqual(payload["data"]["nested"]["refresh_token"], "[redacted]")
+        self.assertEqual(payload["data"]["nested"]["safe"], "visible")
+        self.assertEqual(payload["data"]["items"][0]["password"], "[redacted]")
+        self.assertEqual(payload["data"]["items"][0]["value"], 1)
+        self.assertEqual(payload["metadata"]["headers"], "[redacted]")
+        self.assertEqual(payload["metadata"]["safe_meta"], "ok")
+
+    def test_event_subscription_reports_backpressure_when_queue_is_full(self):
+        service = RuntimeService()
+        event_bus = EventBus(enable_trace=False)
+        agent = SimpleNamespace(event_bus=event_bus)
+        cast(Any, service.state).agent = agent
+
+        async def run():
+            subscription = await service.create_event_subscription(
+                event_types=["tool.call.started"],
+                queue_size=1,
+            )
+            queue = subscription["queue"]
+            await event_bus._process_event(
+                Event(
+                    type=SystemEvent.TOOL_CALL_STARTED,
+                    source="test",
+                    data={"name": "first"},
+                )
+            )
+            await event_bus._process_event(
+                Event(
+                    type=SystemEvent.TOOL_CALL_STARTED,
+                    source="test",
+                    data={"name": "second", "api_key": "secret"},
+                )
+            )
+            payload = queue.get_nowait()
+            queue.task_done()
+            await service.close_event_subscription(subscription["subscription_id"])
+            return payload
+
+        payload = asyncio.run(run())
+
+        self.assertEqual(payload["type"], "runtime.backpressure.dropped")
+        self.assertEqual(payload["data"]["dropped_count"], 1)
+        self.assertEqual(payload["data"]["queue_size"], 1)
+        self.assertEqual(payload["data"]["dropped_event_type"], "tool.call.started")
+        self.assertNotIn("api_key", payload["data"])
+        self.assertEqual(event_bus.stats["subscriber_count"], 0)
 
 
 class RuntimeOverrideTests(unittest.TestCase):

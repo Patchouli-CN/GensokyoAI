@@ -2,9 +2,12 @@
 
 # GensokyoAI\session\persistence.py
 
-import json
 import asyncio
+import json
+import shutil
+from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 import ayafileio
 
@@ -51,6 +54,78 @@ class SessionPersistence:
         char_path.mkdir(parents=True, exist_ok=True)
         return char_path / f"{session_id}.json"
 
+    def _backup_path(self, path: Path) -> Path:
+        """获取备份文件路径。"""
+        return path.with_name(f"{path.name}.bak")
+
+    def _quarantine_dir(self, path: Path) -> Path:
+        """获取损坏文件隔离目录。"""
+        return path.parent / "quarantine"
+
+    def _quarantine_path(self, path: Path) -> Path:
+        """生成不会覆盖现有文件的隔离文件路径。"""
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        return self._quarantine_dir(path) / f"{path.name}.{timestamp}.{uuid4().hex}.bad"
+
+    def _read_json_file(self, path: Path) -> dict:
+        """读取 JSON 文件；失败时尝试从备份恢复，仍失败则隔离损坏文件。"""
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as original_error:
+            logger.warning(f"读取 JSON 失败，尝试备份恢复 {path}: {original_error}")
+            backup_path = self._backup_path(path)
+            if backup_path.exists():
+                try:
+                    with open(backup_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    self._atomic_write_json(path, data, backup_existing=False)
+                    logger.warning(f"已从备份恢复 JSON 文件: {path}")
+                    return data
+                except Exception as backup_error:
+                    logger.warning(f"备份恢复失败 {backup_path}: {backup_error}")
+
+            self._quarantine_file(path)
+            raise original_error
+
+    async def _read_json_file_async(self, path: Path) -> dict:
+        """异步读取 JSON 文件；复用同步容错逻辑避免两套恢复语义。"""
+        return await asyncio.to_thread(self._read_json_file, path)
+
+    def _atomic_write_json(self, path: Path, data: dict, *, backup_existing: bool = True) -> None:
+        """以临时文件 + 原子替换写入 JSON，并在覆盖前保留 .bak。"""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            if backup_existing and path.exists():
+                shutil.copy2(path, self._backup_path(path))
+            tmp_path.replace(path)
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
+
+    async def _atomic_write_json_async(
+        self,
+        path: Path,
+        data: dict,
+        *,
+        backup_existing: bool = True,
+    ) -> None:
+        """异步写入 JSON；文件替换逻辑放到线程中执行以保持一致容错语义。"""
+        await asyncio.to_thread(self._atomic_write_json, path, data, backup_existing=backup_existing)
+
+    def _quarantine_file(self, path: Path) -> Path | None:
+        """将损坏文件移动到 quarantine 目录。"""
+        if not path.exists():
+            return None
+        quarantine_path = self._quarantine_path(path)
+        quarantine_path.parent.mkdir(parents=True, exist_ok=True)
+        path.replace(quarantine_path)
+        logger.warning(f"损坏 JSON 文件已隔离: {path} -> {quarantine_path}")
+        return quarantine_path
+
     def save_session(self, session: SessionContext) -> None:
         """保存会话（同步，用于兼容）"""
         path = self._get_session_path(session.character_id, session.session_id)
@@ -58,13 +133,11 @@ class SessionPersistence:
 
         existing_messages = []
         if path.exists():
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                existing_messages = data.get("messages", [])
+            data = self._read_json_file(path)
+            existing_messages = data.get("messages", [])
 
         data = {"session": session.to_dict(), "messages": existing_messages}
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        self._atomic_write_json(path, data)
         logger.debug(f"会话已保存: {path}")
 
     async def save_session_async(self, session: SessionContext) -> None:
@@ -75,14 +148,11 @@ class SessionPersistence:
 
             existing_messages = []
             if path.exists():
-                async with ayafileio.open(path, "r", encoding="utf-8") as f:
-                    content = await f.read()
-                    data = json.loads(content)
-                    existing_messages = data.get("messages", [])
+                data = await self._read_json_file_async(path)
+                existing_messages = data.get("messages", [])
 
             data = {"session": session.to_dict(), "messages": existing_messages}
-            async with ayafileio.open(path, "w", encoding="utf-8") as f:
-                await f.write(json.dumps(data, ensure_ascii=False, indent=2))
+            await self._atomic_write_json_async(path, data)
         logger.debug(f"会话已异步保存: {path}")
 
     def save_messages(self, session_id: str, messages: list[dict]) -> None:
@@ -91,13 +161,11 @@ class SessionPersistence:
         if char_id:
             session_file = self.base_path / char_id / f"{session_id}.json"
             if session_file.exists():
-                with open(session_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+                data = self._read_json_file(session_file)
                 data["messages"] = messages
                 if "session" in data:
                     data["session"]["total_turns"] = len(messages) // 2
-                with open(session_file, "w", encoding="utf-8") as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
+                self._atomic_write_json(session_file, data)
                 logger.debug(f"消息已保存: {session_id}, {len(messages)} 条")
                 return
 
@@ -109,14 +177,11 @@ class SessionPersistence:
             if char_id:
                 session_file = self.base_path / char_id / f"{session_id}.json"
                 if session_file.exists():
-                    async with ayafileio.open(session_file, "r", encoding="utf-8") as f:
-                        content = await f.read()
-                        data = json.loads(content)
+                    data = await self._read_json_file_async(session_file)
                     data["messages"] = messages
                     if "session" in data:
                         data["session"]["total_turns"] = len(messages) // 2
-                    async with ayafileio.open(session_file, "w", encoding="utf-8") as f:
-                        await f.write(json.dumps(data, ensure_ascii=False, indent=2))
+                    await self._atomic_write_json_async(session_file, data)
                     logger.debug(f"消息已异步保存: {session_id}, {len(messages)} 条")
                     return
 
@@ -126,14 +191,11 @@ class SessionPersistence:
                     session_file = char_dir / f"{session_id}.json"
                     if session_file.exists():
                         self._add_to_index(char_dir.name, session_id)
-                        async with ayafileio.open(session_file, "r", encoding="utf-8") as f:
-                            content = await f.read()
-                            data = json.loads(content)
+                        data = await self._read_json_file_async(session_file)
                         data["messages"] = messages
                         if "session" in data:
                             data["session"]["total_turns"] = len(messages) // 2
-                        async with ayafileio.open(session_file, "w", encoding="utf-8") as f:
-                            await f.write(json.dumps(data, ensure_ascii=False, indent=2))
+                        await self._atomic_write_json_async(session_file, data)
                         logger.debug(f"消息已异步保存: {session_id}, {len(messages)} 条")
                         return
 
@@ -146,8 +208,7 @@ class SessionPersistence:
         if char_id:
             session_file = self.base_path / char_id / f"{session_id}.json"
             if session_file.exists():
-                with open(session_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+                data = self._read_json_file(session_file)
                 messages = data.get("messages", [])
                 logger.debug(f"加载消息: {session_id}, {len(messages)} 条")
                 return messages
@@ -158,8 +219,7 @@ class SessionPersistence:
                 session_file = char_dir / f"{session_id}.json"
                 if session_file.exists():
                     self._add_to_index(char_dir.name, session_id)
-                    with open(session_file, "r", encoding="utf-8") as f:
-                        data = json.load(f)
+                    data = self._read_json_file(session_file)
                     messages = data.get("messages", [])
                     logger.debug(f"加载消息: {session_id}, {len(messages)} 条")
                     return messages
@@ -172,9 +232,7 @@ class SessionPersistence:
         if char_id:
             session_file = self.base_path / char_id / f"{session_id}.json"
             if session_file.exists():
-                async with ayafileio.open(session_file, "r", encoding="utf-8") as f:
-                    content = await f.read()
-                    data = json.loads(content)
+                data = await self._read_json_file_async(session_file)
                 messages = data.get("messages", [])
                 logger.debug(f"异步加载消息: {session_id}, {len(messages)} 条")
                 return messages
@@ -185,9 +243,7 @@ class SessionPersistence:
                 session_file = char_dir / f"{session_id}.json"
                 if session_file.exists():
                     self._add_to_index(char_dir.name, session_id)
-                    async with ayafileio.open(session_file, "r", encoding="utf-8") as f:
-                        content = await f.read()
-                        data = json.loads(content)
+                    data = await self._read_json_file_async(session_file)
                     messages = data.get("messages", [])
                     logger.debug(f"异步加载消息: {session_id}, {len(messages)} 条")
                     return messages
@@ -199,9 +255,7 @@ class SessionPersistence:
         if not path.exists():
             return None
 
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
+        data = self._read_json_file(path)
         return SessionContext.from_dict(data["session"])
 
     async def load_session_async(self, character_id: str, session_id: str) -> SessionContext | None:
@@ -210,10 +264,7 @@ class SessionPersistence:
         if not path.exists():
             return None
 
-        async with ayafileio.open(path, "r", encoding="utf-8") as f:
-            content = await f.read()
-            data = json.loads(content)
-
+        data = await self._read_json_file_async(path)
         return SessionContext.from_dict(data["session"])
 
     def list_sessions(self, character_id: str) -> list[SessionContext]:
@@ -223,8 +274,7 @@ class SessionPersistence:
         if char_path.exists():
             for file in char_path.glob("*.json"):
                 try:
-                    with open(file, "r", encoding="utf-8") as f:
-                        data = json.load(f)
+                    data = self._read_json_file(file)
                     sessions.append(SessionContext.from_dict(data["session"]))
                 except Exception as e:
                     logger.warning(f"加载会话失败 {file}: {e}")
@@ -237,9 +287,7 @@ class SessionPersistence:
         if char_path.exists():
             for file in char_path.glob("*.json"):
                 try:
-                    async with ayafileio.open(file, "r", encoding="utf-8") as f:
-                        content = await f.read()
-                        data = json.loads(content)
+                    data = await self._read_json_file_async(file)
                     sessions.append(SessionContext.from_dict(data["session"]))
                 except Exception as e:
                     logger.warning(f"加载会话失败 {file}: {e}")

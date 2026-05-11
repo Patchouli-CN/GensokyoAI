@@ -12,16 +12,37 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import AsyncIterator, Iterable
 from typing import Any
 
 import yaml
 
 from GensokyoAI.core.agent import Agent
+from GensokyoAI.core.events import Event, SystemEvent
 from GensokyoAI.core.agent.model_registry import ModelRegistryService
 from GensokyoAI.core.agent.types import ModelInfo
 from GensokyoAI.core.config import ConfigLoader
 from GensokyoAI.runtime.dependencies import InstallScope, dependency_status, install_dependencies
-from GensokyoAI.runtime.rpc import dispatch_rpc, legacy_rpc_methods, rpc_methods
+from GensokyoAI.runtime.rpc import dispatch_rpc, legacy_rpc_methods, rpc_methods, runtime_error_to_dict
+
+RUNTIME_EVENT_BACKPRESSURE_DROPPED = "runtime.backpressure.dropped"
+REDACTED_VALUE = "[redacted]"
+SENSITIVE_EVENT_FIELD_NAMES = {
+    "api_key",
+    "apikey",
+    "api-key",
+    "authorization",
+    "auth",
+    "token",
+    "access_token",
+    "refresh_token",
+    "secret",
+    "client_secret",
+    "password",
+    "passwd",
+    "headers",
+    "extra_headers",
+}
 from GensokyoAI.session.context import SessionContext
 from GensokyoAI.tools.external_manager import ExternalToolManager
 
@@ -50,6 +71,7 @@ class RuntimeService:
         self._lock = asyncio.Lock()
         self._model_registry = ModelRegistryService()
         self.external_tool_manager = ExternalToolManager()
+        self._runtime_event_subscriptions: dict[str, list[str]] = {}
 
     async def handle(
         self,
@@ -382,36 +404,65 @@ class RuntimeService:
             "session": self._session_payload(session) if session else None,
         }
 
-    async def send_message_stream(
+    async def iter_message_stream(
         self,
         message: str,
         system_contexts: list[str] | None = None,
-    ) -> dict[str, Any]:
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Yield Runtime stream events as soon as Agent stream chunks are produced."""
+
         agent = await self._ensure_started()
-        events: list[dict[str, Any]] = []
         full_content = ""
         index = 0
 
-        async for chunk in agent.send_stream(message, system_contexts):
-            event = self._stream_chunk_payload(chunk, index)
-            events.append(event)
-            if event.get("type") == "content":
-                full_content += event.get("content", "")
-            index += 1
+        try:
+            async for chunk in agent.send_stream(message, system_contexts):
+                event = self._stream_chunk_payload(chunk, index)
+                if event.get("type") == "content":
+                    full_content += event.get("content", "")
+                yield event
+                index += 1
+        except asyncio.CancelledError:
+            yield {
+                "type": "cancelled",
+                "index": index,
+                "content": full_content,
+            }
+            raise
+        except Exception as error:
+            yield {
+                "type": "error",
+                "index": index,
+                "content": full_content,
+                "error": runtime_error_to_dict(error),
+            }
+            raise
 
         session = agent.session_manager.get_current_session()
-        finish_event = {
+        yield {
             "type": "finish",
             "index": index,
             "content": full_content,
             "session": self._session_payload(session) if session else None,
         }
-        events.append(finish_event)
+
+    async def send_message_stream(
+        self,
+        message: str,
+        system_contexts: list[str] | None = None,
+    ) -> dict[str, Any]:
+        events: list[dict[str, Any]] = []
+
+        async for event in self.iter_message_stream(message, system_contexts):
+            events.append(event)
+
+        finish_event = events[-1] if events else {}
+        session_payload = finish_event.get("session")
         return {
             "role": "assistant",
-            "content": full_content,
+            "content": finish_event.get("content", ""),
             "events": events,
-            "session": self._session_payload(session) if session else None,
+            "session": session_payload,
         }
 
     async def dependency_status(self, providers: list[str] | None = None) -> dict[str, Any]:
@@ -434,6 +485,72 @@ class RuntimeService:
 
         return self.external_tool_manager.source_status(include_tools=include_tools)
 
+    async def create_event_subscription(
+        self,
+        event_types: list[str] | None = None,
+        categories: list[str] | None = None,
+        queue_size: int = 100,
+    ) -> dict[str, Any]:
+        """Create an EventBus-backed Runtime event subscription."""
+
+        agent = self._require_agent()
+        resolved_events = self._resolve_runtime_event_types(event_types, categories)
+        if queue_size < 1:
+            raise ValueError("Subscription queue_size must be greater than or equal to 1")
+
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=queue_size)
+        subscription_ids: list[str] = []
+        dropped_count = 0
+
+        async def enqueue_event(event: Event) -> None:
+            nonlocal dropped_count
+            payload = self._runtime_event_payload(event)
+            if queue.full():
+                dropped_count += 1
+                try:
+                    queue.get_nowait()
+                    queue.task_done()
+                except asyncio.QueueEmpty:
+                    pass
+                payload = self._runtime_backpressure_payload(
+                    dropped_count=dropped_count,
+                    dropped_event=payload,
+                    queue_size=queue_size,
+                )
+                if queue.full():
+                    try:
+                        queue.get_nowait()
+                        queue.task_done()
+                    except asyncio.QueueEmpty:
+                        pass
+            queue.put_nowait(payload)
+
+        for event_type in resolved_events:
+            subscription_ids.append(agent.event_bus.subscribe(event_type, enqueue_event))
+
+        subscription_id = ",".join(subscription_ids)
+        self._runtime_event_subscriptions[subscription_id] = subscription_ids
+        return {
+            "subscription_id": subscription_id,
+            "event_types": [event_type.value for event_type in resolved_events],
+            "queue": queue,
+            "queue_size": queue_size,
+        }
+
+    async def close_event_subscription(self, subscription_id: str) -> dict[str, Any]:
+        """Close a previously created Runtime event subscription."""
+
+        agent = self._require_agent()
+        subscription_ids = self._runtime_event_subscriptions.pop(subscription_id, None)
+        if subscription_ids is None:
+            raise ValueError(f"Runtime event subscription does not exist: {subscription_id}")
+
+        removed = 0
+        for event_bus_subscription_id in subscription_ids:
+            if agent.event_bus.unsubscribe(event_bus_subscription_id):
+                removed += 1
+        return {"subscription_id": subscription_id, "closed": True, "removed": removed}
+
     async def shutdown(self) -> dict[str, Any]:
         async with self._lock:
             await self._shutdown_locked()
@@ -451,6 +568,11 @@ class RuntimeService:
     async def _shutdown_locked(self) -> None:
         agent = self.state.agent
         if agent is not None:
+            for subscription_id in list(self._runtime_event_subscriptions):
+                try:
+                    await self.close_event_subscription(subscription_id)
+                except Exception:
+                    self._runtime_event_subscriptions.pop(subscription_id, None)
             await agent.shutdown()
         self.state.agent = None
         self.state.started = False
@@ -600,6 +722,150 @@ class RuntimeService:
         if diagnostics is not None:
             event["web_search_diagnostics"] = str(diagnostics)
         return event
+
+    @staticmethod
+    def _runtime_event_payload(event: Event) -> dict[str, Any]:
+        return {
+            "type": event.type.value,
+            "id": event.id,
+            "source": event.source,
+            "data": RuntimeService._sanitize_runtime_event_value(event.data),
+            "timestamp": event.timestamp.isoformat(),
+            "metadata": RuntimeService._sanitize_runtime_event_value(event.metadata),
+        }
+
+    @staticmethod
+    def _runtime_backpressure_payload(
+        *,
+        dropped_count: int,
+        dropped_event: dict[str, Any],
+        queue_size: int,
+    ) -> dict[str, Any]:
+        return {
+            "type": RUNTIME_EVENT_BACKPRESSURE_DROPPED,
+            "id": f"backpressure-{dropped_count}",
+            "source": "runtime.service",
+            "data": {
+                "dropped_count": dropped_count,
+                "queue_size": queue_size,
+                "dropped_event_type": dropped_event.get("type"),
+                "dropped_event_id": dropped_event.get("id"),
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "metadata": {},
+        }
+
+    @staticmethod
+    def _sanitize_runtime_event_value(value: Any) -> Any:
+        return RuntimeService._redact_sensitive_fields(RuntimeService._json_compatible(value))
+
+    @staticmethod
+    def _redact_sensitive_fields(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                str(key): (
+                    REDACTED_VALUE
+                    if RuntimeService._is_sensitive_event_field(str(key))
+                    else RuntimeService._redact_sensitive_fields(item)
+                )
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [RuntimeService._redact_sensitive_fields(item) for item in value]
+        return value
+
+    @staticmethod
+    def _is_sensitive_event_field(field_name: str) -> bool:
+        normalized = field_name.lower().replace("-", "_")
+        return normalized in SENSITIVE_EVENT_FIELD_NAMES or any(
+            marker in normalized for marker in ("api_key", "token", "secret", "password")
+        )
+
+    @staticmethod
+    def _json_compatible(value: Any) -> Any:
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, dict):
+            return {str(key): RuntimeService._json_compatible(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [RuntimeService._json_compatible(item) for item in value]
+        if hasattr(value, "to_dict") and callable(getattr(value, "to_dict")):
+            return RuntimeService._json_compatible(value.to_dict())
+        if hasattr(value, "value"):
+            return RuntimeService._json_compatible(value.value)
+        return str(value)
+
+    @staticmethod
+    def _resolve_runtime_event_types(
+        event_types: Iterable[str] | None = None,
+        categories: Iterable[str] | None = None,
+    ) -> list[SystemEvent]:
+        requested = set(event_types or [])
+        category_names = set(categories or [])
+        if "all" in category_names or "*" in requested:
+            return list(SystemEvent)
+
+        category_map = RuntimeService._runtime_event_category_map()
+        for category in category_names:
+            if category not in category_map:
+                raise ValueError(f"Unknown Runtime event category: {category}")
+            requested.update(event_type.value for event_type in category_map[category])
+
+        if not requested:
+            requested.update(event_type.value for event_type in category_map["runtime_observable"])
+
+        by_value = {event_type.value: event_type for event_type in SystemEvent}
+        unknown = sorted(value for value in requested if value not in by_value)
+        if unknown:
+            raise ValueError(f"Unknown Runtime event types: {', '.join(unknown)}")
+        return [by_value[value] for value in sorted(requested)]
+
+    @staticmethod
+    def _runtime_event_category_map() -> dict[str, tuple[SystemEvent, ...]]:
+        categories = {
+            "tool": (
+                SystemEvent.TOOL_CALL_SELECTED,
+                SystemEvent.TOOL_CALL_STARTED,
+                SystemEvent.TOOL_CALL_PROGRESS,
+                SystemEvent.TOOL_CALL_COMPLETED,
+                SystemEvent.TOOL_CALL_FAILED,
+            ),
+            "model": (
+                SystemEvent.MODEL_CALL_TIMING,
+                SystemEvent.MODEL_AUTH,
+                SystemEvent.MODEL_REQUEST_STARTED,
+                SystemEvent.MODEL_RETRY_SCHEDULED,
+                SystemEvent.MODEL_FIRST_TOKEN,
+                SystemEvent.MODEL_COMPLETED,
+                SystemEvent.MODEL_FAILED,
+            ),
+            "background": (
+                SystemEvent.BACKGROUND_TASK_SUBMITTED,
+                SystemEvent.BACKGROUND_TASK_COMPLETED,
+                SystemEvent.BACKGROUND_TASK_FAILED,
+                SystemEvent.BACKGROUND_WORKER_STARTED,
+                SystemEvent.BACKGROUND_WORKER_IDLE,
+                SystemEvent.BACKGROUND_WORKER_FAILED,
+            ),
+            "persistence": (
+                SystemEvent.PERSISTENCE_SAVE_STARTED,
+                SystemEvent.PERSISTENCE_SAVE_COMPLETED,
+                SystemEvent.PERSISTENCE_SAVE_FAILED,
+            ),
+            "error": (
+                SystemEvent.ERROR_OCCURRED,
+                SystemEvent.MODEL_ERROR,
+                SystemEvent.TOOL_ERROR,
+            ),
+        }
+        categories["runtime_observable"] = (
+            *categories["tool"],
+            *categories["model"],
+            *categories["background"],
+            *categories["persistence"],
+            *categories["error"],
+        )
+        return categories
 
     @staticmethod
     def _session_payload(session: SessionContext | None) -> dict[str, Any]:
