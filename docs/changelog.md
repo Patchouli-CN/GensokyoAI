@@ -6,7 +6,7 @@
 
 ## 版本号规则
 
-版本号格式、哪些地方带 `v`、哪些地方不带 `v`、Runtime 协议版本和 schema version 的区别，统一见 [`docs/versioning.md`](../docs/versioning.md)。
+版本号格式、哪些地方带 `v`、哪些地方不带 `v`、Runtime 协议版本和 schema version 的区别，统一见 [`versioning.md`](versioning.md)。
 
 简要规则：
 

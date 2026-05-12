@@ -4,13 +4,14 @@ CONFIG_SCHEMA_VERSION = 1
 SESSION_SCHEMA_VERSION = 1
 MEMORY_SCHEMA_VERSION = 1
 SESSION_EXPORT_SCHEMA_VERSION = 1
-CHARACTER_PACKAGE_SCHEMA_VERSION: int | None = None
+CHARACTER_PACKAGE_SCHEMA_VERSION = 1
 
 GENSOKYOAI_CREATED_BY = "GensokyoAI"
 
 SESSION_FILE_FORMAT = "gensokyoai.session.file"
 MEMORY_STORE_FORMAT = "gensokyoai.memory.topic_store"
 SESSION_EXPORT_FORMAT = "gensokyoai.session.export"
+CHARACTER_PACKAGE_FORMAT = "gensokyoai.character.package"
 
 
 def schema_versions_payload() -> dict[str, int | None]:

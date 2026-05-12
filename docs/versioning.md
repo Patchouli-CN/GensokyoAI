@@ -38,7 +38,7 @@ vYYYY.M.D.N
 | --- | --- | --- | --- |
 | Python package version | 不带 | `2026.5.11.0` | 写入 [`pyproject.toml`](../pyproject.toml) |
 | Git tag | 带 | `v2026.5.11.0` | 发布 tag |
-| changelog 文件名 | 带 | `changelog/v2026.5.11.0.md` | 对外更新日志 |
+| changelog 文件名 | 带 | `docs/changelog/v2026.5.11.0.md` | 对外更新日志 |
 | changelog 标题 | 带 | `# GensokyoAI v2026.5.11.0 更新日志` | 普通用户阅读 |
 | UI 展示版本 | 建议带 | `v2026.5.11.0` | 用户更容易识别 |
 | Runtime protocol version | 不带 | `2026.5.11.0` | JSON 字段值不带 `v` |
@@ -78,7 +78,7 @@ Runtime 读取规则：
 ```text
 pyproject.toml: version = "2026.5.11.0"
 Git tag: v2026.5.11.0
-Changelog: changelog/v2026.5.11.0.md
+Changelog: docs/changelog/v2026.5.11.0.md
 ```
 
 ## 五、Runtime 协议版本
@@ -127,7 +127,7 @@ CONFIG_SCHEMA_VERSION = 1
 SESSION_SCHEMA_VERSION = 1
 MEMORY_SCHEMA_VERSION = 1
 SESSION_EXPORT_SCHEMA_VERSION = 1
-CHARACTER_PACKAGE_SCHEMA_VERSION = None
+CHARACTER_PACKAGE_SCHEMA_VERSION = 1
 ```
 
 schema version 使用整数，不使用日期版本。
@@ -261,20 +261,21 @@ Runtime 对外声明废弃信息时，应优先使用结构化字段：
 
 ## 八、changelog 规则
 
-changelog 位于 [`changelog`](../changelog) 目录。
+changelog 模板位于 [`changelog.md`](changelog.md)，正式发布记录建议放在 `docs/changelog/` 目录。
 
 建议结构：
 
 ```text
-changelog/
-  README.md
-  v2026.5.11.0.md
-  v2026.5.11.1.md
+docs/
+  changelog.md
+  changelog/
+    v2026.5.11.0.md
+    v2026.5.11.1.md
 ```
 
 规则：
 
-- [`changelog/README.md`](../changelog/README.md) 是模板和写作说明。
+- [`changelog.md`](changelog.md) 是模板和写作说明。
 - 每次正式发布创建一个独立版本文件。
 - 文件名使用 Git tag 形式，带 `v`。
 - changelog 标题也带 `v`。
@@ -304,14 +305,14 @@ changelog/
 | --- | --- | --- | --- |
 | package version | `YYYY.M.D.N` | `2026.5.11.0` | [`pyproject.toml`](../pyproject.toml) |
 | Git tag | `vYYYY.M.D.N` | `v2026.5.11.0` | Git tag |
-| changelog | `vYYYY.M.D.N` | [`changelog/v2026.5.11.0.md`](../changelog) | [`changelog`](../changelog) |
+| changelog | `vYYYY.M.D.N` | [`docs/changelog/v2026.5.11.0.md`](changelog) | [`docs/changelog`](changelog) |
 | Runtime protocol version | `YYYY.M.D.N` | `2026.5.11.0` | [`rpc.py`](../GensokyoAI/runtime/rpc.py) |
 | Runtime protocol major | integer | `1` | [`rpc.py`](../GensokyoAI/runtime/rpc.py) |
 | config schema | integer | `1` | [`schema_versions.py`](../GensokyoAI/core/schema_versions.py) |
 | session schema | integer | `1` | [`schema_versions.py`](../GensokyoAI/core/schema_versions.py) |
 | memory schema | integer | `1` | [`schema_versions.py`](../GensokyoAI/core/schema_versions.py) |
 | session export schema | integer | `1` | [`schema_versions.py`](../GensokyoAI/core/schema_versions.py) |
-| character package schema | integer 或 `None` | `None` | [`schema_versions.py`](../GensokyoAI/core/schema_versions.py) |
+| character package schema | integer 或 `None` | `1` | [`schema_versions.py`](../GensokyoAI/core/schema_versions.py) |
 
 ## 十一、当前状态
 
@@ -325,5 +326,5 @@ changelog/
 
 1. [`pyproject.toml`](../pyproject.toml) 的 `version`。
 2. [`rpc.py`](../GensokyoAI/runtime/rpc.py) 的 `RUNTIME_PROTOCOL_VERSION`。
-3. [`changelog/v2026.5.11.0.md`](../changelog)。
+3. [`docs/changelog/v2026.5.11.0.md`](changelog)。
 4. Git tag `v2026.5.11.0`。

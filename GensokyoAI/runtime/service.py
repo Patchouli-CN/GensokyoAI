@@ -21,6 +21,7 @@ import yaml
 from GensokyoAI.core.agent import Agent
 from GensokyoAI.core.agent.model_registry import ModelRegistryService
 from GensokyoAI.core.agent.types import ModelInfo
+from GensokyoAI.core.character_package import CharacterPackageService
 from GensokyoAI.core.character_validator import CharacterValidator
 from GensokyoAI.core.config import ConfigLoader
 from GensokyoAI.core.config_validator import ConfigDiagnostic, ConfigValidator
@@ -173,6 +174,7 @@ class RuntimeService:
         self._runtime_event_subscriptions: dict[str, list[str]] = {}
         self._config_validator = ConfigValidator()
         self._character_validator = CharacterValidator()
+        self._character_package_service = CharacterPackageService()
         self._resource_gates = self._build_resource_gates()
 
     async def handle(
@@ -209,6 +211,7 @@ class RuntimeService:
                 "agent.streaming",
                 "character.discovery",
                 "character.validation",
+                "character_package.management",
                 "dependency.management",
                 "external_tool.status",
                 "memory.management",
@@ -302,6 +305,59 @@ class RuntimeService:
             character_path=resolved_character_path,
             source=source,
             preview=preview,
+        )
+
+    async def validate_character_package(self, package_path: str) -> dict[str, Any]:
+        """Return structured diagnostics for a .gensokyo-character package."""
+
+        resolved_package_path = self._resolve_sandboxed_path(package_path)
+        return self._character_package_service.validate_package(resolved_package_path)
+
+    async def preview_character_package(self, package_path: str) -> dict[str, Any]:
+        """Return manifest and character preview for a .gensokyo-character package."""
+
+        resolved_package_path = self._resolve_sandboxed_path(package_path)
+        return self._character_package_service.preview_package(resolved_package_path)
+
+    async def import_character_package(
+        self,
+        package_path: str,
+        locale: str | None = None,
+        overwrite: bool = False,
+    ) -> dict[str, Any]:
+        """Import a .gensokyo-character package into the Runtime characters directory."""
+
+        resolved_package_path = self._resolve_sandboxed_path(package_path)
+        return self._character_package_service.import_package(
+            resolved_package_path,
+            self.state.root_dir / "characters",
+            locale=locale,
+            overwrite=overwrite,
+        )
+
+    async def export_character_package(
+        self,
+        character_path: str,
+        output_path: str,
+        package_id: str | None = None,
+        author: str | None = None,
+        license: str | None = None,
+        assets: list[str] | None = None,
+        overwrite: bool = False,
+    ) -> dict[str, Any]:
+        """Export a character YAML file as a .gensokyo-character package."""
+
+        resolved_character_path = self._resolve_sandboxed_path(character_path)
+        resolved_output_path = self._resolve_sandboxed_path(output_path)
+        resolved_assets = [self._resolve_sandboxed_path(asset) for asset in assets or []]
+        return self._character_package_service.export_package(
+            resolved_character_path,
+            resolved_output_path,
+            package_id=package_id,
+            author=author,
+            license=license,
+            assets=resolved_assets,
+            overwrite=overwrite,
         )
 
     async def init(

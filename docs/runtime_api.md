@@ -20,15 +20,15 @@
   "protocol": "json-lines-rpc",
   "protocol_version": "1.1.0",
   "protocol_major_version": 1,
-  "capabilities": ["agent.messaging", "config.validation", "character.validation", "migration.diagnostics", "resource_control.runtime_gates", "runtime.events", "runtime.versioning"],
-  "methods": ["runtime.info", "runtime.health", "config.validate", "character.validate"],
+  "capabilities": ["agent.messaging", "config.validation", "character.validation", "character_package.management", "migration.diagnostics", "resource_control.runtime_gates", "runtime.events", "runtime.versioning"],
+  "methods": ["runtime.info", "runtime.health", "config.validate", "character.validate", "character_package.validate", "character_package.preview", "character_package.import", "character_package.export"],
   "legacy_methods": ["init"],
   "schema_versions": {
     "config": 1,
     "session": 1,
     "memory": 1,
     "session_export": 1,
-    "character_package": null
+    "character_package": 1
   },
   "config_schema_version": 1,
   "deprecated_methods": [
@@ -68,7 +68,7 @@
 - `schema_versions.session`：会话文件 schema version。
 - `schema_versions.memory`：记忆 topic store schema version。
 - `schema_versions.session_export`：会话导出包 schema version。
-- `schema_versions.character_package`：角色包 schema version；角色包尚未落地时为 `null`。
+- `schema_versions.character_package`：角色包 schema version；当前 `.gensokyo-character` 格式为 `1`。
 - `deprecated_methods`：已废弃 RPC 方法及替代方法。
 - `deprecated_fields`：已废弃字段；当前为空数组。
 - `compatibility_notes`：兼容性提示；当前为空数组。
@@ -256,6 +256,61 @@ HTTP `/rpc` 与 WebSocket 普通 RPC 使用相同请求格式：
 - `diagnostics` / `error_count` / `warning_count`：结构化诊断信息。
 
 `character.list` 条目也会包含 `ok`、`preview` 和 `diagnostics`，便于客户端在列表中展示坏角色文件。
+
+## 角色包 API
+
+角色包使用 `.gensokyo-character` 扩展名，本质为安全受限的 zip 包，根目录必须包含 `manifest.yaml`，当前格式名为 `gensokyoai.character.package`，schema version 为 `1`。
+
+`character_package.validate` 校验角色包结构、manifest、包内路径安全、文件大小、角色 YAML 与资源路径：
+
+```json
+{
+  "method": "character_package.validate",
+  "params": {"package_path": "packages/reimu.gensokyo-character"}
+}
+```
+
+`character_package.preview` 返回同一套 diagnostics，并额外面向 UI 使用 manifest 摘要、角色 preview 和文件列表。
+
+`character_package.import` 将角色包导入 `characters` 目录：
+
+```json
+{
+  "method": "character_package.import",
+  "params": {
+    "package_path": "packages/reimu.gensokyo-character",
+    "locale": "zh_cn",
+    "overwrite": false
+  }
+}
+```
+
+`character_package.export` 从已有角色 YAML 生成角色包：
+
+```json
+{
+  "method": "character_package.export",
+  "params": {
+    "character_path": "characters/zh_cn/HakureiReimu.yaml",
+    "output_path": "packages/reimu.gensokyo-character",
+    "package_id": "HakureiReimu",
+    "author": "GensokyoAI",
+    "license": "MIT",
+    "assets": [],
+    "overwrite": false
+  }
+}
+```
+
+角色包 API 返回字段：
+
+- `ok`：是否没有 error 级诊断。
+- `format` / `schema_version`：角色包格式和 schema version。
+- `manifest`：包 ID、名称、版本、作者、许可证、角色入口、资源列表等摘要。
+- `preview`：复用角色 YAML 校验预览结构。
+- `files`：包内文件路径和大小。
+- `diagnostics` / `error_count` / `warning_count`：结构化诊断信息。
+- `imported` / `target_path`：导入结果字段。
 
 ## 资源控制
 

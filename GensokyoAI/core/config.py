@@ -4,6 +4,7 @@
 旧代码仍可继续从本模块导入 AppConfig、ConfigLoader 等名称。
 """
 
+from .character_package import CharacterPackageOptions, CharacterPackageService
 from .character_validator import CharacterValidator
 from .config_env import apply_env_overrides
 from .config_loader import ConfigLoader
@@ -30,6 +31,8 @@ __all__ = [
     "AppConfig",
     "AuthConfig",
     "CharacterConfig",
+    "CharacterPackageOptions",
+    "CharacterPackageService",
     "CharacterValidator",
     "ConfigLoader",
     "ConfigDiagnostic",
