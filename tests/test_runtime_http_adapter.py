@@ -20,6 +20,17 @@ class FakeHttpRuntimeService:
     def __init__(self):
         self.shutdown_called = False
         self.event_bus = EventBus(enable_trace=False)
+        self.long_rpc_started = asyncio.Event()
+        self.long_rpc_release = asyncio.Event()
+        self.long_rpc_finished = asyncio.Event()
+        self.long_rpc_cancelled = False
+        self.active_long_rpcs = 0
+        self.stream_started = asyncio.Event()
+        self.stream_cancelled = asyncio.Event()
+        self.stream_finished = asyncio.Event()
+        self.active_streams = 0
+        self.closed_subscription_ids: list[str] = []
+        self.last_subscription_id: str | None = None
 
         async def shutdown(_self):
             return None
@@ -40,22 +51,44 @@ class FakeHttpRuntimeService:
             return await self.info()
         if method == "echo":
             return {"method": method, "params": params}
+        if method == "slow_rpc":
+            return await self._slow_rpc()
         if method == "explode":
             raise ValueError("boom")
         raise ValueError(f"Unknown method: {method}")
 
+    async def _slow_rpc(self):
+        self.active_long_rpcs += 1
+        self.long_rpc_started.set()
+        try:
+            await self.long_rpc_release.wait()
+            return {"ok": True}
+        except asyncio.CancelledError:
+            self.long_rpc_cancelled = True
+            raise
+        finally:
+            self.active_long_rpcs -= 1
+            self.long_rpc_finished.set()
+
     async def iter_message_stream(self, message, system_contexts=None):
-        yield {"type": "content", "index": 0, "content": "echo:"}
-        if message == "slow":
-            try:
-                await asyncio.sleep(10)
-            except asyncio.CancelledError:
-                yield {"type": "cancelled", "index": 1, "content": "echo:"}
-                raise
-        if message == "fail":
-            raise ValueError("stream boom")
-        yield {"type": "content", "index": 1, "content": message}
-        yield {"type": "finish", "index": 2, "content": f"echo:{message}", "session": None}
+        self.active_streams += 1
+        self.stream_started.set()
+        try:
+            yield {"type": "content", "index": 0, "content": "echo:"}
+            if message == "slow":
+                try:
+                    await asyncio.sleep(10)
+                except asyncio.CancelledError:
+                    self.stream_cancelled.set()
+                    yield {"type": "cancelled", "index": 1, "content": "echo:"}
+                    raise
+            if message == "fail":
+                raise ValueError("stream boom")
+            yield {"type": "content", "index": 1, "content": message}
+            yield {"type": "finish", "index": 2, "content": f"echo:{message}", "session": None}
+        finally:
+            self.active_streams -= 1
+            self.stream_finished.set()
 
     async def send_message_stream(self, message, system_contexts=None):
         events = []
@@ -74,11 +107,14 @@ class FakeHttpRuntimeService:
             "categories": categories,
             "queue_size": queue_size,
         }
-        return await self.real_service.create_event_subscription(
+        subscription = await self.real_service.create_event_subscription(
             event_types, categories, queue_size
         )
+        self.last_subscription_id = subscription["subscription_id"]
+        return subscription
 
     async def close_event_subscription(self, subscription_id):
+        self.closed_subscription_ids.append(subscription_id)
         return await self.real_service.close_event_subscription(subscription_id)
 
     @property
@@ -161,6 +197,25 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
         self.assertEqual(error_payload["id"], 8)
         self.assertFalse(error_payload["ok"])
         self.assertEqual(error_payload["error"]["code"], "runtime.error")
+
+    @unittest_run_loop
+    async def test_http_rpc_cancellation_releases_in_flight_handler_state(self):
+        task = asyncio.create_task(
+            self.client.post(
+                "/rpc",
+                json={"id": "slow-rpc", "method": "slow_rpc", "params": {}},
+            )
+        )
+        await asyncio.wait_for(self.fake_service.long_rpc_started.wait(), timeout=2)
+        self.assertEqual(self.fake_service.active_long_rpcs, 1)
+
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.fake_service.long_rpc_release.set()
+        await asyncio.wait_for(self.fake_service.long_rpc_finished.wait(), timeout=2)
+
+        self.assertEqual(self.fake_service.active_long_rpcs, 0)
 
     @unittest_run_loop
     async def test_websocket_returns_normal_rpc_response(self):
@@ -278,6 +333,28 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
         self.assertEqual(cancel_ack["result"]["stream_id"], "stream-xyz")
         self.assertTrue(cancel_ack["result"]["cancel_requested"])
         self.assertEqual(cancelled_frame["event"]["type"], "cancelled")
+
+    @unittest_run_loop
+    async def test_websocket_close_cancels_active_streaming_rpc(self):
+        ws = await self.client.ws_connect("/ws")
+        await ws.send_str(
+            json.dumps(
+                {
+                    "id": "stream-close",
+                    "method": "agent.send_message_stream",
+                    "params": {"message": "slow", "stream_id": "stream-close-id"},
+                }
+            )
+        )
+        first_message = await ws.receive(timeout=2)
+        self.assertEqual(json.loads(first_message.data)["event"]["type"], "content")
+        self.assertEqual(self.fake_service.active_streams, 1)
+
+        await ws.close()
+        await asyncio.wait_for(self.fake_service.stream_finished.wait(), timeout=2)
+
+        self.assertTrue(self.fake_service.stream_cancelled.is_set())
+        self.assertEqual(self.fake_service.active_streams, 0)
 
     @unittest_run_loop
     async def test_websocket_runtime_subscribe_receives_filtered_events_and_unsubscribes(self):
@@ -405,6 +482,163 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
         self.assertEqual(payload["data"], {"name": "search"})
         self.assertEqual(blank_line.decode(), "\n")
         self.assertEqual(self.fake_service.event_bus.stats["subscriber_count"], 0)
+
+    @unittest_run_loop
+    async def test_sse_close_is_idempotent_and_removes_subscription_once(self):
+        response = await self.client.get("/events?event_types=tool.call.started&queue_size=1")
+        self.assertEqual(response.status, 200)
+        for _ in range(10):
+            if self.fake_service.event_bus.stats["subscriber_count"] == 1:
+                break
+            await asyncio.sleep(0.01)
+        subscription_id = self.fake_service.last_subscription_id
+        self.assertIsNotNone(subscription_id)
+
+        response.close()
+        response.close()
+        for _ in range(10):
+            if self.fake_service.event_bus.stats["subscriber_count"] == 0:
+                break
+            await asyncio.sleep(0.01)
+
+        self.assertEqual(self.fake_service.event_bus.stats["subscriber_count"], 0)
+        self.assertEqual(self.fake_service.closed_subscription_ids, [subscription_id])
+
+    @unittest_run_loop
+    async def test_websocket_subscription_backpressure_with_heartbeat_cleans_up_on_close(self):
+        ws = await self.client.ws_connect("/ws?heartbeat_interval=0.01")
+        await ws.send_str(
+            json.dumps(
+                {
+                    "id": "sub-backpressure",
+                    "method": "runtime.subscribe",
+                    "params": {"event_types": ["tool.call.started"], "queue_size": 1},
+                }
+            )
+        )
+        ack = json.loads((await ws.receive(timeout=2)).data)
+        self.assertTrue(ack["ok"])
+
+        await self.fake_service.event_bus._process_event(
+            Event(type=SystemEvent.TOOL_CALL_STARTED, source="test", data={"name": "first"})
+        )
+        await self.fake_service.event_bus._process_event(
+            Event(type=SystemEvent.TOOL_CALL_STARTED, source="test", data={"name": "second"})
+        )
+        frames = []
+        for _ in range(3):
+            message = await ws.receive(timeout=2)
+            self.assertEqual(message.type, WSMsgType.TEXT)
+            frames.append(json.loads(message.data))
+            if any(frame.get("type") == "heartbeat" for frame in frames) and any(
+                frame.get("event", {}).get("type") in {"tool.call.started", "runtime.backpressure.dropped"}
+                for frame in frames
+            ):
+                break
+
+        await ws.close()
+        for _ in range(10):
+            if self.fake_service.event_bus.stats["subscriber_count"] == 0:
+                break
+            await asyncio.sleep(0.01)
+
+        self.assertTrue(any(frame.get("type") == "heartbeat" for frame in frames))
+        self.assertTrue(
+            any(
+                frame.get("event", {}).get("type")
+                in {"tool.call.started", "runtime.backpressure.dropped"}
+                for frame in frames
+            )
+        )
+        self.assertEqual(self.fake_service.event_bus.stats["subscriber_count"], 0)
+
+    @unittest_run_loop
+    async def test_multiple_runtime_apps_keep_events_streams_and_shutdown_isolated(self):
+        service_a = FakeHttpRuntimeService()
+        service_b = FakeHttpRuntimeService()
+        server_a = TestServer(create_app(service=cast(Any, service_a)))
+        server_b = TestServer(create_app(service=cast(Any, service_b)))
+        client_a = TestClient(server_a)
+        client_b = TestClient(server_b)
+        await client_a.start_server()
+        await client_b.start_server()
+        try:
+            ws_a = await client_a.ws_connect("/ws")
+            ws_b = await client_b.ws_connect("/ws")
+            await ws_a.send_str(
+                json.dumps(
+                    {
+                        "id": "sub-a",
+                        "method": "runtime.subscribe",
+                        "params": {"event_types": ["tool.call.started"]},
+                    }
+                )
+            )
+            await ws_b.send_str(
+                json.dumps(
+                    {
+                        "id": "sub-b",
+                        "method": "runtime.subscribe",
+                        "params": {"event_types": ["tool.call.completed"]},
+                    }
+                )
+            )
+            ack_a = json.loads((await ws_a.receive(timeout=2)).data)
+            ack_b = json.loads((await ws_b.receive(timeout=2)).data)
+            self.assertTrue(ack_a["ok"])
+            self.assertTrue(ack_b["ok"])
+
+            await service_a.event_bus._process_event(
+                Event(type=SystemEvent.TOOL_CALL_STARTED, source="a", data={"runtime": "a"})
+            )
+            event_a = json.loads((await ws_a.receive(timeout=2)).data)
+            self.assertEqual(event_a["event"]["data"], {"runtime": "a"})
+
+            await ws_a.send_str(
+                json.dumps(
+                    {
+                        "id": "stream-a",
+                        "method": "agent.send_message_stream",
+                        "params": {"message": "slow", "stream_id": "stream-a"},
+                    }
+                )
+            )
+            stream_a = json.loads((await ws_a.receive(timeout=2)).data)
+            self.assertEqual(stream_a["stream_id"], "stream-a")
+            self.assertEqual(service_a.active_streams, 1)
+            self.assertEqual(service_b.active_streams, 0)
+
+            await ws_a.send_str(
+                json.dumps(
+                    {
+                        "id": "unsub-a",
+                        "method": "runtime.unsubscribe",
+                        "params": {"subscription_id": ack_a["result"]["subscription_id"]},
+                    }
+                )
+            )
+            unsub_a = json.loads((await ws_a.receive(timeout=2)).data)
+            self.assertTrue(unsub_a["ok"])
+            self.assertEqual(service_a.event_bus.stats["subscriber_count"], 0)
+            await ws_a.close()
+            await asyncio.wait_for(service_a.stream_finished.wait(), timeout=2)
+            self.assertTrue(service_a.stream_cancelled.is_set())
+            self.assertEqual(service_b.event_bus.stats["subscriber_count"], 1)
+            self.assertEqual(service_a.active_streams, 0)
+            self.assertEqual(service_b.active_streams, 0)
+
+            await service_b.event_bus._process_event(
+                Event(type=SystemEvent.TOOL_CALL_COMPLETED, source="b", data={"runtime": "b"})
+            )
+            event_b = json.loads((await ws_b.receive(timeout=2)).data)
+            self.assertEqual(event_b["event"]["data"], {"runtime": "b"})
+            await ws_b.close()
+        finally:
+            await client_a.close()
+            await client_b.close()
+
+        self.assertTrue(service_a.shutdown_called)
+        self.assertTrue(service_b.shutdown_called)
 
     @unittest_run_loop
     async def test_rpc_requires_token_when_auth_enabled(self):

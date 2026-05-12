@@ -1,14 +1,23 @@
 import asyncio
 import unittest
 from types import SimpleNamespace
+from typing import Any, cast
 
 from GensokyoAI.core.agent.model_client import ModelClient
 from GensokyoAI.core.agent.providers import ProviderFactory
 from GensokyoAI.core.agent.providers.base import BaseProvider
 from GensokyoAI.core.agent.types import ProviderCapability, UnifiedEmbeddingResponse
-from GensokyoAI.core.config import AuthConfig, EmbeddingConfig, ModelConfig
+from GensokyoAI.core.config import AuthConfig, EmbeddingConfig, ModelConfig, ResourceControlConfig
 from GensokyoAI.core.events import SystemEvent
 from GensokyoAI.core.exceptions import ModelError
+from GensokyoAI.runtime.resource_control import build_resource_gates
+
+
+class _HTTPError(RuntimeError):
+    def __init__(self, message: str, *, status_code: int, response_body: str):
+        super().__init__(message)
+        self.status_code = status_code
+        self.response_body = response_body
 
 
 class RetryableProvider(BaseProvider):
@@ -17,10 +26,11 @@ class RetryableProvider(BaseProvider):
     async def chat(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
         self.__class__.calls += 1
         if self.__class__.calls == 1:
-            error = RuntimeError("server failed")
-            error.status_code = 502
-            error.response_body = "<!doctype html><html>bad gateway</html>"
-            raise error
+            raise _HTTPError(
+                "server failed",
+                status_code=502,
+                response_body="<!doctype html><html>bad gateway</html>",
+            )
         return SimpleNamespace(
             message=SimpleNamespace(content="ok"),
             model=model,
@@ -39,10 +49,7 @@ class NonRetryableProvider(BaseProvider):
 
     async def chat(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
         self.__class__.calls += 1
-        error = RuntimeError("bad request")
-        error.status_code = 400
-        error.response_body = "bad params"
-        raise error
+        raise _HTTPError("bad request", status_code=400, response_body="bad params")
 
     async def chat_stream(
         self, model: str, messages: list[dict], tools=None, options=None, **kwargs
@@ -57,10 +64,7 @@ class Retryable429Provider(BaseProvider):
     async def chat(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
         self.__class__.calls += 1
         if self.__class__.calls == 1:
-            error = RuntimeError("rate limited")
-            error.status_code = 429
-            error.response_body = "retry later"
-            raise error
+            raise _HTTPError("rate limited", status_code=429, response_body="retry later")
         return SimpleNamespace(
             message=SimpleNamespace(content="ok429"),
             model=model,
@@ -93,10 +97,11 @@ class RetryableEmbeddingProvider(BaseProvider):
     async def embeddings(self, model: str, prompt: str, **kwargs):
         self.__class__.calls += 1
         if self.__class__.calls == 1:
-            error = RuntimeError("embedding server failed")
-            error.status_code = 502
-            error.response_body = "<!doctype html><html>bad gateway</html>"
-            raise error
+            raise _HTTPError(
+                "embedding server failed",
+                status_code=502,
+                response_body="<!doctype html><html>bad gateway</html>",
+            )
         return UnifiedEmbeddingResponse(embedding=[1.0, 2.0], model=model)
 
 
@@ -115,10 +120,11 @@ class FailingEmbeddingProvider(BaseProvider):
             yield None
 
     async def embeddings(self, model: str, prompt: str, **kwargs):
-        error = RuntimeError("bad embedding request")
-        error.status_code = 400
-        error.response_body = "bad embedding params"
-        raise error
+        raise _HTTPError(
+            "bad embedding request",
+            status_code=400,
+            response_body="bad embedding params",
+        )
 
 
 class OAuth401Provider(BaseProvider):
@@ -128,10 +134,7 @@ class OAuth401Provider(BaseProvider):
     async def chat(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
         self.__class__.calls += 1
         if not self.__class__.refreshed:
-            error = RuntimeError("unauthorized")
-            error.status_code = 401
-            error.response_body = "expired"
-            raise error
+            raise _HTTPError("unauthorized", status_code=401, response_body="expired")
         return SimpleNamespace(message=SimpleNamespace(content="oauth ok"), model=model, done=True)
 
     async def chat_stream(
@@ -244,7 +247,7 @@ class ModelClientRetryTests(unittest.TestCase):
                 retry_max_attempts=2,
                 retry_initial_delay=0,
             ),
-            event_bus=event_bus,
+            event_bus=cast("Any", event_bus),
             embedding_config=EmbeddingConfig(provider="failing_embedding_test", name="embed-model"),
         )
 
@@ -271,7 +274,7 @@ class ModelClientRetryTests(unittest.TestCase):
                 retry_initial_delay=0,
                 auth=AuthConfig(auth_type="bearer", access_token="old-token"),
             ),
-            event_bus=event_bus,
+            event_bus=cast("Any", event_bus),
         )
 
         response = asyncio.run(client.chat([{"role": "user", "content": "hi"}]))
@@ -281,6 +284,54 @@ class ModelClientRetryTests(unittest.TestCase):
         auth_events = [e for e in event_bus.events if e.type == SystemEvent.MODEL_AUTH]
         self.assertTrue(auth_events)
         self.assertIn("token_refresh_completed", [e.data["status"] for e in auth_events])
+
+
+    def test_provider_gate_rejects_concurrent_chat_and_releases(self):
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        class BlockingProvider(BaseProvider):
+            async def chat(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
+                started.set()
+                await release.wait()
+                return SimpleNamespace(message=SimpleNamespace(content="blocked"), model=model, done=True)
+
+            async def chat_stream(
+                self, model: str, messages: list[dict], tools=None, options=None, **kwargs
+            ):
+                if False:
+                    yield None
+
+        if "blocking_resource_test" not in ProviderFactory.available_providers():
+            ProviderFactory.register("blocking_resource_test", BlockingProvider)
+        gates = build_resource_gates(
+            ResourceControlConfig(
+                provider_max_concurrent=1,
+                model_max_concurrent=1,
+                runtime_queue_size=0,
+                acquire_timeout_seconds=0,
+            )
+        )
+        client = ModelClient(
+            ModelConfig(provider="blocking_resource_test", name="test-model"),
+            resource_gates=gates,
+        )
+
+        async def run():
+            first = asyncio.create_task(client.chat([{"role": "user", "content": "one"}]))
+            await started.wait()
+            with self.assertRaises(ModelError) as ctx:
+                await client.chat([{"role": "user", "content": "two"}])
+            release.set()
+            await first
+            return ctx.exception
+
+        error = asyncio.run(run())
+
+        self.assertEqual(getattr(error, "error_code", None), "resource.limit_exceeded")
+        self.assertEqual(getattr(error, "details", {}).get("resource"), "provider")
+        self.assertEqual(gates["provider"].active, 0)
+        self.assertEqual(gates["model"].active, 0)
 
 
 if __name__ == "__main__":

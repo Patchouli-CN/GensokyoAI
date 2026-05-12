@@ -8,6 +8,12 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import cast
 
 from ...runtime.event_contract import sanitize_event_payload
+from ...runtime.resource_control import (
+    ResourceGate,
+    ResourceLimitError,
+    resource_limit_payload,
+    resource_scope,
+)
 from ...utils.logger import logger
 from ...utils.request_utils import ModelAPIError, is_retryable_error, normalize_model_error
 from ..config import EmbeddingConfig, ModelConfig
@@ -40,9 +46,11 @@ class ModelClient:
         config: ModelConfig,
         event_bus: EventBus | None = None,
         embedding_config: EmbeddingConfig | None = None,
+        resource_gates: dict[str, ResourceGate] | None = None,
     ):
         self.config = config
         self._event_bus = event_bus
+        self._resource_gates = resource_gates or {}
         self._provider: BaseProvider = ProviderFactory.create(config)
         self._embedding_provider: BaseProvider | None = None
         self._embedding_config = embedding_config or EmbeddingConfig()
@@ -199,6 +207,32 @@ class ModelClient:
         """获取当前配置的可重试 HTTP 状态码。"""
         return set(self.config.retry_status_codes or [])
 
+    def update_resource_gates(self, resource_gates: dict[str, ResourceGate] | None) -> None:
+        """更新 Runtime 深层资源闸门引用。"""
+
+        self._resource_gates = resource_gates or {}
+
+    @staticmethod
+    def _resource_limit_model_error(error: ResourceLimitError) -> ModelError:
+        payload = resource_limit_payload(error)
+        model_error = ModelError(payload["technical_message"])
+        model_error.error_code = payload["code"]  # type: ignore[attr-defined]
+        model_error.user_message = payload["user_message"]  # type: ignore[attr-defined]
+        model_error.recoverable = payload["recoverable"]  # type: ignore[attr-defined]
+        model_error.action_hint = payload["action_hint"]  # type: ignore[attr-defined]
+        model_error.details = payload["details"]  # type: ignore[attr-defined]
+        return model_error
+
+    async def _call_with_resource_gates(self, call_factory, *, action: str):
+        try:
+            async with (
+                resource_scope(getattr(self, "_resource_gates", {}).get("provider"), action),
+                resource_scope(getattr(self, "_resource_gates", {}).get("model"), action),
+            ):
+                return await call_factory()
+        except ResourceLimitError as error:
+            raise self._resource_limit_model_error(error) from error
+
     @staticmethod
     def _now() -> float:
         """获取单调时钟时间，用于稳定计算调用耗时。"""
@@ -332,12 +366,17 @@ class ModelClient:
                     context=context,
                     model=model,
                 )
-                return await asyncio.wait_for(call(), timeout=call_timeout)
+                return await self._call_with_resource_gates(
+                    lambda call=call: asyncio.wait_for(call(), timeout=call_timeout),
+                    action=context,
+                )
             except TimeoutError:
                 raise
             except asyncio.CancelledError:
                 raise
             except Exception as e:
+                if isinstance(e, ModelError) and getattr(e, "error_code", None) == "resource.limit_exceeded":
+                    raise
                 normalized = normalize_model_error(
                     e,
                     provider=call_provider_name,
@@ -359,7 +398,10 @@ class ModelClient:
                         model=model,
                         force_refresh=True,
                     )
-                    return await asyncio.wait_for(call(), timeout=call_timeout)
+                    return await self._call_with_resource_gates(
+                        lambda call=call: asyncio.wait_for(call(), timeout=call_timeout),
+                        action=context,
+                    )
 
                 if attempt >= max_attempts or not is_retryable_error(
                     normalized,
@@ -504,6 +546,8 @@ class ModelClient:
             raise ModelError(error_msg) from error
 
         except Exception as e:
+            if isinstance(e, ModelError) and getattr(e, "error_code", None) == "resource.limit_exceeded":
+                raise
             normalized = (
                 e
                 if isinstance(e, ModelAPIError)
@@ -585,66 +629,72 @@ class ModelClient:
                         context="chat_stream",
                         model=call_model,
                     )
-                    stream = self._provider.chat_stream(
-                        model=call_model,
-                        messages=messages,
-                        tools=tools,
-                        options=call_options,
-                        extra_body=extra_body,
-                        **kwargs,
-                    ).__aiter__()  # type: ignore
-                    while True:
-                        try:
-                            chunk = await asyncio.wait_for(
-                                anext(stream),
-                                timeout=self.config.timeout,
-                            )
-                        except StopAsyncIteration:
-                            break
-
-                        elapsed_ms = self._elapsed_ms(timing.start_time)
-                        if timing.first_chunk_ms is None:
-                            timing.first_chunk_ms = elapsed_ms
-                        if chunk.content:
-                            timing.content_chunk_count += 1
-                            timing.content_char_count += len(chunk.content)
-                            if timing.first_token_ms is None:
-                                timing.first_token_ms = elapsed_ms
-                                self._publish_runtime_model_event(
-                                    SystemEvent.MODEL_FIRST_TOKEN,
-                                    {
-                                        "context": "chat_stream",
-                                        "provider": self.config.provider,
-                                        "model": call_model,
-                                        "first_token_ms": timing.first_token_ms,
-                                        "first_chunk_ms": timing.first_chunk_ms,
-                                    },
+                    async with (
+                        resource_scope(getattr(self, "_resource_gates", {}).get("provider"), "chat_stream"),
+                        resource_scope(getattr(self, "_resource_gates", {}).get("model"), "chat_stream"),
+                    ):
+                        stream = self._provider.chat_stream(
+                            model=call_model,
+                            messages=messages,
+                            tools=tools,
+                            options=call_options,
+                            extra_body=extra_body,
+                            **kwargs,
+                        ).__aiter__()  # type: ignore
+                        while True:
+                            try:
+                                chunk = await asyncio.wait_for(
+                                    anext(stream),
+                                    timeout=self.config.timeout,
                                 )
-                        reasoning_content = getattr(chunk, "reasoning_content", None)
-                        if reasoning_content:
-                            timing.reasoning_chunk_count += 1
-                            timing.reasoning_char_count += len(reasoning_content)
-                            if timing.first_reasoning_ms is None:
-                                timing.first_reasoning_ms = elapsed_ms
-                        chunk_usage = getattr(chunk, "usage", None)
-                        if chunk_usage:
-                            timing.usage = chunk_usage
-                        chunk_finish_reason = getattr(chunk, "finish_reason", None)
-                        if chunk_finish_reason:
-                            timing.finish_reason = chunk_finish_reason
-                        if chunk.type == "finish":
-                            self._finish_timing(timing)
-                            chunk.timing = timing
-                            self._publish_timing(timing)
-                            timing_published = True
-                            self._publish_model_completed(timing)
-                        yield chunk
+                            except StopAsyncIteration:
+                                break
+
+                            elapsed_ms = self._elapsed_ms(timing.start_time)
+                            if timing.first_chunk_ms is None:
+                                timing.first_chunk_ms = elapsed_ms
+                            if chunk.content:
+                                timing.content_chunk_count += 1
+                                timing.content_char_count += len(chunk.content)
+                                if timing.first_token_ms is None:
+                                    timing.first_token_ms = elapsed_ms
+                                    self._publish_runtime_model_event(
+                                        SystemEvent.MODEL_FIRST_TOKEN,
+                                        {
+                                            "context": "chat_stream",
+                                            "provider": self.config.provider,
+                                            "model": call_model,
+                                            "first_token_ms": timing.first_token_ms,
+                                            "first_chunk_ms": timing.first_chunk_ms,
+                                        },
+                                    )
+                            reasoning_content = getattr(chunk, "reasoning_content", None)
+                            if reasoning_content:
+                                timing.reasoning_chunk_count += 1
+                                timing.reasoning_char_count += len(reasoning_content)
+                                if timing.first_reasoning_ms is None:
+                                    timing.first_reasoning_ms = elapsed_ms
+                            chunk_usage = getattr(chunk, "usage", None)
+                            if chunk_usage:
+                                timing.usage = chunk_usage
+                            chunk_finish_reason = getattr(chunk, "finish_reason", None)
+                            if chunk_finish_reason:
+                                timing.finish_reason = chunk_finish_reason
+                            if chunk.type == "finish":
+                                self._finish_timing(timing)
+                                chunk.timing = timing
+                                self._publish_timing(timing)
+                                timing_published = True
+                                self._publish_model_completed(timing)
+                            yield chunk
                     if not timing_published:
                         self._finish_timing(timing)
                         self._publish_timing(timing)
                         timing_published = True
                         self._publish_model_completed(timing)
                     break
+                except ResourceLimitError as error:
+                    raise self._resource_limit_model_error(error) from error
                 except TimeoutError:
                     raise
                 except asyncio.CancelledError:
@@ -722,7 +772,12 @@ class ModelClient:
             )
             raise
 
+        except ResourceLimitError as error:
+            raise self._resource_limit_model_error(error) from error
+
         except Exception as e:
+            if isinstance(e, ModelError) and getattr(e, "error_code", None) == "resource.limit_exceeded":
+                raise
             normalized = (
                 e
                 if isinstance(e, ModelAPIError)
@@ -827,6 +882,8 @@ class ModelClient:
         except NotImplementedError as e:
             raise ModelError(f"当前 Provider ({self.config.provider}) 不支持图片生成") from e
         except Exception as e:
+            if isinstance(e, ModelError) and getattr(e, "error_code", None) == "resource.limit_exceeded":
+                raise
             normalized = (
                 e
                 if isinstance(e, ModelAPIError)

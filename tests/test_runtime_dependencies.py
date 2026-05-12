@@ -1068,6 +1068,11 @@ class RuntimeResourceControlTests(unittest.TestCase):
         self.assertIn("resource_control.runtime_gates", info["capabilities"])
         self.assertTrue(info["resource_control"]["enabled"])
         self.assertIn("runtime", info["resource_control"]["gates"])
+        self.assertIn("provider", info["resource_control"]["gates"])
+        self.assertIn("model", info["resource_control"]["gates"])
+        self.assertIn("tool", info["resource_control"]["gates"])
+        self.assertIn("web_search", info["resource_control"]["gates"])
+        self.assertIn("image_generation", info["resource_control"]["gates"])
         self.assertIn("dependency_install", info["resource_control"]["categories"])
 
     def test_send_message_returns_structured_resource_limit_when_gate_is_full(self):

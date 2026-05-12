@@ -8,6 +8,12 @@ from typing import TYPE_CHECKING, Any
 
 from ..core.agent.types import UnifiedMessage
 from ..runtime.event_contract import sanitize_event_payload
+from ..runtime.resource_control import (
+    ResourceGate,
+    ResourceLimitError,
+    resource_limit_payload,
+    resource_scope,
+)
 from ..utils.logger import logger
 from .errors import ToolError, ToolExecutionError
 from .external_manager import ExternalToolManager, is_external_tool_name
@@ -25,10 +31,12 @@ class ToolExecutor:
         registry: ToolRegistry | None = None,
         event_bus: EventBus | None = None,
         external_tool_manager: ExternalToolManager | None = None,
+        resource_gates: dict[str, ResourceGate] | None = None,
     ):
         self._registry = registry or ToolRegistry()
         self._event_bus = event_bus
         self._external_tool_manager = external_tool_manager
+        self._resource_gates = resource_gates or {}
 
     def set_event_bus(self, event_bus: EventBus) -> None:
         """注入事件总线"""
@@ -37,6 +45,11 @@ class ToolExecutor:
     def set_external_tool_manager(self, manager: ExternalToolManager | None) -> None:
         """注入外部工具管理器。"""
         self._external_tool_manager = manager
+
+    def update_resource_gates(self, resource_gates: dict[str, ResourceGate] | None) -> None:
+        """更新 Runtime 深层资源闸门引用。"""
+
+        self._resource_gates = resource_gates or {}
 
     def parse_tool_calls(self, message: UnifiedMessage) -> list[dict[str, Any]]:
         """从 UnifiedMessage 对象解析工具调用"""
@@ -97,10 +110,17 @@ class ToolExecutor:
         try:
             logger.debug(f"执行工具: {name}({arguments})")
 
-            if tool_def.is_async:
-                result = await tool_def.func(**arguments)
-            else:
-                result = await asyncio.to_thread(tool_def.func, **arguments)
+            async with (
+                resource_scope(self._resource_gates.get("tool"), f"tool:{name}"),
+                resource_scope(
+                    self._resource_gates.get("web_search") if name == "web_search" else None,
+                    f"tool:{name}",
+                ),
+            ):
+                if tool_def.is_async:
+                    result = await tool_def.func(**arguments)
+                else:
+                    result = await asyncio.to_thread(tool_def.func, **arguments)
 
             result = self._serialize_tool_result(result)
 
@@ -113,6 +133,13 @@ class ToolExecutor:
                 "name": name,
                 "content": result,
             }
+        except ResourceLimitError as e:
+            error = self._resource_limit_tool_error(e)
+            logger.warning(error.technical_message)
+            self._publish_tool_event(
+                "failed", name, arguments, error.technical_message, tool_error=error
+            )
+            return self._error_result(tool_call, name, error, legacy_prefix="错误")
         except ToolExecutionError as e:
             error = e.error
             logger.error(f"工具 {name} 执行错误: {error.technical_message}")
@@ -157,7 +184,8 @@ class ToolExecutor:
             return self._error_result(tool_call, name, error, legacy_prefix="调用出错啦")
 
         try:
-            result = await self._external_tool_manager.call_tool(name, arguments)
+            async with resource_scope(self._resource_gates.get("tool"), f"external_tool:{name}"):
+                result = await self._external_tool_manager.call_tool(name, arguments)
             result_content = self._serialize_tool_result(result)
             logger.info(f"外部工具 {name} 执行成功: {result_content[:100]}...")
             self._publish_tool_event("completed", name, arguments, result=result_content)
@@ -167,6 +195,13 @@ class ToolExecutor:
                 "name": name,
                 "content": result_content,
             }
+        except ResourceLimitError as e:
+            error = self._resource_limit_tool_error(e)
+            logger.warning(error.technical_message)
+            self._publish_tool_event(
+                "failed", name, arguments, error.technical_message, tool_error=error
+            )
+            return self._error_result(tool_call, name, error, legacy_prefix="错误")
         except ToolExecutionError as e:
             error = e.error
             logger.error(f"外部工具 {name} 执行错误: {error.technical_message}")
@@ -188,6 +223,18 @@ class ToolExecutor:
                 "failed", name, arguments, error.technical_message, tool_error=error
             )
             return self._error_result(tool_call, name, error, legacy_prefix="错误")
+
+    @staticmethod
+    def _resource_limit_tool_error(error: ResourceLimitError) -> ToolError:
+        payload = resource_limit_payload(error)
+        return ToolError(
+            error_code=payload["code"],
+            technical_message=payload["technical_message"],
+            user_message=payload["user_message"],
+            recoverable=payload["recoverable"],
+            action_hint=payload["action_hint"],
+            details=payload["details"],
+        )
 
     @staticmethod
     def _serialize_tool_result(result: Any) -> str:

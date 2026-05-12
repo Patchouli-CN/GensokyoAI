@@ -3,8 +3,9 @@ import unittest
 
 from GensokyoAI.core.agent.providers.claude_provider import ClaudeProvider
 from GensokyoAI.core.agent.response_handler import ResponseHandler
-from GensokyoAI.core.config import ToolConfig, WebSearchToolConfig
+from GensokyoAI.core.config import ResourceControlConfig, ToolConfig, WebSearchToolConfig
 from GensokyoAI.core.events import EventBus, SystemEvent
+from GensokyoAI.runtime.resource_control import build_resource_gates
 from GensokyoAI.runtime.rpc import RpcError, runtime_error_response
 from GensokyoAI.tools.base import tool
 from GensokyoAI.tools.errors import ToolError, ToolExecutionError
@@ -97,6 +98,45 @@ class ToolErrorContractTests(unittest.TestCase):
         self.assertFalse(data["recoverable"])
         self.assertEqual(data["action_hint"], "fix test")
         self.assertEqual(data["details"], {"scope": "unit"})
+
+    def test_tool_gate_rejects_concurrent_tool_and_releases(self):
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        @tool(name="p2_blocking_tool", description="P2 blocking test tool")
+        async def p2_blocking_tool() -> str:
+            started.set()
+            await release.wait()
+            return "blocked"
+
+        gates = build_resource_gates(
+            ResourceControlConfig(
+                tool_max_concurrent=1,
+                runtime_queue_size=0,
+                acquire_timeout_seconds=0,
+            )
+        )
+        executor = ToolExecutor(ToolRegistry(), resource_gates=gates)
+
+        async def run():
+            first = asyncio.create_task(
+                executor.execute({"id": "p2-1", "name": "p2_blocking_tool", "arguments": {}})
+            )
+            await started.wait()
+            second = await executor.execute(
+                {"id": "p2-2", "name": "p2_blocking_tool", "arguments": {}}
+            )
+            release.set()
+            first_result = await first
+            return first_result, second
+
+        first_result, second = asyncio.run(run())
+
+        self.assertEqual(first_result["content"], "blocked")
+        self.assertTrue(second["is_error"])
+        self.assertEqual(second["error"]["error_code"], "resource.limit_exceeded")
+        self.assertEqual(second["error"]["details"]["resource"], "tool")
+        self.assertEqual(gates["tool"].active, 0)
 
     def test_web_search_disabled_maps_to_stable_error_code(self):
         configure_web_search_tool(ToolConfig(web_search=WebSearchToolConfig(enabled=False)))
@@ -244,10 +284,13 @@ class ToolErrorContractTests(unittest.TestCase):
         )
 
         self.assertIsNotNone(chunk)
+        assert chunk is not None
         self.assertEqual(chunk.type, "tool_error")
         self.assertEqual(chunk.status, "failed")
         self.assertEqual(chunk.error_code, "test.structured_failure")
         self.assertEqual(chunk.error, "technical failure")
+        self.assertIsNotNone(chunk.error_details)
+        assert chunk.error_details is not None
         self.assertEqual(chunk.error_details["tool_call_id"], "call-10")
         self.assertEqual(chunk.error_details["details"], {"scope": "stream"})
         self.assertFalse(chunk.error_details["recoverable"])

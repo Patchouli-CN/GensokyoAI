@@ -37,6 +37,13 @@ from GensokyoAI.core.schema_versions import (
 )
 from GensokyoAI.core.version import package_version
 from GensokyoAI.runtime.dependencies import InstallScope, dependency_status, install_dependencies
+from GensokyoAI.runtime.resource_control import (
+    ResourceGate,
+    ResourceLimitError,
+    build_resource_gates,
+    resource_limit_payload,
+    resource_scope,
+)
 from GensokyoAI.runtime.rpc import (
     RpcError,
     dispatch_rpc,
@@ -67,84 +74,6 @@ SENSITIVE_EVENT_FIELD_NAMES = {
     "headers",
     "extra_headers",
 }
-
-
-@dataclass
-class ResourceGate:
-    """Small async gate with bounded waiting queue for Runtime resource classes."""
-
-    name: str
-    max_concurrent: int
-    queue_size: int
-    acquire_timeout_seconds: float
-    overflow_policy: str = "reject"
-    active: int = 0
-    waiting: int = 0
-
-    def __post_init__(self) -> None:
-        self.max_concurrent = max(1, int(self.max_concurrent))
-        self.queue_size = max(0, int(self.queue_size))
-        self.acquire_timeout_seconds = max(0.0, float(self.acquire_timeout_seconds))
-        self._semaphore = asyncio.BoundedSemaphore(self.max_concurrent)
-        self._lock = asyncio.Lock()
-
-    async def acquire(self) -> None:
-        async with self._lock:
-            if self._semaphore.locked() and self.waiting >= self.queue_size:
-                raise self._limit_error("queue_full")
-            wait_timeout = self.acquire_timeout_seconds
-            self.waiting += 1
-        try:
-            if self.overflow_policy == "wait" and wait_timeout > 0:
-                await asyncio.wait_for(self._semaphore.acquire(), timeout=wait_timeout)
-            elif self.overflow_policy == "wait":
-                await self._semaphore.acquire()
-            elif wait_timeout > 0:
-                await asyncio.wait_for(self._semaphore.acquire(), timeout=wait_timeout)
-            else:
-                if self._semaphore.locked():
-                    raise TimeoutError("resource acquire timeout")
-                await self._semaphore.acquire()
-        except TimeoutError as error:
-            raise self._limit_error("acquire_timeout") from error
-        finally:
-            async with self._lock:
-                self.waiting = max(0, self.waiting - 1)
-        async with self._lock:
-            self.active += 1
-
-    async def release(self) -> None:
-        async with self._lock:
-            self.active = max(0, self.active - 1)
-        self._semaphore.release()
-
-    def snapshot(self) -> dict[str, Any]:
-        return {
-            "name": self.name,
-            "max_concurrent": self.max_concurrent,
-            "queue_size": self.queue_size,
-            "active": self.active,
-            "waiting": self.waiting,
-            "acquire_timeout_seconds": self.acquire_timeout_seconds,
-            "overflow_policy": self.overflow_policy,
-        }
-
-    def _limit_error(self, reason: str) -> RpcError:
-        return RpcError(
-            f"Runtime resource gate '{self.name}' rejected request: {reason}",
-            code="resource.limit_exceeded",
-            user_message="Runtime 当前资源繁忙，请稍后重试。",
-            recoverable=True,
-            action_hint="请稍后重试，或调大 resource_control 中对应并发 / 队列配置。",
-            details={
-                "resource": self.name,
-                "reason": reason,
-                "max_concurrent": self.max_concurrent,
-                "queue_size": self.queue_size,
-                "active": self.active,
-                "waiting": self.waiting,
-            },
-        )
 
 
 @dataclass(slots=True)
@@ -412,7 +341,9 @@ class RuntimeService:
             self.state.agent = agent
             self.state.config_path = config_file
             self.state.character_path = char_file
-            self._resource_gates = self._build_resource_gates(config.resource_control)
+            self._resource_gates = agent.runtime_context.resource_gates
+            agent.runtime_context.model_client.update_resource_gates(self._resource_gates)
+            agent.runtime_context.tool_executor.update_resource_gates(self._resource_gates)
 
             current = agent.session_manager.get_current_session()
             character_name = agent.config.character.name if agent.config.character else None
@@ -990,60 +921,26 @@ class RuntimeService:
 
     def _build_resource_gates(self, resource_control: Any | None = None) -> dict[str, ResourceGate]:
         config = resource_control or ConfigLoader().load().resource_control
-        queue_size = getattr(config, "runtime_queue_size", 8)
-        acquire_timeout = getattr(config, "acquire_timeout_seconds", 0.25)
-        overflow_policy = getattr(config, "overflow_policy", "reject")
-        if not getattr(config, "enabled", True):
-            high_limit = 1_000_000
-            queue_size = high_limit
-            acquire_timeout = 0
-            overflow_policy = "wait"
-        return {
-            "runtime": ResourceGate(
-                "runtime",
-                getattr(config, "runtime_max_concurrent", 4),
-                queue_size,
-                acquire_timeout,
-                overflow_policy,
-            ),
-            "agent_message": ResourceGate(
-                "agent_message",
-                getattr(config, "session_max_concurrent", 1),
-                queue_size,
-                acquire_timeout,
-                overflow_policy,
-            ),
-            "stream": ResourceGate(
-                "stream",
-                getattr(config, "stream_max_concurrent", 1),
-                queue_size,
-                acquire_timeout,
-                overflow_policy,
-            ),
-            "dependency_install": ResourceGate(
-                "dependency_install",
-                getattr(config, "dependency_install_max_concurrent", 1),
-                queue_size,
-                acquire_timeout,
-                overflow_policy,
-            ),
-        }
+        return build_resource_gates(config)
+
+    def _resource_limit_rpc_error(self, error: ResourceLimitError) -> RpcError:
+        payload = resource_limit_payload(error)
+        return RpcError(
+            payload["technical_message"],
+            code=payload["code"],
+            user_message=payload["user_message"],
+            recoverable=payload["recoverable"],
+            action_hint=payload["action_hint"],
+            details=payload["details"],
+        )
 
     @asynccontextmanager
     async def _resource_scope(self, gate_name: str, action: str) -> AsyncIterator[None]:
-        gate = self._resource_gates.get(gate_name)
-        if gate is None:
-            yield
-            return
         try:
-            await gate.acquire()
-        except RpcError as error:
-            error.details.setdefault("action", action)
-            raise
-        try:
-            yield
-        finally:
-            await gate.release()
+            async with resource_scope(self._resource_gates.get(gate_name), action):
+                yield
+        except ResourceLimitError as error:
+            raise self._resource_limit_rpc_error(error) from error
 
     def _resource_control_payload(self) -> dict[str, Any]:
         config = self._resource_control_config()

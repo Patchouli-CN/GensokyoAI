@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...memory.episodic import EpisodicMemoryManager
+from ...runtime.resource_control import ResourceGate
 from ...session.manager import SessionManager
 from ...tools.build_service import ToolBuildService
 from ...tools.executor import ToolExecutor
@@ -32,6 +33,7 @@ class AgentRuntimeContext:
 
     event_bus: EventBus
     memory_base_path: Path
+    resource_gates: dict[str, ResourceGate]
     model_client: ModelClient
     episodic_memory: EpisodicMemoryManager
     tool_registry: ToolRegistry

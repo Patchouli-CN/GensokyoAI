@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ...memory.episodic import EpisodicMemoryManager
+from ...runtime.resource_control import build_resource_gates
 from ...session.manager import SessionManager
 from ...tools.build_service import ToolBuildService
 from ...tools.executor import ToolExecutor
@@ -26,10 +27,12 @@ class AgentComposition:
         """装配核心运行时组件。"""
         event_bus = EventBus(enable_trace=self.config.event_trace_enabled)
         memory_base_path = self.config.session.save_path
+        resource_gates = build_resource_gates(self.config.resource_control)
         model_client = ModelClient(
             self.config.model,
             event_bus=event_bus,
             embedding_config=self.config.embedding,
+            resource_gates=resource_gates,
         )
         episodic_memory = EpisodicMemoryManager(
             self.config.memory,
@@ -43,6 +46,7 @@ class AgentComposition:
             tool_registry,
             event_bus=event_bus,
             external_tool_manager=external_tool_manager,
+            resource_gates=resource_gates,
         )
         tool_build_service = ToolBuildService(tool_registry)
         model_registry_service = ModelRegistryService()
@@ -55,6 +59,7 @@ class AgentComposition:
         return AgentRuntimeContext(
             event_bus=event_bus,
             memory_base_path=memory_base_path,
+            resource_gates=resource_gates,
             model_client=model_client,
             episodic_memory=episodic_memory,
             tool_registry=tool_registry,

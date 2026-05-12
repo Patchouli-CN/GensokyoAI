@@ -206,6 +206,14 @@ HTTP `/rpc` 与 WebSocket 普通 RPC 使用相同请求格式：
 }
 ```
 
+取消语义：
+
+- 客户端可通过 WebSocket 发送 `runtime.cancel_stream`，参数为 `{"stream_id": "..."}`，Runtime 会取消对应的流式任务并尽量发送 `cancelled` 事件帧。
+- 如果 WebSocket 连接直接断开，Runtime 会取消该连接上仍在运行的 stream task，并清理该连接创建的事件订阅。
+- SSE `/events` 客户端断开或关闭响应时，Runtime 会关闭对应事件订阅；重复关闭客户端连接不会要求客户端再调用额外 RPC。
+- HTTP `/rpc` 请求如果被客户端取消，底层请求协程会随连接取消而收敛；涉及 Runtime resource gate 的方法仍应依赖服务端 `finally` 路径释放资源。
+- 多个 Runtime HTTP app / service 实例之间的 stream task、事件订阅、事件队列、shutdown 生命周期和资源状态相互隔离。
+
 ## 配置校验 API
 
 `config.validate` 可在不初始化 Agent 的情况下校验配置文件、内联配置和 Runtime overrides：
@@ -314,14 +322,19 @@ HTTP `/rpc` 与 WebSocket 普通 RPC 使用相同请求格式：
 
 ## 资源控制
 
-Runtime 入口级资源控制由配置段 `resource_control` 控制。当前 Runtime gate 覆盖：
+Runtime 资源控制由配置段 `resource_control` 控制。当前 Runtime gate 覆盖入口级与深层执行侧：
 
 - `runtime`：Runtime 高成本入口总并发。
 - `agent_message`：当前 Runtime 会话消息并发。
 - `stream`：流式消息并发。
+- `provider`：ModelClient / Provider 调用链总并发。
+- `model`：模型调用并发，覆盖 chat、chat_stream、embeddings 和 image_generation。
+- `tool`：ToolExecutor 内置工具与外部工具执行并发。
+- `web_search`：`web_search` 工具执行并发。
+- `image_generation`：图片生成执行并发。
 - `dependency_install`：可选依赖安装并发。
 
-`runtime.info.resource_control` 会返回当前配置摘要和 gate 快照。Provider、model、tool、web_search、image_generation 等类别字段已在配置中预留；深层 Provider / 工具调用限流属于后续增强，不影响当前协议向后兼容。
+`runtime.info.resource_control` 会返回当前配置摘要和 gate 快照。深层 Provider / 工具调用限流与入口级 gate 使用同一套 `resource.limit_exceeded` 错误结构，错误 details 会包含 `resource`、`reason`、`max_concurrent`、`queue_size`、`active`、`waiting` 和 `action`，便于客户端展示恢复建议。
 
 ## 会话导出与 schema version
 
