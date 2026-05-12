@@ -375,7 +375,10 @@ class ModelClient:
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                if isinstance(e, ModelError) and getattr(e, "error_code", None) == "resource.limit_exceeded":
+                if (
+                    isinstance(e, ModelError)
+                    and getattr(e, "error_code", None) == "resource.limit_exceeded"
+                ):
                     raise
                 normalized = normalize_model_error(
                     e,
@@ -546,7 +549,10 @@ class ModelClient:
             raise ModelError(error_msg) from error
 
         except Exception as e:
-            if isinstance(e, ModelError) and getattr(e, "error_code", None) == "resource.limit_exceeded":
+            if (
+                isinstance(e, ModelError)
+                and getattr(e, "error_code", None) == "resource.limit_exceeded"
+            ):
                 raise
             normalized = (
                 e
@@ -630,8 +636,12 @@ class ModelClient:
                         model=call_model,
                     )
                     async with (
-                        resource_scope(getattr(self, "_resource_gates", {}).get("provider"), "chat_stream"),
-                        resource_scope(getattr(self, "_resource_gates", {}).get("model"), "chat_stream"),
+                        resource_scope(
+                            getattr(self, "_resource_gates", {}).get("provider"), "chat_stream"
+                        ),
+                        resource_scope(
+                            getattr(self, "_resource_gates", {}).get("model"), "chat_stream"
+                        ),
                     ):
                         stream = self._provider.chat_stream(
                             model=call_model,
@@ -776,7 +786,10 @@ class ModelClient:
             raise self._resource_limit_model_error(error) from error
 
         except Exception as e:
-            if isinstance(e, ModelError) and getattr(e, "error_code", None) == "resource.limit_exceeded":
+            if (
+                isinstance(e, ModelError)
+                and getattr(e, "error_code", None) == "resource.limit_exceeded"
+            ):
                 raise
             normalized = (
                 e
@@ -882,7 +895,10 @@ class ModelClient:
         except NotImplementedError as e:
             raise ModelError(f"当前 Provider ({self.config.provider}) 不支持图片生成") from e
         except Exception as e:
-            if isinstance(e, ModelError) and getattr(e, "error_code", None) == "resource.limit_exceeded":
+            if (
+                isinstance(e, ModelError)
+                and getattr(e, "error_code", None) == "resource.limit_exceeded"
+            ):
                 raise
             normalized = (
                 e

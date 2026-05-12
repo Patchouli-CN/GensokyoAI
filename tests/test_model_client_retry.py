@@ -285,16 +285,19 @@ class ModelClientRetryTests(unittest.TestCase):
         self.assertTrue(auth_events)
         self.assertIn("token_refresh_completed", [e.data["status"] for e in auth_events])
 
-
     def test_provider_gate_rejects_concurrent_chat_and_releases(self):
         started = asyncio.Event()
         release = asyncio.Event()
 
         class BlockingProvider(BaseProvider):
-            async def chat(self, model: str, messages: list[dict], tools=None, options=None, **kwargs):
+            async def chat(
+                self, model: str, messages: list[dict], tools=None, options=None, **kwargs
+            ):
                 started.set()
                 await release.wait()
-                return SimpleNamespace(message=SimpleNamespace(content="blocked"), model=model, done=True)
+                return SimpleNamespace(
+                    message=SimpleNamespace(content="blocked"), model=model, done=True
+                )
 
             async def chat_stream(
                 self, model: str, messages: list[dict], tools=None, options=None, **kwargs

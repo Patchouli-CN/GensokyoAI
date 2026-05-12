@@ -531,7 +531,8 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
             self.assertEqual(message.type, WSMsgType.TEXT)
             frames.append(json.loads(message.data))
             if any(frame.get("type") == "heartbeat" for frame in frames) and any(
-                frame.get("event", {}).get("type") in {"tool.call.started", "runtime.backpressure.dropped"}
+                frame.get("event", {}).get("type")
+                in {"tool.call.started", "runtime.backpressure.dropped"}
                 for frame in frames
             ):
                 break
