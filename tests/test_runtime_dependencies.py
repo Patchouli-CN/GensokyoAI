@@ -22,6 +22,7 @@ from GensokyoAI.core.config import (
 from GensokyoAI.core.events import Event, EventBus, SystemEvent
 from GensokyoAI.core.migrations import clear_migration_diagnostics
 from GensokyoAI.core.schema_versions import (
+    CHARACTER_PACKAGE_SCHEMA_VERSION,
     CONFIG_SCHEMA_VERSION,
     MEMORY_SCHEMA_VERSION,
     SESSION_EXPORT_SCHEMA_VERSION,
@@ -149,7 +150,9 @@ class MigrationDiagnosticsTests(unittest.TestCase):
         self.assertEqual(info["schema_versions"]["session"], SESSION_SCHEMA_VERSION)
         self.assertEqual(info["schema_versions"]["memory"], MEMORY_SCHEMA_VERSION)
         self.assertEqual(info["schema_versions"]["session_export"], SESSION_EXPORT_SCHEMA_VERSION)
-        self.assertIsNone(info["schema_versions"]["character_package"])
+        self.assertEqual(
+            info["schema_versions"]["character_package"], CHARACTER_PACKAGE_SCHEMA_VERSION
+        )
         self.assertEqual(info["deprecated_fields"], [])
         self.assertEqual(info["compatibility_notes"], [])
         self.assertEqual(info["migration_diagnostics"]["recent"], [])
