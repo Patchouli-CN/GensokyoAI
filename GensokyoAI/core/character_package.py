@@ -110,9 +110,13 @@ class CharacterPackageService:
         character_data = self._load_yaml_file(character_path, diagnostics, "character")
         character_diagnostics = self._character_validator.validate_character_dict(character_data)
         diagnostics.extend(self._prefix_diagnostics(character_diagnostics, "character"))
-        preview = self._character_validator.build_preview(character_data, fallback_id=character_path.stem)
+        preview = self._character_validator.build_preview(
+            character_data, fallback_id=character_path.stem
+        )
         if any(item.severity == "error" for item in diagnostics):
-            return self._result_payload(False, diagnostics, package_path=output_path, preview=preview)
+            return self._result_payload(
+                False, diagnostics, package_path=output_path, preview=preview
+            )
 
         manifest = {
             "format": CHARACTER_PACKAGE_FORMAT,
@@ -155,11 +159,16 @@ class CharacterPackageService:
             manifest["assets"].append(arcname)
 
         if any(item.severity == "error" for item in diagnostics):
-            return self._result_payload(False, diagnostics, package_path=output_path, preview=preview)
+            return self._result_payload(
+                False, diagnostics, package_path=output_path, preview=preview
+            )
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            archive.writestr(CHARACTER_PACKAGE_MANIFEST, yaml.safe_dump(manifest, allow_unicode=True, sort_keys=False))
+            archive.writestr(
+                CHARACTER_PACKAGE_MANIFEST,
+                yaml.safe_dump(manifest, allow_unicode=True, sort_keys=False),
+            )
             archive.write(character_path, DEFAULT_CHARACTER_ENTRY)
             for asset_path, arcname in asset_entries:
                 archive.write(asset_path, arcname)
@@ -255,12 +264,18 @@ class CharacterPackageService:
                     if CHARACTER_PACKAGE_MANIFEST in names:
                         manifest = self._load_manifest(archive, diagnostics)
                         self._validate_manifest(manifest, diagnostics)
-                    character_entry = manifest.get("character") if isinstance(manifest, dict) else None
+                    character_entry = (
+                        manifest.get("character") if isinstance(manifest, dict) else None
+                    )
                     if isinstance(character_entry, str) and character_entry in names:
                         with archive.open(character_entry) as file:
                             character_data = yaml.safe_load(file) or {}
-                        character_diagnostics = self._character_validator.validate_character_dict(character_data)
-                        diagnostics.extend(self._prefix_diagnostics(character_diagnostics, "character"))
+                        character_diagnostics = self._character_validator.validate_character_dict(
+                            character_data
+                        )
+                        diagnostics.extend(
+                            self._prefix_diagnostics(character_diagnostics, "character")
+                        )
                         preview = self._character_validator.build_preview(
                             character_data,
                             fallback_id=str(manifest.get("id") or Path(character_entry).stem),
@@ -314,7 +329,9 @@ class CharacterPackageService:
             "warning_count": len(warnings),
         }
 
-    def _validate_package_path(self, package_path: Path, diagnostics: list[ConfigDiagnostic]) -> None:
+    def _validate_package_path(
+        self, package_path: Path, diagnostics: list[ConfigDiagnostic]
+    ) -> None:
         if package_path.suffix != CHARACTER_PACKAGE_EXTENSION:
             diagnostics.append(
                 self._error(

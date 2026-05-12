@@ -1,108 +1,210 @@
 # 使用指南
 
-## 快速开始
+本指南面向从源码运行、发布包安装和客户端集成用户。本文档会尽量与 `pyproject.toml`、`requirements.txt`、`run_default_uv.cmd` 和 `run_default_pip.cmd` 保持一致。
 
-### 1. 环境
+## 1. 环境要求
 
-- Python 3.14+
-- 以下任一 LLM 后端：
-  - [Ollama](https://ollama.ai/) 本地运行（默认，免费）
-  - OpenAI API Key，或 SiliconFlow 等云端服务
-  - DeepSeek API Key
-  - Anthropic Claude API Key
-  - Google Gemini API Key
+- 操作系统：Windows / Linux / macOS 均可；Windows 用户可以直接使用仓库内的 `.cmd` 启动脚本。
+- Python 运行时：项目要求 Python 3.14 或更高版本。
+  - 使用 uv 时：通常只需要先安装 uv；uv 会按 `pyproject.toml` 的 `requires-python = ">=3.14"` 自动选择或下载合适的 Python 运行时。
+  - 使用 pip 时：需要你自己先安装 Python 3.14+，再用这个 Python 执行 pip。
+- 包管理器：推荐使用 uv；也支持 pip。
+- LLM Provider：至少准备一种模型服务。
+  - Ollama：本地运行，默认推荐，免费但需要先安装 Ollama 并拉取模型。
+  - OpenAI / OpenRouter / DeepSeek / OpenAI Responses：需要对应 API Key，底层依赖 OpenAI SDK。
+  - Claude：需要 Anthropic API Key 和 Anthropic SDK。
+  - Gemini：需要 Google API Key 和 Google GenAI SDK。
 
-### 2. 安装
+如果使用 uv，可以检查 uv 可用性，并让 uv 按项目要求准备 Python：
 
-#### 拉取源代码
+```bash
+uv --version
+uv python install 3.14
+```
+
+如果使用 pip，请检查当前 Python 版本：
+
+```bash
+python --version
+```
+
+如果系统里有多个 Python，Windows 上也可以尝试：
+
+```bat
+py -3.14 --version
+```
+
+## 2. 获取项目
+
 ```bash
 git clone https://github.com/Patchouli-CN/GensokyoAI.git
 cd GensokyoAI
 ```
 
-#### 方式一：使用 UV（推荐）
+如果你已经下载了 zip 包，解压后在项目根目录执行后续命令即可。
 
-**基础安装 + Ollama（默认 Provider）**
+## 3. 安装方式
+
+### 3.1 使用 uv（推荐）
+
+uv 会根据 `pyproject.toml` 自动创建虚拟环境并选择满足版本要求的 Python。安装默认本地 Ollama 依赖：
 
 ```bash
 uv sync --extra ollama
 ```
 
-**或安装其他 Provider**
+或安装指定 Provider extra：
 
 ```bash
-uv sync --extra openai      # OpenAI / DeepSeek / SiliconFlow 等 OpenAI SDK 兼容服务
-uv sync --extra claude      # Anthropic Claude
-uv sync --extra gemini      # Google Gemini
-uv sync --extra all         # 全部 Provider
+uv sync --extra openai
+uv sync --extra openrouter
+uv sync --extra deepseek
+uv sync --extra openai_responses
+uv sync --extra claude
+uv sync --extra gemini
+uv sync --extra all
 ```
 
-#### 方式二：使用 pip（普通用户不推荐）
+常用 extra 对照：
+
+| extra | 安装内容 | 适用 Provider |
+|------|----------|---------------|
+| `ollama` / `default` | `ollama` | `ollama` |
+| `openai` | `openai>=1.0.0` | `openai` |
+| `openrouter` | `openai>=1.0.0` | `openrouter` |
+| `deepseek` | `openai>=1.0.0` | `deepseek` |
+| `openai_responses` | `openai>=1.0.0` | `openai_responses` |
+| `claude` | `anthropic>=0.20.0` | `claude` |
+| `gemini` | `google-genai>=1.0.0` | `gemini` |
+| `all` | Ollama / OpenAI / Anthropic / Gemini SDK | 全部内置 Provider |
+
+### 3.2 使用 pip
+
+只安装最小运行依赖：
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
-**按需安装 LLM Provider（pip）**
+推荐以可编辑包形式安装对应 Provider extra，这样会注册命令行脚本：
 
 ```bash
-pip install ollama          # Ollama（默认）
-pip install openai          # OpenAI / DeepSeek / SiliconFlow 等 OpenAI SDK 兼容服务
-pip install anthropic       # Anthropic Claude
-pip install google-genai    # Google Gemini
+python -m pip install -e .[default]
+python -m pip install -e .[openai]
+python -m pip install -e .[claude]
+python -m pip install -e .[gemini]
+python -m pip install -e .[all]
 ```
 
-### 3. 配置主聊天模型
+如果只想按需补 Provider SDK，也可以手动安装：
 
-编辑 `config/default.yaml` 中的 `model` 配置。
+```bash
+python -m pip install ollama
+python -m pip install openai
+python -m pip install anthropic
+python -m pip install google-genai
+```
 
-**Ollama（默认）**
+### 3.3 Windows 快速启动脚本
+
+项目根目录提供两个脚本：
+
+```bat
+run_default_uv.cmd
+run_default_pip.cmd
+```
+
+- `run_default_uv.cmd` 会执行 `uv run --extra ollama main_v2.py --character "characters\zh_cn\KirisameMarisa.yaml" --new-session`。
+- `run_default_pip.cmd` 会执行 `python main_v2.py --character "characters\zh_cn\KirisameMarisa.yaml" --new-session`。
+
+首次使用 `run_default_uv.cmd` 前请先安装 uv；通常不需要另外手动安装 Python 3.14，uv 可以自动准备运行时。首次使用 `run_default_pip.cmd` 前请先手动安装 Python 3.14+，再用 pip 安装依赖。
+
+## 4. 配置主聊天模型
+
+默认配置文件位于 `config/default.yaml`。建议复制一份自定义配置，例如 `config/local.yaml`，再通过 `--config config/local.yaml` 启动。
+
+### 4.1 Ollama（默认本地 Provider）
+
+先安装并启动 Ollama，然后拉取模型：
 
 ```bash
 ollama pull qwen3.5:9b
 ```
 
+配置示例：
+
 ```yaml
+config_schema_version: 1
 model:
   provider: "ollama"
   name: "qwen3.5:9b"
-  base_url: "http://localhost:11434"
+  base_url: null
 ```
 
-**OpenAI Chat Completions 兼容服务**
+Ollama 通常不要配置 `api_key` 或 `api_path`。如果配置了 `api_path`，当前配置诊断会报错，因为 Ollama Provider 不支持自定义 API path。
+
+### 4.2 OpenAI Chat Completions
 
 ```yaml
 model:
   provider: "openai"
   name: "gpt-4o"
   api_key: "sk-..."
-  base_url: null # 可选，不填则使用 OpenAI 官方；第三方兼容服务填写对应地址
+  base_url: null
 ```
 
-**DeepSeek（推荐独立 Provider）**
+第三方 OpenAI 兼容服务可配置 `base_url`：
 
-> DeepSeek 虽然兼容 OpenAI SDK，但 thinking mode 下发生工具调用后，后续请求需要回传 `reasoning_content`。因此推荐使用独立的 `deepseek` Provider，而不是把 DeepSeek 配到通用 `openai` Provider 下。
+```yaml
+model:
+  provider: "openai"
+  name: "your-model-name"
+  api_key: "sk-..."
+  base_url: "https://your-api.example.com/v1"
+```
+
+### 4.3 OpenRouter
+
+```yaml
+model:
+  provider: "openrouter"
+  name: "openai/gpt-4o"
+  api_key: "sk-or-..."
+  base_url: null
+  extra_headers:
+    HTTP-Referer: "https://your-site.example"
+    X-Title: "GensokyoAI"
+```
+
+### 4.4 DeepSeek
+
+推荐使用独立 `deepseek` Provider，而不是把 DeepSeek 配到通用 `openai` Provider 下。
 
 ```yaml
 model:
   provider: "deepseek"
   name: "deepseek-v4-pro"
   api_key: "sk-..."
-  base_url: null              # 默认 https://api.deepseek.com
-  thinking_enabled: true      # 默认 true；如需关闭 thinking mode 可设为 false
-  reasoning_effort: "high"    # high / max，默认 high
+  base_url: null
+  thinking_enabled: true
+  reasoning_effort: "high"
 ```
 
-**OpenAI Responses API**
+如果 `thinking_enabled: false` 但仍填写 `reasoning_effort`，配置诊断会提示该字段会被忽略。
+
+### 4.5 OpenAI Responses API
 
 ```yaml
 model:
   provider: "openai_responses"
   name: "gpt-5"
   api_key: "sk-..."
+  web_search_enabled: true
+  web_search_strategy: "explicit"
+  web_search_context_size: "medium"
 ```
 
-**Claude**
+### 4.6 Claude
 
 ```yaml
 model:
@@ -111,33 +213,86 @@ model:
   api_key: "sk-ant-..."
 ```
 
-**Gemini**
+### 4.7 Gemini
 
 ```yaml
 model:
   provider: "gemini"
   name: "gemini-2.0-flash"
   api_key: "AIza..."
+  web_search_enabled: true
+  web_search_strategy: "explicit"
 ```
 
-### 4. 配置 Embedding 模型（可选）
+## 5. 配置 Embedding 模型（可选）
 
-Embedding 模型与主聊天模型独立配置。只有在你要调用 `ModelClient.embeddings()`、接入向量检索或外部向量存储时才需要配置。
-> 如果主聊天模型使用 Claude，也需要把 embedding 配到 OpenAI / Gemini / Ollama 或其他兼容 Provider。Anthropic 官方不提供 Claude 自家的 embeddings。
+Embedding 模型与主聊天模型独立配置。只有在调用 embeddings、接入向量检索或外部向量存储时才需要配置。
 
 ```yaml
 embedding:
-  provider: "openai"                 # 可省略，默认使用 model.provider
-  name: "text-embedding-3-small"     # 必填：不要填写聊天模型
-  api_key: "sk-..."                  # 可省略，默认使用 model.api_key
-  base_url: null                     # 可省略，默认使用 model.base_url
-  dimensions: 1024                   # 可选，仅部分模型支持
-  encoding_format: "float"           # 可选：float / base64
+  provider: "openai"
+  name: "text-embedding-3-small"
+  api_key: "sk-..."
+  base_url: null
+  dimensions: 1024
+  encoding_format: "float"
 ```
 
-### 5. 创建角色（可选）
+注意：Claude 官方不提供 Claude 自家的 embeddings。如果主聊天模型使用 Claude，需要把 embedding 配到 OpenAI、Gemini、Ollama 或其他兼容 Provider。
 
-在 `characters/` 目录或任意你喜欢的位置创建角色文件，例如 `characters/example.yaml`：
+## 6. 配置诊断与升级兼容
+
+当前配置 schema 版本为 `1`。新默认配置会写入：
+
+```yaml
+config_schema_version: 1
+```
+
+旧配置可以不写该字段；如果写了较旧版本，诊断会给 warning；如果写了高于当前支持版本的数字，诊断会给 error，提示你升级程序或使用当前版本支持的配置。
+
+可以通过 Runtime RPC 的 `config.validate` 在初始化 Agent 前获得结构化诊断；客户端可以展示 `diagnostics`、`error_count` 和 `warning_count`。
+
+P1.6 后配置诊断重点覆盖：
+
+- 顶层 `config_schema_version` 的类型、旧版本和未来版本提示。
+- `resource_control` 的范围、枚举和组合关系。
+- 确定失败组合，例如 Ollama 配置 `api_path`。
+- 明显无效或被遮蔽的资源限制，例如子资源并发大于 Runtime 总并发。
+- Provider 字段矩阵 warning，例如某些 Provider 不支持内置 web search 字段。
+
+## 7. 资源控制配置
+
+`resource_control` 用于限制 Runtime 入口级高成本动作，避免并发请求过多导致卡顿、资源耗尽或 API 账单异常。
+
+```yaml
+resource_control:
+  enabled: true
+  runtime_max_concurrent: 4
+  runtime_queue_size: 8
+  session_max_concurrent: 1
+  provider_max_concurrent: 2
+  stream_max_concurrent: 1
+  model_max_concurrent: 2
+  tool_max_concurrent: 2
+  web_search_max_concurrent: 1
+  image_generation_max_concurrent: 1
+  dependency_install_max_concurrent: 1
+  acquire_timeout_seconds: 0.25
+  default_timeout_seconds: 120.0
+  dependency_install_timeout_seconds: 600
+  overflow_policy: "reject"
+```
+
+说明：
+
+- `overflow_policy: "reject"`：资源满时快速返回 `resource.limit_exceeded`。
+- `overflow_policy: "wait"`：允许等待队列；此时 `acquire_timeout_seconds` 必须大于 0。
+- 子资源并发如果大于 `runtime_max_concurrent`，会被 Runtime 总闸门实际限制，诊断会给 warning。
+- 依赖安装通常较慢，建议 `dependency_install_timeout_seconds` 不小于 `default_timeout_seconds`。
+
+## 8. 创建和校验角色
+
+角色 YAML 示例：
 
 ```yaml
 name: "森近霖之助"
@@ -151,24 +306,70 @@ example_dialogue:
     assistant: "「这可不是普通的外界道具。」"
 ```
 
-也可以直接使用 `characters/zh_cn/` 目录中的内置角色。
+内置角色位于 `characters/zh_cn/`。
 
-### 6. 启动对话
+独立 CLI 校验入口：
 
 ```bash
-# 新建会话
+python -m GensokyoAI.commands.character_cli characters/zh_cn/HakureiReimu.yaml --json
+python -m GensokyoAI.commands.character_cli characters/zh_cn --recursive
+```
+
+安装为包后也可以使用：
+
+```bash
+gensokyoai-character characters/zh_cn/HakureiReimu.yaml --json
+gensokyoai-character characters/zh_cn --recursive
+```
+
+存在 error 级诊断时退出码为 `1`；仅有 warning 时退出码为 `0`。
+
+## 9. 角色包使用
+
+`.gensokyo-character` 角色包本质是安全受限 zip 包，根目录必须包含 `manifest.yaml`，当前 schema version 为 `1`。
+
+Runtime API 支持：
+
+- `character_package.validate`：校验包结构、manifest、包内路径、文件大小、角色 YAML 和资源列表。
+- `character_package.preview`：返回角色预览、manifest 摘要和文件列表。
+- `character_package.import`：导入角色包到 `characters` 目录。
+- `character_package.export`：从本地角色 YAML 导出角色包。
+
+JSON Lines RPC 示例：
+
+```json
+{"method":"character_package.validate","params":{"package_path":"packages/reimu.gensokyo-character"}}
+```
+
+```json
+{"method":"character_package.import","params":{"package_path":"packages/reimu.gensokyo-character","locale":"zh_cn","overwrite":false}}
+```
+
+```json
+{"method":"character_package.export","params":{"character_path":"characters/zh_cn/HakureiReimu.yaml","output_path":"packages/reimu.gensokyo-character","package_id":"HakureiReimu","author":"Patchouli-CN"}}
+```
+
+## 10. 启动对话
+
+uv：
+
+```bash
 uv run main_v2.py --character characters/zh_cn/KirisameMarisa.yaml --new-session
-
-# 恢复会话
+uv run main_v2.py --character characters/zh_cn/KirisameMarisa.yaml --config config/local.yaml --new-session
 uv run main_v2.py --character characters/zh_cn/KirisameMarisa.yaml --resume <session_id>
-
-# 列出所有会话
 uv run main_v2.py --list-sessions
 ```
 
-Windows 用户可以直接双击 `run_default_uv.cmd` 或 `run_default_pip.cmd` 快速启动默认角色。
+pip / 普通 Python：
 
-## 命令行参数
+```bash
+python main_v2.py --character characters/zh_cn/KirisameMarisa.yaml --new-session
+python main_v2.py --character characters/zh_cn/KirisameMarisa.yaml --config config/local.yaml --new-session
+python main_v2.py --character characters/zh_cn/KirisameMarisa.yaml --resume <session_id>
+python main_v2.py --list-sessions
+```
+
+命令行参数：
 
 | 参数 | 简写 | 说明 |
 |------|------|------|
@@ -179,15 +380,15 @@ Windows 用户可以直接双击 `run_default_uv.cmd` 或 `run_default_pip.cmd` 
 | `--list-sessions` |  | 列出所有历史会话 |
 | `--no-stream` |  | 禁用流式输出 |
 
-## 对话中的命令
+## 11. 对话中的命令
 
-### 提示词标签（传递给 AI）
+### 11.1 提示词标签（传递给 AI）
 
 - `<know>幻想乡位于日本...</know>`：动态注入参考资料。
 - `<meta>当前场景：博丽神社...</meta>`：设定场景 / 元数据。
 - `<attention>记住，你现在很困...</attention>`：提醒或纠正 AI 行为。
 
-### 系统命令
+### 11.2 系统命令
 
 - `/help`：显示帮助。
 - `/exit` 或 `/quit`：退出程序。
@@ -199,7 +400,7 @@ Windows 用户可以直接双击 `run_default_uv.cmd` 或 `run_default_pip.cmd` 
 - `/clear`：清空提示词上下文。
 - `/errors`：查看最近错误统计。
 
-### 聊天命令（仅本地显示，不发送给 AI）
+### 11.3 聊天命令（仅本地显示，不发送给 AI）
 
 - `<think>内心独白</think>`：表达角色内心想法。
 - `<whisper>悄悄话</whisper>`：小声说话。
@@ -207,179 +408,120 @@ Windows 用户可以直接双击 `run_default_uv.cmd` 或 `run_default_pip.cmd` 
 - `<describe>环境描写</describe>`：场景描述。
 - `<action>角色动作</action>`：动作描写。
 
-## 配置说明
+## 12. Runtime / HTTP 入口
 
-### 主模型配置
-
-```yaml
-model:
-  provider: "ollama"                 # ollama / openai / deepseek / openai_responses / claude / gemini
-  name: "qwen3.5:9b"                 # 主聊天模型名称
-  base_url: "http://localhost:11434" # API 地址，部分 Provider 可为空
-  api_key: "your-api-key"            # API Key，本地 Ollama 可为空
-  thinking_enabled: null             # DeepSeek 专用；null 表示使用 Provider 默认值
-  reasoning_effort: null             # DeepSeek 专用；null 表示默认 high，可选 high / max
-  temperature: 0.7
-  max_tokens: 4096
-  timeout: 300
-  use_proxy: false
-```
-
-### Embedding 配置
-
-```yaml
-embedding:
-  provider: null        # null 表示默认复用 model.provider
-  name: null            # 必填；不再默认使用 model.name，避免误用聊天模型
-  base_url: null        # null 表示复用 model.base_url
-  api_key: null         # null 表示复用 model.api_key
-  dimensions: null      # OpenAI text-embedding-3-* 支持缩短维度
-  encoding_format: null # OpenAI 支持 float / base64
-  timeout: null         # null 表示复用 model.timeout
-  use_proxy: null       # null 表示复用 model.use_proxy
-```
-
-当前语义记忆默认使用“话题感知存储 + LLM 打分 / 关键词”的轻量方案，不强制依赖向量数据库；`ModelClient.embeddings()` 提供统一 embedding 能力，供后续向量检索、推荐或外部存储集成使用。
-
-### 思考引擎配置
-
-```yaml
-think_engine:
-  enabled: true                       # 是否启用静默思考
-  think_interval_minutes: 5           # 思考间隔（分钟）
-  random_walk_steps_min: 2            # 随机游走最少步数
-  random_walk_steps_max: 5            # 随机游走最多步数
-  emotional_trigger_threshold: 0.5    # 优先选择高情感话题的阈值
-  emotional_priority_probability: 0.7 # 优先选择高情感话题的概率
-  think_temperature: 0.7              # 思考时的温度
-  think_max_tokens: 200               # 思考最大 token 数
-```
-
-### 静默调试输出
-
-默认情况下，静默思考、主动说话决策理由、模型推理内容等内部信息会被隐藏，避免内心独白或推理内容污染正常对话与工作记忆。调试时可以统一开关。
-可以通过配置文件开启：
-
-```yaml
-debug_silent_output: true
-```
-
-或环境变量开启：
+JSON Lines RPC：
 
 ```bash
-GENSOKYOAI_DEBUG_SILENT_OUTPUT=true
+python bridge_main.py
 ```
 
-开启后会显示 / 记录静默思考摘要、主动发言决策细节，并允许 `reasoning_content` 写入调试事件；通常情况建议保持该项为 `false`。
+HTTP / WebSocket adapter：
 
-### 记忆系统配置
-
-```yaml
-memory:
-  working_max_turns: 20              # 工作记忆最大轮数
-  episodic_threshold: 50             # 触发情景记忆压缩的消息数
-  episodic_keep_recent: 10           # 压缩时保留最近消息数
-  semantic_enabled: true             # 是否启用语义记忆
-  semantic_top_k: 5                  # 检索时返回的话题数
-  semantic_similarity_threshold: 0.7 # 相关性阈值
+```bash
+python runtime_http.py --host 127.0.0.1 --port 8765
 ```
 
-### 环境变量
+常用端点：
 
-| 变量名 | 说明 | 默认值 |
-|--------|------|--------|
-| `GENSOKYOAI_PROVIDER` | 主模型 Provider | `ollama` |
-| `GENSOKYOAI_MODEL` | 主模型名称 | `qwen3.5:9b` |
-| `GENSOKYOAI_API_KEY` | 主模型 API 密钥 | - |
-| `GENSOKYOAI_BASE_URL` | 主模型 API 地址 | - |
-| `GENSOKYOAI_THINKING_ENABLED` | DeepSeek thinking mode 开关 | Provider 默认值 |
-| `GENSOKYOAI_REASONING_EFFORT` | DeepSeek 推理强度 high / max | `high` |
-| `GENSOKYOAI_EMBEDDING_PROVIDER` | Embedding Provider | 默认复用主模型 Provider |
-| `GENSOKYOAI_EMBEDDING_MODEL` | Embedding 模型名称 | - |
-| `GENSOKYOAI_EMBEDDING_API_KEY` | Embedding API 密钥 | 默认复用主模型 API Key |
-| `GENSOKYOAI_EMBEDDING_BASE_URL` | Embedding API 地址 | 默认复用主模型 API 地址 |
-| `GENSOKYOAI_EMBEDDING_DIMENSIONS` | Embedding 输出维度 | - |
-| `GENSOKYOAI_EMBEDDING_ENCODING_FORMAT` | Embedding 编码格式 | - |
-| `GENSOKYOAI_EMBEDDING_TIMEOUT` | Embedding 超时时间 | 默认复用主模型 timeout |
-| `GENSOKYOAI_EMBEDDING_USE_PROXY` | Embedding 是否使用代理 | 默认复用主模型 use_proxy |
-| `GENSOKYOAI_LOG_LEVEL` | 日志级别 | `INFO` |
-| `GENSOKYOAI_DEBUG_SILENT_OUTPUT` | 是否输出静默思考、主动决策理由和推理内容等调试信息 | `false` |
-| `GENSOKYOAI_LOG_CONSOLE` | 控制台日志开关 | `true` |
-| `GENSOKYOAI_MEMORY_WORKING_TURNS` | 工作记忆最大轮数 | `20` |
+- `GET /health`：健康检查。
+- `GET /info`：方法、能力、版本和 schema 信息。
+- `POST /rpc`：JSON RPC 请求。
+- `WebSocket /ws`：WebSocket RPC；可逐事件推送 stream 结果。
 
-## 高级用法
+## 13. 升级流程
 
-### 程序调用
+源码仓库升级：
 
-```python
-import asyncio
-from GensokyoAI.core.agent import Agent
-from GensokyoAI.backends.console import ConsoleBackendBuilder
-
-async def main():
-    agent = Agent(character_file="characters/zh_cn/SaigyoujiYuyuko.yaml")
-    backend = ConsoleBackendBuilder(agent).with_stream_mode(True).build()
-    await backend.run_interactive()
-
-asyncio.run(main())
+```bash
+git pull
+uv sync --extra ollama
 ```
 
-### 注册自定义工具
+如果使用 pip：
 
-```python
-from GensokyoAI.tools.base import tool
-
-@tool(description="获取幻想乡的天气")
-async def get_gensokyo_weather(location: str = "博丽神社") -> str:
-    """获取指定地点的天气"""
-    return f"{location}今天天气晴朗，适合喝茶"
+```bash
+git pull
+python -m pip install -e .[default]
 ```
 
-### 扩展自定义后端
+升级建议：
 
-```python
-from GensokyoAI.backends.base import BaseBackend
+1. 先备份自己的 `config/local.yaml`、`characters/`、`sessions/`、记忆数据和自定义资源。
+2. 对照 `config/default.yaml` 检查新增字段，特别是 `config_schema_version`、Provider 字段和 `resource_control`。
+3. 启动前先用客户端或 Runtime 的 `config.validate` 检查配置。
+4. 旧 session / memory 数据会在读取时尽量自动迁移，并创建备份；迁移结果可通过 `runtime.info.migration_diagnostics` 查看。
+5. 查看 `docs/versioning.md` 和 `docs/changelog.md` 了解版本策略和变更记录模板。
 
-class WebBackend(BaseBackend):
-    async def start(self):
-        # 启动 Web 服务器
-        pass
+## 14. 常见故障排查
 
-    async def send(self, message: str) -> str:
-        return await self.agent.send(message)
+### Python 版本不符
 
-    async def stop(self):
-        pass
+现象：安装或运行时提示 Python 版本过低。
 
-    def set_stream_handler(self, handler):
-        self._stream_handler = handler
+处理：如果使用 uv，执行 `uv python install 3.14` 后重新 `uv sync --extra ollama`；如果使用 pip，请手动安装 Python 3.14+，并确认当前 `python` 或 `py -3.14` 指向新版本。
+
+### uv 找不到
+
+现象：`uv` 不是内部或外部命令。
+
+处理：先安装 uv，或改用 pip 安装方式。
+
+### Provider SDK 未安装
+
+现象：使用 OpenAI / Claude / Gemini / Ollama 时提示缺少模块。
+
+处理：安装对应 extra，例如：
+
+```bash
+uv sync --extra openai
+python -m pip install -e .[openai]
 ```
 
-### 注册自定义 LLM Provider
+### API Key 错误或缺失
 
-```python
-from GensokyoAI.core.agent.providers import ProviderFactory, BaseProvider
-from GensokyoAI.core.agent.types import UnifiedResponse, UnifiedMessage, StreamChunk
+现象：401 / 403 / unauthorized / invalid api key。
 
-class MyProvider(BaseProvider):
-    async def chat(self, model, messages, tools=None, options=None, **kwargs):
-        return UnifiedResponse(
-            message=UnifiedMessage(role="assistant", content="Hello!"),
-            model=model,
-        )
+处理：检查 `model.api_key` 或环境变量；本地 Ollama 不需要 API Key。
 
-    async def chat_stream(self, model, messages, tools=None, options=None, **kwargs):
-        yield StreamChunk(content="Hello!")
+### 代理或网络问题
 
-# 注册后即可在配置中使用 provider: "my_llm"
-ProviderFactory.register("my_llm", MyProvider)
+现象：连接超时、网关 HTML 错误页、DNS 失败。
+
+处理：检查网络、代理、`base_url` 和 `use_proxy`；第三方兼容服务确认 URL 是否包含正确 `/v1` 路径。
+
+### Ollama 未启动或模型不存在
+
+现象：连接 `localhost:11434` 失败，或提示 model not found。
+
+处理：启动 Ollama，并执行：
+
+```bash
+ollama pull qwen3.5:9b
 ```
 
-## 测试
+### 配置字段写错
+
+现象：启动前提示 `Unknown config field`、范围错误或枚举错误。
+
+处理：对照 `config/default.yaml` 修正字段名和值；优先使用 `config.validate` 查看完整 diagnostics。
+
+### 资源限制错误
+
+现象：Runtime 返回 `resource.limit_exceeded`。
+
+处理：减少并发请求，或调整 `resource_control.runtime_max_concurrent`、`session_max_concurrent`、`stream_max_concurrent`、`overflow_policy` 和 `acquire_timeout_seconds`。
+
+## 15. 测试与开发命令
 
 ```bash
 python -m unittest tests.test_claude_provider_conversion tests.test_deepseek_provider tests.test_model_client_embeddings
 python -m compileall GensokyoAI tests
 ```
 
-当前测试覆盖 Claude 官方 `tool_use` / `tool_result` 格式转换、工具调用 ID 保留、extended thinking 预算约束，DeepSeek thinking mode 参数、`reasoning_content` 与工具调用聚合，以及独立 embedding Provider / 模型路由。
+如果使用 uv 开发环境：
+
+```bash
+uv run pytest
+uv run python -m compileall GensokyoAI tests
+```

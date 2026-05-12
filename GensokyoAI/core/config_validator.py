@@ -15,6 +15,7 @@ from .config_schema import (
     ThinkEngineConfig,
     TopicGenerationConfig,
 )
+from .schema_versions import CONFIG_SCHEMA_VERSION
 
 DiagnosticSeverity = Literal["error", "warning"]
 
@@ -113,6 +114,7 @@ class ConfigValidator:
         "gemini",
     }
     KNOWN_PROVIDERS = {*PROVIDERS_REQUIRING_API_KEY, "ollama"}
+    DEPRECATED_FIELDS: dict[str, tuple[str, str]] = {}
     PROVIDER_FIELD_MATRIX: dict[str, dict[str, set[str]]] = {
         "ollama": {
             "discouraged": {
@@ -199,6 +201,8 @@ class ConfigValidator:
         if not isinstance(data, dict):
             return diagnostics
 
+        if "config_schema_version" in data:
+            self._validate_config_schema_version(data["config_schema_version"], diagnostics)
         if "log_level" in data:
             self._validate_enum(
                 "log_level", data["log_level"], {item.value for item in LogLevel}, diagnostics
@@ -217,6 +221,7 @@ class ConfigValidator:
             self._validate_think_engine_data(data.get("think_engine") or {}, diagnostics)
         if "resource_control" in data:
             self._validate_resource_control_data(data.get("resource_control") or {}, diagnostics)
+        self._validate_deprecated_fields(data, diagnostics)
         return diagnostics
 
     def validate_model_overrides(self, overrides: dict[str, Any]) -> list[ConfigDiagnostic]:
@@ -248,6 +253,39 @@ class ConfigValidator:
         errors = [item for item in diagnostics if item.severity == "error"]
         if errors:
             raise ConfigValidationError(errors)
+
+    def _validate_config_schema_version(
+        self, value: Any, diagnostics: list[ConfigDiagnostic]
+    ) -> None:
+        path = "config_schema_version"
+        if not isinstance(value, int) or isinstance(value, bool):
+            diagnostics.append(
+                self._error(
+                    path,
+                    "config_schema_version must be an integer",
+                    f"请填写当前支持的配置 schema 版本 {CONFIG_SCHEMA_VERSION}，或删除该字段使用当前默认版本。",
+                    code="config.schema_version.type",
+                )
+            )
+            return
+        if value > CONFIG_SCHEMA_VERSION:
+            diagnostics.append(
+                self._error(
+                    path,
+                    f"Config schema version {value} is newer than supported version {CONFIG_SCHEMA_VERSION}",
+                    "请升级 GensokyoAI，或使用当前版本支持的配置文件。",
+                    code="config.schema_version.unsupported",
+                )
+            )
+        elif value < CONFIG_SCHEMA_VERSION:
+            diagnostics.append(
+                self._warning(
+                    path,
+                    f"Config schema version {value} is older than current version {CONFIG_SCHEMA_VERSION}",
+                    "建议对照 docs/user_guide.md 检查新增配置；当前版本会按兼容规则读取。",
+                    code="config.schema_version.outdated",
+                )
+            )
 
     def _validate_top_level(self, data: Any, diagnostics: list[ConfigDiagnostic]) -> None:
         if not isinstance(data, dict):
@@ -386,6 +424,29 @@ class ConfigValidator:
             )
         if isinstance(provider, str):
             self._validate_provider_field_matrix(section, provider, data, diagnostics)
+
+        if (
+            provider == "deepseek"
+            and data.get("thinking_enabled") is False
+            and data.get("reasoning_effort")
+        ):
+            diagnostics.append(
+                self._warning(
+                    f"{section}.reasoning_effort",
+                    "reasoning_effort is ignored when DeepSeek thinking_enabled is false",
+                    "关闭 thinking mode 时建议同时移除 reasoning_effort，避免误以为推理强度仍生效。",
+                    code="config.model.reasoning_effort_ignored",
+                )
+            )
+        if provider == "ollama" and data.get("base_url") and data.get("api_path"):
+            diagnostics.append(
+                self._error(
+                    f"{section}.api_path",
+                    "Ollama provider does not support custom api_path",
+                    "Ollama 请只配置 base_url，例如 http://127.0.0.1:11434；不要配置 api_path。",
+                    code="config.provider.api_path_unsupported",
+                )
+            )
 
     def _validate_provider_field_matrix(
         self,
@@ -738,6 +799,74 @@ class ConfigValidator:
                     code="config.resource_control.wait_without_timeout",
                 )
             )
+        if data.get("overflow_policy") == "reject" and data.get("runtime_queue_size", 0) > 0:
+            diagnostics.append(
+                self._warning(
+                    "resource_control.runtime_queue_size",
+                    "runtime_queue_size has no effect when overflow_policy is reject",
+                    "reject 策略会快速拒绝，通常可将 runtime_queue_size 设为 0，或改用 wait 策略。",
+                    code="config.resource_control.queue_unused",
+                )
+            )
+        runtime_limit = data.get("runtime_max_concurrent")
+        for field_name in (
+            "session_max_concurrent",
+            "stream_max_concurrent",
+            "model_max_concurrent",
+            "tool_max_concurrent",
+            "web_search_max_concurrent",
+            "image_generation_max_concurrent",
+            "dependency_install_max_concurrent",
+        ):
+            nested_limit = data.get(field_name)
+            if (
+                isinstance(runtime_limit, (int, float))
+                and not isinstance(runtime_limit, bool)
+                and isinstance(nested_limit, (int, float))
+                and not isinstance(nested_limit, bool)
+                and nested_limit > runtime_limit
+            ):
+                diagnostics.append(
+                    self._warning(
+                        f"resource_control.{field_name}",
+                        f"{field_name} is greater than runtime_max_concurrent and will be capped by the runtime gate",
+                        "子资源并发上限大于 Runtime 总并发时不会真正生效，建议小于或等于 runtime_max_concurrent。",
+                        code="config.resource_control.limit_shadowed",
+                    )
+                )
+        default_timeout = data.get("default_timeout_seconds")
+        dependency_timeout = data.get("dependency_install_timeout_seconds")
+        if (
+            isinstance(default_timeout, (int, float))
+            and not isinstance(default_timeout, bool)
+            and isinstance(dependency_timeout, (int, float))
+            and not isinstance(dependency_timeout, bool)
+            and dependency_timeout < default_timeout
+        ):
+            diagnostics.append(
+                self._warning(
+                    "resource_control.dependency_install_timeout_seconds",
+                    "dependency_install_timeout_seconds is shorter than default_timeout_seconds",
+                    "依赖安装通常比普通请求更慢，建议保持 dependency_install_timeout_seconds 不小于 default_timeout_seconds。",
+                    code="config.resource_control.dependency_timeout_short",
+                )
+            )
+
+    def _validate_deprecated_fields(
+        self, data: dict[str, Any], diagnostics: list[ConfigDiagnostic]
+    ) -> None:
+        for path, (replacement, note) in self.DEPRECATED_FIELDS.items():
+            section, _, field_name = path.partition(".")
+            section_data = data.get(section)
+            if isinstance(section_data, dict) and field_name in section_data:
+                diagnostics.append(
+                    self._warning(
+                        path,
+                        f"Config field '{path}' is deprecated",
+                        f"{note} 请改用 {replacement}。",
+                        code="config.field.deprecated",
+                    )
+                )
 
     def _validate_object(self, path: str, value: Any, diagnostics: list[ConfigDiagnostic]) -> None:
         if not isinstance(value, dict):
@@ -881,6 +1010,7 @@ class ConfigValidator:
     @staticmethod
     def _known_top_level_fields() -> set[str]:
         return {
+            "config_schema_version",
             "log_level",
             "log_console",
             "log_file",

@@ -1,4 +1,6 @@
 # GensokyoAI 默认配置
+# 当前配置 schema 版本。旧配置可不写该字段；如果写了高于当前支持版本的数字，启动前会报错。
+config_schema_version: 1
 
 # 日志配置
 log_level: DEBUG

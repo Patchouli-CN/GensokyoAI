@@ -33,7 +33,9 @@ class CharacterPackageServiceTests(unittest.TestCase):
             character_path = root / "reimu.yaml"
             package_path = root / "reimu.gensokyo-character"
             characters_dir = root / "characters"
-            character_path.write_text(yaml.safe_dump(VALID_CHARACTER, allow_unicode=True), encoding="utf-8")
+            character_path.write_text(
+                yaml.safe_dump(VALID_CHARACTER, allow_unicode=True), encoding="utf-8"
+            )
 
             service = CharacterPackageService()
             exported = service.export_package(
@@ -84,7 +86,9 @@ class CharacterPackageServiceTests(unittest.TestCase):
             payload = CharacterPackageService().validate_package(package_path)
 
             self.assertFalse(payload["ok"])
-            self.assertEqual(payload["diagnostics"][0]["code"], "character_package.manifest.missing")
+            self.assertEqual(
+                payload["diagnostics"][0]["code"], "character_package.manifest.missing"
+            )
 
     def test_import_rejects_duplicate_without_overwrite(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -93,8 +97,12 @@ class CharacterPackageServiceTests(unittest.TestCase):
             package_path = root / "reimu.gensokyo-character"
             characters_dir = root / "characters"
             characters_dir.mkdir()
-            (characters_dir / "reimu.yaml").write_text("name: old\nsystem_prompt: old\n", encoding="utf-8")
-            character_path.write_text(yaml.safe_dump(VALID_CHARACTER, allow_unicode=True), encoding="utf-8")
+            (characters_dir / "reimu.yaml").write_text(
+                "name: old\nsystem_prompt: old\n", encoding="utf-8"
+            )
+            character_path.write_text(
+                yaml.safe_dump(VALID_CHARACTER, allow_unicode=True), encoding="utf-8"
+            )
             service = CharacterPackageService()
             service.export_package(character_path, package_path, package_id="reimu")
 
@@ -102,7 +110,9 @@ class CharacterPackageServiceTests(unittest.TestCase):
 
             self.assertFalse(imported["ok"])
             self.assertFalse(imported["imported"])
-            self.assertIn("character_package.import.duplicate", {d["code"] for d in imported["diagnostics"]})
+            self.assertIn(
+                "character_package.import.duplicate", {d["code"] for d in imported["diagnostics"]}
+            )
 
 
 class CharacterCliTests(unittest.TestCase):

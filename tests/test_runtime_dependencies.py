@@ -1008,6 +1008,52 @@ class RuntimeResourceControlTests(unittest.TestCase):
         self.assertIn("resource_control.runtime_max_concurrent", paths)
         self.assertIn("resource_control.runtime_queue_size", paths)
 
+    def test_config_validation_reports_p1_6_schema_and_resource_warnings(self):
+        diagnostics = ConfigLoader().validate_dict(
+            {
+                "config_schema_version": 0,
+                "model": {
+                    "provider": "deepseek",
+                    "thinking_enabled": False,
+                    "reasoning_effort": "high",
+                },
+                "resource_control": {
+                    "runtime_max_concurrent": 1,
+                    "runtime_queue_size": 3,
+                    "session_max_concurrent": 2,
+                    "default_timeout_seconds": 120,
+                    "dependency_install_timeout_seconds": 30,
+                    "overflow_policy": "reject",
+                },
+            }
+        )
+
+        codes = {item.code for item in diagnostics}
+        paths = {item.path for item in diagnostics}
+        self.assertIn("config.schema_version.outdated", codes)
+        self.assertIn("config.model.reasoning_effort_ignored", codes)
+        self.assertIn("config.resource_control.queue_unused", codes)
+        self.assertIn("config.resource_control.limit_shadowed", codes)
+        self.assertIn("config.resource_control.dependency_timeout_short", codes)
+        self.assertIn("config_schema_version", paths)
+        self.assertIn("resource_control.session_max_concurrent", paths)
+
+    def test_config_validation_rejects_future_schema_version_and_ollama_api_path(self):
+        diagnostics = ConfigLoader().validate_dict(
+            {
+                "config_schema_version": 999,
+                "model": {
+                    "provider": "ollama",
+                    "base_url": "http://127.0.0.1:11434",
+                    "api_path": "/v1/chat/completions",
+                },
+            }
+        )
+
+        errors = {item.code for item in diagnostics if item.severity == "error"}
+        self.assertIn("config.schema_version.unsupported", errors)
+        self.assertIn("config.provider.api_path_unsupported", errors)
+
     def test_runtime_info_exposes_resource_control_capability_and_snapshot(self):
         service = RuntimeService()
 
