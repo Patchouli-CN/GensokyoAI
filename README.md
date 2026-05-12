@@ -448,8 +448,8 @@ GensokyoAI 提供前端无关的 Runtime 服务边界，当前可通过 [`bridge
 角色校验也提供独立命令行入口：
 
 ```bash
-python -m GensokyoAI.commands.character_cli characters/zh_cn/HakureiReimu.yaml --json
-python -m GensokyoAI.commands.character_cli characters/zh_cn --recursive
+python -m GensokyoAI.character_cli characters/zh_cn/HakureiReimu.yaml --json
+python -m GensokyoAI.character_cli characters/zh_cn --recursive
 ```
 
 安装为脚本后可使用 `gensokyoai-character`，存在 error 级诊断时退出码为 `1`，仅有 warning 时退出码仍为 `0`。

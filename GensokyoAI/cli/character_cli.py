@@ -10,8 +10,8 @@ from typing import Any
 
 import yaml
 
-from GensokyoAI.core.character_validator import CharacterValidator
-from GensokyoAI.core.config_validator import ConfigDiagnostic
+from ..core.character_validator import CharacterValidator
+from ..core.config_validator import ConfigDiagnostic
 
 
 def validate_character_path(path: Path) -> dict[str, Any]:
