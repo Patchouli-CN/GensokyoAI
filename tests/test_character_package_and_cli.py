@@ -9,7 +9,7 @@ from pathlib import Path
 
 import yaml
 
-from GensokyoAI.commands.character_cli import main as character_cli_main
+from GensokyoAI.cli.character_cli import main as character_cli_main
 from GensokyoAI.core.character_package import (
     CHARACTER_PACKAGE_MANIFEST,
     CharacterPackageService,
