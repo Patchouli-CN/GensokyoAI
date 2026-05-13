@@ -114,8 +114,8 @@ run_default_uv.cmd
 run_default_pip.cmd
 ```
 
-- `run_default_uv.cmd` 会执行 `uv run --extra ollama main_v2.py --character "characters\zh_cn\KirisameMarisa.yaml" --new-session`。
-- `run_default_pip.cmd` 会执行 `python main_v2.py --character "characters\zh_cn\KirisameMarisa.yaml" --new-session`。
+- `run_default_uv.cmd` 会执行 `uv run --extra ollama -m GensokyoAI.cli.main --character "characters\zh_cn\KirisameMarisa.yaml" --new-session`。
+- `run_default_pip.cmd` 会执行 `python -m GensokyoAI.cli.main --character "characters\zh_cn\KirisameMarisa.yaml" --new-session`。
 
 首次使用 `run_default_uv.cmd` 前请先安装 uv；通常不需要另外手动安装 Python 3.14，uv 可以自动准备运行时。首次使用 `run_default_pip.cmd` 前请先手动安装 Python 3.14+，再用 pip 安装依赖。
 
@@ -311,8 +311,8 @@ example_dialogue:
 独立 CLI 校验入口：
 
 ```bash
-python -m GensokyoAI.commands.character_cli characters/zh_cn/HakureiReimu.yaml --json
-python -m GensokyoAI.commands.character_cli characters/zh_cn --recursive
+python -m GensokyoAI.cli.character_cli characters/zh_cn/HakureiReimu.yaml --json
+python -m GensokyoAI.cli.character_cli characters/zh_cn --recursive
 ```
 
 安装为包后也可以使用：
@@ -367,19 +367,26 @@ JSON Lines RPC 示例：
 uv：
 
 ```bash
-uv run main_v2.py --character characters/zh_cn/KirisameMarisa.yaml --new-session
-uv run main_v2.py --character characters/zh_cn/KirisameMarisa.yaml --config config/local.yaml --new-session
-uv run main_v2.py --character characters/zh_cn/KirisameMarisa.yaml --resume <session_id>
-uv run main_v2.py --list-sessions
+uv run --extra ollama -m GensokyoAI.cli.main --character characters/zh_cn/KirisameMarisa.yaml --new-session
+uv run --extra ollama -m GensokyoAI.cli.main --character characters/zh_cn/KirisameMarisa.yaml --config config/local.yaml --new-session
+uv run --extra ollama -m GensokyoAI.cli.main --character characters/zh_cn/KirisameMarisa.yaml --resume <session_id>
+uv run --extra ollama -m GensokyoAI.cli.main --list-sessions
 ```
 
 pip / 普通 Python：
 
 ```bash
-python main_v2.py --character characters/zh_cn/KirisameMarisa.yaml --new-session
-python main_v2.py --character characters/zh_cn/KirisameMarisa.yaml --config config/local.yaml --new-session
-python main_v2.py --character characters/zh_cn/KirisameMarisa.yaml --resume <session_id>
-python main_v2.py --list-sessions
+python -m GensokyoAI.cli.main --character characters/zh_cn/KirisameMarisa.yaml --new-session
+python -m GensokyoAI.cli.main --character characters/zh_cn/KirisameMarisa.yaml --config config/local.yaml --new-session
+python -m GensokyoAI.cli.main --character characters/zh_cn/KirisameMarisa.yaml --resume <session_id>
+python -m GensokyoAI.cli.main --list-sessions
+```
+
+安装为包后也可以使用 `gensokyoai` 脚本入口：
+
+```bash
+gensokyoai --character characters/zh_cn/KirisameMarisa.yaml --new-session
+gensokyoai --list-sessions
 ```
 
 命令行参数：

@@ -134,8 +134,9 @@ GensokyoAI/
 ├── config/
 │   └── default.yaml            # 默认配置
 ├── tests/                      # 回归测试
-├── main_v2.py                  # 入口文件
-├── pyproject.toml              # 项目配置（UV）
+├── bridge_main.py              # JSON Lines Runtime RPC 入口
+├── runtime_http.py             # HTTP / WebSocket Runtime 入口
+├── pyproject.toml              # 项目配置（UV / 打包脚本入口）
 ├── requirements.txt            # pip 依赖列表
 ├── run_default_uv.cmd          # Windows UV 快速启动脚本
 ├── run_default_pip.cmd         # Windows pip 快速启动脚本

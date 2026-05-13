@@ -129,5 +129,11 @@ async def main():
     await backend.run_interactive()
 
 
-if __name__ == "__main__":
+def cli_main() -> None:
+    """同步命令行入口，用于 pyproject scripts。"""
+
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    cli_main()
