@@ -187,16 +187,39 @@ HTTP `/rpc` 与 WebSocket 普通 RPC 使用相同请求格式：
 
 ## WebSocket 流式帧
 
-`agent.send_message_stream` 会返回多帧：
+RuntimeService 当前提供两种流式消费形态：
+
+- `iter_message_stream()`：async iterator，按 Agent 流式 chunk 即时产出 Runtime 事件；WebSocket `/ws` 的 `agent.send_message_stream` 使用该形态逐帧推送。
+- `send_message_stream()`：聚合形态，收集完整 `events` 后一次性返回；JSON Lines RPC 与 HTTP `POST /rpc` 使用该形态，便于保持一请求一响应兼容性。
+
+WebSocket 客户端发送：
+
+```json
+{
+  "id": "stream-1",
+  "method": "agent.send_message_stream",
+  "params": {"message": "你好"}
+}
+```
+
+服务端会先返回启动确认帧，其中 `result` 是分配到的 `stream_id`：
 
 ```json
 {
   "id": "stream-1",
   "ok": true,
-  "stream": true,
+  "result": {"stream_id": "..."}
+}
+```
+
+随后按生成进度返回事件帧：
+
+```json
+{
+  "id": "stream-1",
+  "ok": true,
   "stream_id": "...",
-  "event": {"type": "content", "content": "..."},
-  "done": false
+  "event": {"type": "content", "index": 0, "content": "..."}
 }
 ```
 
@@ -206,10 +229,17 @@ HTTP `/rpc` 与 WebSocket 普通 RPC 使用相同请求格式：
 {
   "id": "stream-1",
   "ok": true,
-  "stream": true,
   "stream_id": "...",
   "done": true,
-  "result": {"role": "assistant", "content": "..."}
+  "result": {
+    "role": "assistant",
+    "content": "...",
+    "events": [
+      {"type": "content", "index": 0, "content": "..."},
+      {"type": "finish", "index": 1, "content": "..."}
+    ],
+    "session": {}
+  }
 }
 ```
 

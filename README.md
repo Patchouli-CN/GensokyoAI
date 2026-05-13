@@ -477,10 +477,11 @@ python runtime_http.py --host 127.0.0.1 --port 8765
 
 - `GET /health`：返回 Runtime 健康状态。
 - `GET /info`：返回 Runtime 方法列表和能力信息。
-- `POST /rpc`：接收 `{"id": 1, "method": "runtime.health", "params": {}}` 形式的 JSON RPC 请求。
-- `WebSocket /ws`：接收同样的 JSON RPC 请求；普通方法返回单帧响应，`agent.send_message_stream` 会把 `events` 拆成多帧 `event` 推送，最后发送 `done: true` 的结果帧。
+- `POST /rpc`：接收 `{"id": 1, "method": "runtime.health", "params": {}}` 形式的 JSON RPC 请求；`agent.send_message_stream` 在 HTTP RPC 中会聚合为一次响应，响应内包含 `events` 列表。
+- `WebSocket /ws`：接收同样的 JSON RPC 请求；普通方法返回单帧响应，`agent.send_message_stream` 会通过 `RuntimeService.iter_message_stream()` 边生成边产出事件帧，最后发送 `done: true` 的结果帧。
+- `GET /events`：Runtime 事件订阅 SSE 端点，可按事件类型或类别过滤。
 
-说明：JSON Lines RPC 与 HTTP `POST /rpc` 仍是一请求一响应；WebSocket adapter 已能对 `agent.send_message_stream` 的事件列表逐事件推送。当前逐事件推送发生在 adapter 层，后续仍可继续把 RuntimeService 内部升级成真正边生成边产出事件的 async iterator。
+说明：JSON Lines RPC 与 HTTP `POST /rpc` 仍是一请求一响应；WebSocket `/ws` 会逐帧转发 Runtime 流式事件，适合需要实时 token / 工具调用 / finish 事件的客户端。RuntimeService 当前已经提供 async iterator 形式的 `iter_message_stream()`；`send_message_stream()` 保留聚合事件列表的响应形态，便于兼容现有 JSON Lines 与 HTTP 调用方。
 
 ## API 调用层能力
 

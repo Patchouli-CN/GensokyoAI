@@ -10,6 +10,7 @@ from pathlib import Path
 import yaml
 
 from GensokyoAI.cli.character_cli import main as character_cli_main
+from GensokyoAI.cli.main import find_character_file
 from GensokyoAI.core.character_package import (
     CHARACTER_PACKAGE_MANIFEST,
     CharacterPackageService,
@@ -234,6 +235,22 @@ class CharacterPackageServiceTests(unittest.TestCase):
 
 
 class CharacterCliTests(unittest.TestCase):
+    def test_main_cli_finds_character_by_explicit_file_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "explicit.yaml"
+            path.write_text(yaml.safe_dump(VALID_CHARACTER, allow_unicode=True), encoding="utf-8")
+
+            self.assertEqual(find_character_file(str(path)), path)
+
+    def test_main_cli_finds_character_from_project_characters_root_by_name(self):
+        self.assertEqual(find_character_file("example"), Path("characters/example.yaml").resolve())
+
+    def test_main_cli_finds_builtin_zh_cn_character_by_name(self):
+        self.assertEqual(
+            find_character_file("HakureiReimu"),
+            Path("characters/zh_cn/HakureiReimu.yaml").resolve(),
+        )
+
     def test_cli_file_returns_zero_for_valid_character(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "ok.yaml"

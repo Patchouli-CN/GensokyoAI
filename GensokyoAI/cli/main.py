@@ -34,19 +34,35 @@ def parse_args():
 
 
 def find_character_file(name: str) -> Path:
-    """查找角色配置文件"""
-    characters_dir = Path(__file__).parent / "characters"
+    """查找角色配置文件。
+
+    支持三种输入：
+    1. 显式文件路径，例如 ``characters/zh_cn/HakureiReimu.yaml``。
+    2. 项目根目录 ``characters`` 下的角色名，例如 ``example``。
+    3. 内置中文角色目录 ``characters/zh_cn`` 下的角色名，例如 ``HakureiReimu``。
+    """
+
+    explicit_path = Path(name).expanduser()
+    if explicit_path.exists():
+        if explicit_path.is_file():
+            return explicit_path
+        raise FileNotFoundError(f"角色配置路径不是文件: {name}")
+
+    project_root = Path(__file__).resolve().parents[2]
+    characters_dir = project_root / "characters"
     candidates = [
         characters_dir / f"{name}.yaml",
         characters_dir / f"{name}.yml",
-        Path(name) if Path(name).exists() else None,
+        characters_dir / "zh_cn" / f"{name}.yaml",
+        characters_dir / "zh_cn" / f"{name}.yml",
     ]
 
-    for cand in candidates:
-        if cand and cand.exists():
-            return cand
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
 
-    raise FileNotFoundError(f"找不到角色配置: {name}")
+    searched = ", ".join(str(candidate) for candidate in candidates)
+    raise FileNotFoundError(f"找不到角色配置: {name}；已搜索: {searched}")
 
 
 async def main():
