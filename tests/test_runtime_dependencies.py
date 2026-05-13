@@ -43,7 +43,7 @@ from GensokyoAI.runtime.rpc import (
     resolve_rpc_handler,
     rpc_methods,
 )
-from GensokyoAI.runtime.service import RuntimeService
+from GensokyoAI.runtime.service import RuntimeService, runtime_compatibility_notes
 from GensokyoAI.session.context import SessionContext
 from GensokyoAI.session.persistence import SessionPersistence
 from GensokyoAI.tools.errors import ToolError, ToolExecutionError
@@ -154,7 +154,10 @@ class MigrationDiagnosticsTests(unittest.TestCase):
             info["schema_versions"]["character_package"], CHARACTER_PACKAGE_SCHEMA_VERSION
         )
         self.assertEqual(info["deprecated_fields"], [])
-        self.assertEqual(info["compatibility_notes"], [])
+        self.assertEqual(info["compatibility_notes"], runtime_compatibility_notes())
+        self.assertTrue(info["compatibility_notes"])
+        self.assertEqual(info["compatibility_notes"][0]["scope"], "runtime.rpc.legacy_methods")
+        self.assertEqual(info["compatibility_notes"][0]["status"], "deprecated")
         self.assertEqual(info["migration_diagnostics"]["recent"], [])
         self.assertEqual(info["migration_diagnostics"]["counts"]["migrated"], 0)
 
@@ -583,6 +586,11 @@ class RuntimeRpcDispatchTests(unittest.TestCase):
         self.assertIn("memory.management", info["capabilities"])
         self.assertEqual(info["breaking_changes"], [])
         self.assertTrue(info["method_specs"])
+        self.assertEqual(info["deprecated_fields"], [])
+        self.assertEqual(info["compatibility_notes"], runtime_compatibility_notes())
+        self.assertEqual(info["compatibility_notes"][0]["scope"], "runtime.rpc.legacy_methods")
+        self.assertEqual(info["compatibility_notes"][0]["status"], "deprecated")
+        self.assertIn("replacement", info["compatibility_notes"][0])
 
         legacy_init = next(item for item in info["deprecated_methods"] if item["method"] == "init")
         self.assertTrue(legacy_init["deprecated"])
@@ -595,6 +603,16 @@ class RuntimeRpcDispatchTests(unittest.TestCase):
         self.assertEqual(runtime_info["namespace"], "runtime")
         self.assertFalse(runtime_info["legacy"])
         self.assertFalse(runtime_info["deprecated"])
+
+    def test_runtime_api_document_mentions_declared_versioning_metadata(self):
+        text = Path("docs/runtime_api.md").read_text(encoding="utf-8")
+
+        self.assertIn("runtime.rpc.legacy_methods", text)
+        self.assertIn("deprecated_fields", text)
+        self.assertIn("compatibility_notes", text)
+        for note in runtime_compatibility_notes():
+            self.assertIn(note["scope"], text)
+            self.assertIn(note["status"], text)
 
     def test_resolve_rpc_handler_maps_namespaced_and_legacy_methods(self):
         service = RuntimeService()
@@ -1057,6 +1075,46 @@ class RuntimeResourceControlTests(unittest.TestCase):
         self.assertIn("config.schema_version.unsupported", errors)
         self.assertIn("config.provider.api_path_unsupported", errors)
 
+    def test_config_validation_tightens_provider_field_matrix_errors(self):
+        diagnostics = ConfigLoader().validate_dict(
+            {
+                "model": {
+                    "provider": "deepseek",
+                    "api_path": "/custom/chat/completions",
+                    "web_search_enabled": True,
+                    "web_search_strategy": "explicit",
+                }
+            }
+        )
+
+        payloads = [item.to_dict() for item in diagnostics]
+        errors = {item["code"] for item in payloads if item["severity"] == "error"}
+        warnings = {item["code"] for item in payloads if item["severity"] == "warning"}
+        paths = {item["path"] for item in payloads}
+
+        self.assertIn("config.provider.field_unsupported", errors)
+        self.assertIn("config.provider.web_search_unsupported", errors)
+        self.assertIn("model.api_path", paths)
+        self.assertIn("model.web_search_enabled", paths)
+        self.assertNotIn("config.provider.field_discouraged", warnings)
+
+    def test_config_validation_keeps_soft_provider_matrix_warnings(self):
+        diagnostics = ConfigLoader().validate_dict(
+            {
+                "model": {
+                    "provider": "ollama",
+                    "api_key": "sk-not-needed",
+                    "reasoning_effort": "high",
+                }
+            }
+        )
+
+        warnings = [item for item in diagnostics if item.code == "config.provider.field_discouraged"]
+        errors = [item for item in diagnostics if item.severity == "error"]
+
+        self.assertEqual({item.path for item in warnings}, {"model.api_key", "model.reasoning_effort"})
+        self.assertEqual(errors, [])
+
     def test_runtime_info_exposes_resource_control_capability_and_snapshot(self):
         service = RuntimeService()
 
@@ -1339,7 +1397,7 @@ class ConfigValidationAndRuntimePathTests(unittest.TestCase):
         )
         ConfigLoader()._dict_to_config({"model": {"provider": "openai"}})
 
-    def test_config_loader_warns_for_provider_field_matrix(self):
+    def test_config_loader_reports_provider_field_matrix(self):
         diagnostics = ConfigLoader().validate_dict(
             {
                 "model": {
@@ -1351,9 +1409,11 @@ class ConfigValidationAndRuntimePathTests(unittest.TestCase):
             }
         )
 
-        codes = {item.code for item in diagnostics}
-        self.assertIn("config.provider.field_discouraged", codes)
-        self.assertIn("config.provider.web_search_unsupported", codes)
+        warnings = {item.code for item in diagnostics if item.severity == "warning"}
+        errors = {item.code for item in diagnostics if item.severity == "error"}
+        self.assertIn("config.provider.field_discouraged", warnings)
+        self.assertIn("config.provider.field_unsupported", errors)
+        self.assertIn("config.provider.web_search_unsupported", errors)
 
     def test_runtime_resolve_optional_rejects_paths_outside_root(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1409,6 +1469,7 @@ class RuntimeConfigValidationApiTests(unittest.TestCase):
                         "model": {
                             "provider": "ollama",
                             "api_key": "sk-not-needed",
+                            "web_search_enabled": True,
                             "temperature": 3,
                         }
                     },
@@ -1420,14 +1481,22 @@ class RuntimeConfigValidationApiTests(unittest.TestCase):
         result = asyncio.run(run())
         paths = {item["path"] for item in result["diagnostics"]}
         codes = {item["code"] for item in result["diagnostics"]}
+        error_codes = {item["code"] for item in result["diagnostics"] if item["severity"] == "error"}
+        warning_codes = {
+            item["code"] for item in result["diagnostics"] if item["severity"] == "warning"
+        }
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["source"], "inline")
         self.assertIn("model.temperature", paths)
         self.assertIn("model.retry_status_codes", paths)
         self.assertIn("embedding.dimensions", paths)
+        self.assertIn("model.web_search_enabled", paths)
         self.assertIn("config.provider.field_discouraged", codes)
-        self.assertGreaterEqual(result["error_count"], 3)
+        self.assertIn("config.provider.field_unsupported", error_codes)
+        self.assertIn("config.provider.web_search_unsupported", error_codes)
+        self.assertIn("config.provider.field_discouraged", warning_codes)
+        self.assertGreaterEqual(result["error_count"], 5)
 
     def test_config_validate_method_is_advertised(self):
         service = RuntimeService()

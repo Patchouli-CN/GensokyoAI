@@ -248,13 +248,47 @@ Runtime 对外声明废弃信息时，应优先使用结构化字段：
 - 移除了 `runtime.legacy_method`。如客户端仍依赖该方法，需要升级到 `runtime.new_method`。
 ```
 
-### 6. 发布前检查
+### 6. 废弃字段记录规范
+
+公开字段废弃时必须维护一条结构化记录，避免只在文档里口头说明。记录字段建议与废弃 RPC 方法保持一致：
+
+```json
+{
+  "name": "runtime.info.old_field",
+  "since": "2026.5.11.0",
+  "remove_after": "2026.5.12.0",
+  "replacement": "runtime.info.new_field",
+  "reason": "Use the namespaced field for clearer client integration.",
+  "status": "deprecated"
+}
+```
+
+规则：
+
+- `name` 必须是对外文档中的完整字段路径，例如 `runtime.info.deprecated_fields`。
+- `since` 和 `remove_after` 使用不带 `v` 的 package / protocol 版本；不能确定移除时间时 `remove_after` 可为 `null`。
+- `replacement` 没有替代方案时可为 `null`，但 `reason` 必须说明影响和处理方式。
+- `status` 使用 `deprecated`、`removal_pending` 或 `removed`。
+- Runtime 公开字段废弃记录应通过 `runtime.info.deprecated_fields` 暴露；普通配置字段废弃仍由配置诊断给 warning。
+
+### 7. Runtime metadata 同步要求
+
+每次修改 Runtime 公开能力时，需要同步检查：
+
+- `runtime.info.methods`、`legacy_methods`、`method_specs` 是否能反映 [`rpc.py`](../GensokyoAI/runtime/rpc.py) 中的真实方法表。
+- `runtime.info.capabilities` 是否与 [`runtime_api.md`](runtime_api.md) 中公开能力一致。
+- `runtime.info.deprecated_methods` 是否来自统一 RPC 方法表。
+- `runtime.info.deprecated_fields` 和 `compatibility_notes` 是否来自可维护的常量或 helper，而不是散落的临时字面量。
+- `runtime.info.breaking_changes` 是否与 changelog 的“已移除或破坏性变化”一致。
+
+### 8. 发布前检查
 
 发布前如果存在废弃或移除，需要额外检查：
 
 - [ ] [`runtime_api.md`](runtime_api.md) 是否标注废弃状态和替代方案。
 - [ ] [`rpc.py`](../GensokyoAI/runtime/rpc.py) 是否同步 `deprecated_methods` 或 `breaking_changes`。
 - [ ] `runtime.info.deprecated_fields` 是否包含公开字段废弃信息。
+- [ ] `runtime.info.compatibility_notes` 是否说明客户端需要关注的兼容事项。
 - [ ] changelog 是否包含 Deprecated、Removed 或 Compatibility 小节。
 - [ ] 移除公开 Runtime API 时是否递增 `RUNTIME_PROTOCOL_MAJOR_VERSION`。
 - [ ] 涉及持久化数据变化时是否递增对应 schema version，并补迁移诊断测试。
@@ -288,15 +322,16 @@ docs/
 - [ ] [`pyproject.toml`](../pyproject.toml) 中 package version 是否正确。
 - [ ] `runtime.info.package_version` 是否能返回当前 package version。
 - [ ] 是否需要更新 [`rpc.py`](../GensokyoAI/runtime/rpc.py) 中 Runtime protocol version。
-- [ ] 是否发生破坏性 Runtime API 变化；如有，是否递增 `RUNTIME_PROTOCOL_MAJOR_VERSION`。
+- [ ] 是否发生破坏性 Runtime API 变化；如有，是否递增 `RUNTIME_PROTOCOL_MAJOR_VERSION` 并记录 `breaking_changes`。
+- [ ] 是否新增或删除 Runtime methods、capabilities、返回字段；如有，是否更新 [`runtime_api.md`](runtime_api.md) 并补一致性测试。
+- [ ] 是否新增 deprecated methods / fields；如有，是否补 `since`、`remove_after`、`replacement`、`reason` 和 changelog 说明。
 - [ ] 是否需要更新 [`schema_versions.py`](../GensokyoAI/core/schema_versions.py) 中 schema version。
-- [ ] schema version 递增时，是否已补迁移逻辑和测试。
+- [ ] schema version 递增时，是否已补迁移逻辑、备份 / 恢复说明和测试。
 - [ ] 是否创建对应 changelog 文件。
-- [ ] changelog 是否说明新增、修复、废弃、破坏性变化、安装依赖变化和数据迁移。
+- [ ] changelog 是否说明新增、修复、行为变化、废弃、破坏性变化、安装依赖变化、数据迁移、Runtime / schema 版本和测试结果。
 - [ ] 如存在 deprecated 或 removed 项，是否已按废弃字段和废弃方法生命周期补充 Runtime 声明与迁移说明。
-- [ ] [`runtime_api.md`](runtime_api.md) 是否同步公开 API 变化。
-- [ ] README 是否需要补充用户入口链接。
-- [ ] 测试是否通过。
+- [ ] [`runtime_api.md`](runtime_api.md)、[`user_guide.md`](user_guide.md) 和 README 是否需要同步公开 API / 用户入口变化。
+- [ ] 关键测试是否通过，并在 changelog 的“面向开发者的补充说明”中记录测试范围。
 - [ ] Git tag 是否与 package version 一致。
 
 ## 十、推荐版本矩阵

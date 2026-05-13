@@ -25,6 +25,8 @@
 - 对普通用户有什么影响。
 - 是否需要手动操作。
 - 是否影响旧配置、旧会话、旧记忆、角色文件或客户端集成。
+- 是否改变 Runtime methods、capabilities、返回字段、错误结构或 schema version。
+- 是否涉及 deprecated、removal_pending、removed 或 breaking changes；如果涉及，必须给出替代方案和迁移方式。
 
 ---
 
@@ -49,7 +51,8 @@
 
 - 变化：说明已有功能的行为变化。
   - 对用户的影响：说明升级后体验有什么不同。
-  - 兼容性：说明旧用法是否还能继续用。
+  - 兼容性：说明旧用法是否还能继续用；如果只是 warning 收紧为 error，需要写明受影响配置。
+  - 客户端影响：说明 Runtime 返回字段、错误码、capabilities 或方法列表是否变化。
 
 ## 修复问题
 
@@ -60,14 +63,19 @@
 ## 已废弃但仍兼容
 
 - 废弃：说明不推荐继续使用的配置、字段、RPC 方法或文件格式。
-  - 替代方案：说明应该改用什么。
-  - 预计移除：说明未来哪个大版本或阶段可能移除。
+  - 废弃对象：写完整路径或方法名，例如 `runtime.info.old_field` 或 `legacy_method`。
+  - 生效版本：写不带 `v` 的版本号，例如 `2026.5.11.0`。
+  - 替代方案：说明应该改用什么；没有替代方案时说明原因。
+  - 预计移除：说明 `remove_after`，无法确定时写“暂未确定”。
+  - Runtime 声明：说明是否已写入 `runtime.info.deprecated_methods` 或 `runtime.info.deprecated_fields`。
 
 ## 已移除或破坏性变化
 
 - 移除：说明不再支持的能力。
   - 影响范围：说明会影响哪些用户或客户端。
+  - 破坏性级别：说明是否需要递增 `RUNTIME_PROTOCOL_MAJOR_VERSION` 或 schema version。
   - 迁移方式：说明如何改配置、改调用方式或迁移数据。
+  - Runtime 声明：说明是否已写入 `runtime.info.breaking_changes`。
 
 ## 数据迁移与升级提醒
 
@@ -85,9 +93,13 @@
 ## Runtime / 客户端兼容性
 
 - Runtime 协议版本：YYYY.M.D.N
+- Runtime protocol major：1
 - 支持的客户端：说明推荐客户端版本或最低兼容版本。
-- 新增 capabilities：列出新增能力。
-- 废弃 methods / fields：列出废弃方法或字段。
+- methods 变化：列出新增、废弃或移除的方法；没有则写“无”。
+- capabilities 变化：列出新增、废弃或移除的能力；没有则写“无”。
+- 返回字段变化：列出 `runtime.info`、配置诊断、会话、记忆等公开返回字段变化；没有则写“无”。
+- 废弃 methods / fields：列出废弃方法或字段，并说明替代方案；没有则写“无”。
+- compatibility notes：列出客户端需要关注的兼容事项；没有则写“无”。
 - breaking changes：列出破坏性变化；没有则写“无”。
 
 ## Schema 版本
@@ -109,8 +121,9 @@
 ## 面向开发者的补充说明
 
 - 代码层变化：简要说明重要模块或 API 变化。
-- 测试结果：说明关键测试是否通过。
+- 测试结果：说明关键测试是否通过；建议列出实际执行的测试命令。
 - 文档更新：列出需要同步阅读的文档。
+- 发布前检查：确认 [`versioning.md`](versioning.md) 的发布前检查清单已完成。
 ```
 
 ---

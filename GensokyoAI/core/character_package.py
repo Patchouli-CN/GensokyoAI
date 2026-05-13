@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
+import re
 import shutil
 import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import yaml
 
@@ -33,6 +36,10 @@ ALLOWED_RESOURCE_SUFFIXES = {
     ".yaml",
     ".yml",
 }
+ALLOWED_EXTERNAL_URL_SCHEMES = {"https"}
+ALLOWED_SIGNATURE_ALGORITHMS = {"ed25519", "rsa-pss-sha256", "minisign"}
+SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
+SIGNATURE_VALUE_PATTERN = re.compile(r"^[A-Za-z0-9+/=_:.-]{16,4096}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,8 +61,17 @@ class CharacterPackageService:
         "name",
         "version",
         "author",
+        "author_url",
         "license",
+        "license_url",
+        "license_detail",
         "description",
+        "source",
+        "attribution",
+        "external_links",
+        "repository",
+        "signature",
+        "checksums",
         "gensokyoai_version",
         "compatible_gensokyoai_versions",
         "character",
@@ -90,6 +106,14 @@ class CharacterPackageService:
         license: str | None = None,
         assets: list[Path] | None = None,
         overwrite: bool = False,
+        source: str | None = None,
+        author_url: str | None = None,
+        license_url: str | None = None,
+        license_detail: str | None = None,
+        attribution: list[dict[str, Any]] | None = None,
+        external_links: list[dict[str, Any]] | None = None,
+        repository: dict[str, Any] | None = None,
+        signature: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """从角色 YAML 和可选资源导出角色包。"""
 
@@ -118,7 +142,7 @@ class CharacterPackageService:
                 False, diagnostics, package_path=output_path, preview=preview
             )
 
-        manifest = {
+        manifest: dict[str, Any] = {
             "format": CHARACTER_PACKAGE_FORMAT,
             "schema_version": CHARACTER_PACKAGE_SCHEMA_VERSION,
             "id": package_id or character_path.stem,
@@ -131,7 +155,24 @@ class CharacterPackageService:
             "metadata": {},
             "created_at": datetime.now(UTC).isoformat(),
         }
+        optional_fields = {
+            "source": source,
+            "author_url": author_url,
+            "license_url": license_url,
+            "license_detail": license_detail,
+            "attribution": attribution,
+            "external_links": external_links,
+            "repository": repository,
+            "signature": signature,
+        }
+        for field_name, value in optional_fields.items():
+            if value not in (None, [], {}):
+                manifest[field_name] = value
+
+        checksums: dict[str, str] = {}
         asset_entries: list[tuple[Path, str]] = []
+        if character_path.exists() and character_path.is_file():
+            checksums[DEFAULT_CHARACTER_ENTRY] = self._sha256_file(character_path)
         for asset in assets or []:
             resolved_asset = asset.resolve()
             if not resolved_asset.exists() or not resolved_asset.is_file():
@@ -157,6 +198,8 @@ class CharacterPackageService:
             arcname = f"assets/{resolved_asset.name}"
             asset_entries.append((resolved_asset, arcname))
             manifest["assets"].append(arcname)
+            checksums[arcname] = self._sha256_file(resolved_asset)
+        manifest["checksums"] = {"sha256": checksums}
 
         if any(item.severity == "error" for item in diagnostics):
             return self._result_payload(
@@ -176,6 +219,8 @@ class CharacterPackageService:
         return {
             **self._result_payload(True, diagnostics, package_path=output_path, preview=preview),
             "manifest": self._manifest_summary(manifest),
+            "trust": self._trust_summary(manifest),
+            "security": self._security_summary(manifest, diagnostics),
             "written": True,
         }
 
@@ -220,8 +265,8 @@ class CharacterPackageService:
 
         with zipfile.ZipFile(package_path) as archive:
             target_dir.mkdir(parents=True, exist_ok=True)
-            with archive.open(character_entry) as source, open(target_path, "wb") as target:
-                shutil.copyfileobj(source, target)
+            with archive.open(character_entry) as source_file, open(target_path, "wb") as target:
+                shutil.copyfileobj(source_file, target)
             assets_dir = target_dir / f"{character_id}_assets"
             for asset in manifest.get("assets", []) or []:
                 asset_path = self._safe_archive_name(str(asset))
@@ -229,8 +274,8 @@ class CharacterPackageService:
                     continue
                 destination = assets_dir / Path(asset_path).name
                 assets_dir.mkdir(parents=True, exist_ok=True)
-                with archive.open(asset_path) as source, open(destination, "wb") as target:
-                    shutil.copyfileobj(source, target)
+                with archive.open(asset_path) as source_file, open(destination, "wb") as target:
+                    shutil.copyfileobj(source_file, target)
 
         return {
             **payload,
@@ -251,6 +296,7 @@ class CharacterPackageService:
             try:
                 with zipfile.ZipFile(package_path) as archive:
                     names = archive.namelist()
+                    safe_names = self._validate_archive_entries(archive, diagnostics)
                     if CHARACTER_PACKAGE_MANIFEST not in names:
                         diagnostics.append(
                             self._error(
@@ -260,10 +306,9 @@ class CharacterPackageService:
                                 code="character_package.manifest.missing",
                             )
                         )
-                    self._validate_archive_entries(archive, diagnostics)
                     if CHARACTER_PACKAGE_MANIFEST in names:
                         manifest = self._load_manifest(archive, diagnostics)
-                        self._validate_manifest(manifest, diagnostics)
+                        self._validate_manifest(manifest, diagnostics, archive, safe_names)
                     character_entry = (
                         manifest.get("character") if isinstance(manifest, dict) else None
                     )
@@ -324,6 +369,8 @@ class CharacterPackageService:
             "manifest": self._manifest_summary(manifest),
             "preview": preview,
             "files": files,
+            "trust": self._trust_summary(manifest),
+            "security": self._security_summary(manifest, diagnostics),
             "diagnostics": [item.to_dict() for item in diagnostics],
             "error_count": len(errors),
             "warning_count": len(warnings),
@@ -363,7 +410,7 @@ class CharacterPackageService:
 
     def _validate_archive_entries(
         self, archive: zipfile.ZipFile, diagnostics: list[ConfigDiagnostic]
-    ) -> None:
+    ) -> set[str]:
         seen: set[str] = set()
         for info in archive.infolist():
             name = info.filename
@@ -409,6 +456,7 @@ class CharacterPackageService:
                             code="character_package.file.suffix_warning",
                         )
                     )
+        return seen
 
     def _load_manifest(
         self, archive: zipfile.ZipFile, diagnostics: list[ConfigDiagnostic]
@@ -428,7 +476,11 @@ class CharacterPackageService:
         return data
 
     def _validate_manifest(
-        self, manifest: dict[str, Any], diagnostics: list[ConfigDiagnostic]
+        self,
+        manifest: dict[str, Any],
+        diagnostics: list[ConfigDiagnostic],
+        archive: zipfile.ZipFile,
+        safe_names: set[str],
     ) -> None:
         for field_name in sorted(set(manifest) - self.MANIFEST_ALLOWED_FIELDS):
             diagnostics.append(
@@ -478,10 +530,62 @@ class CharacterPackageService:
                         code="character_package.manifest.field_type",
                     )
                 )
+        for field_name in (
+            "author",
+            "license",
+            "description",
+            "source",
+            "license_detail",
+            "author_url",
+            "license_url",
+        ):
+            value = manifest.get(field_name)
+            if value is not None and not isinstance(value, str):
+                diagnostics.append(
+                    self._error(
+                        field_name,
+                        f"Manifest field '{field_name}' must be a string",
+                        "请将该字段写成字符串。",
+                        code="character_package.manifest.field_type",
+                    )
+                )
+        if not manifest.get("author"):
+            diagnostics.append(
+                self._warning(
+                    "author",
+                    "Character package author is not declared",
+                    "建议声明作者或维护者，方便用户判断来源。",
+                    code="character_package.trust.author_missing",
+                )
+            )
+        if not manifest.get("license"):
+            diagnostics.append(
+                self._warning(
+                    "license",
+                    "Character package license is not declared",
+                    "建议声明许可证或使用范围，方便二次分发。",
+                    code="character_package.trust.license_missing",
+                )
+            )
+        if not manifest.get("source"):
+            diagnostics.append(
+                self._warning(
+                    "source",
+                    "Character package source is not declared",
+                    "建议声明来源页面、仓库或发布渠道。",
+                    code="character_package.trust.source_missing",
+                )
+            )
+        for field_name in ("source", "author_url", "license_url"):
+            value = manifest.get(field_name)
+            if isinstance(value, str) and value.strip():
+                self._validate_url(field_name, value, diagnostics)
+
         character = manifest.get("character")
+        character_path: str | None = None
         if isinstance(character, str):
             try:
-                self._safe_archive_name(character)
+                character_path = self._safe_archive_name(character)
             except ValueError:
                 diagnostics.append(
                     self._error(
@@ -492,6 +596,7 @@ class CharacterPackageService:
                     )
                 )
         assets = manifest.get("assets")
+        asset_paths: set[str] = set()
         if assets is not None:
             if not isinstance(assets, list) or not all(isinstance(item, str) for item in assets):
                 diagnostics.append(
@@ -505,7 +610,17 @@ class CharacterPackageService:
             else:
                 for asset in assets:
                     try:
-                        self._safe_archive_name(asset)
+                        asset_path = self._safe_archive_name(asset)
+                        asset_paths.add(asset_path)
+                        if asset_path not in safe_names:
+                            diagnostics.append(
+                                self._error(
+                                    "assets",
+                                    f"Manifest asset is missing from archive: {asset_path}",
+                                    "请确认 assets 中声明的资源实际存在于包内。",
+                                    code="character_package.manifest.asset_missing",
+                                )
+                            )
                     except ValueError:
                         diagnostics.append(
                             self._error(
@@ -515,6 +630,324 @@ class CharacterPackageService:
                                 code="character_package.manifest.asset_unsafe",
                             )
                         )
+        declared_paths = {CHARACTER_PACKAGE_MANIFEST}
+        if character_path:
+            declared_paths.add(character_path)
+        declared_paths.update(asset_paths)
+        for safe_name in sorted(safe_names - declared_paths):
+            diagnostics.append(
+                self._warning(
+                    safe_name,
+                    "Archive entry is not declared in manifest",
+                    "建议只包含 manifest、character 和 assets 声明的资源，避免用户安装未知文件。",
+                    code="character_package.security.undeclared_file",
+                )
+            )
+        self._validate_external_links(manifest.get("external_links"), diagnostics)
+        self._validate_attribution(manifest.get("attribution"), diagnostics)
+        self._validate_repository(manifest.get("repository"), diagnostics)
+        self._validate_signature(manifest.get("signature"), diagnostics)
+        self._validate_checksums(manifest.get("checksums"), archive, diagnostics)
+
+    def _validate_url(
+        self, path: str, value: str, diagnostics: list[ConfigDiagnostic]
+    ) -> None:
+        parsed = urlparse(value)
+        if parsed.scheme not in ALLOWED_EXTERNAL_URL_SCHEMES or not parsed.netloc:
+            diagnostics.append(
+                self._error(
+                    path,
+                    f"External URL must use https: {value}",
+                    "外部链接仅允许 https URL，避免 file/http/javascript 等风险来源。",
+                    code="character_package.external_link.scheme",
+                )
+            )
+
+    def _validate_external_links(
+        self, value: Any, diagnostics: list[ConfigDiagnostic]
+    ) -> None:
+        if value is None:
+            return
+        if not isinstance(value, list):
+            diagnostics.append(
+                self._error(
+                    "external_links",
+                    "Manifest external_links must be a list",
+                    "请将 external_links 写成对象列表。",
+                    code="character_package.external_links.type",
+                )
+            )
+            return
+        for index, item in enumerate(value):
+            path = f"external_links[{index}]"
+            if not isinstance(item, dict):
+                diagnostics.append(
+                    self._error(
+                        path,
+                        "External link entry must be an object",
+                        "每个外部链接应包含 label、url 和可选 purpose。",
+                        code="character_package.external_links.item_type",
+                    )
+                )
+                continue
+            label = item.get("label")
+            url = item.get("url")
+            if not isinstance(label, str) or not label.strip():
+                diagnostics.append(
+                    self._error(
+                        f"{path}.label",
+                        "External link label must be a non-empty string",
+                        "请为外部链接提供可读名称。",
+                        code="character_package.external_links.label_type",
+                    )
+                )
+            if not isinstance(url, str) or not url.strip():
+                diagnostics.append(
+                    self._error(
+                        f"{path}.url",
+                        "External link url must be a non-empty string",
+                        "请为外部链接提供 https URL。",
+                        code="character_package.external_links.url_type",
+                    )
+                )
+            else:
+                self._validate_url(f"{path}.url", url, diagnostics)
+            purpose = item.get("purpose")
+            if purpose is not None and not isinstance(purpose, str):
+                diagnostics.append(
+                    self._error(
+                        f"{path}.purpose",
+                        "External link purpose must be a string",
+                        "请用字符串说明该链接用途。",
+                        code="character_package.external_links.purpose_type",
+                    )
+                )
+
+    def _validate_attribution(
+        self, value: Any, diagnostics: list[ConfigDiagnostic]
+    ) -> None:
+        if value is None:
+            return
+        if not isinstance(value, list):
+            diagnostics.append(
+                self._error(
+                    "attribution",
+                    "Manifest attribution must be a list",
+                    "请将引用来源写成对象列表。",
+                    code="character_package.attribution.type",
+                )
+            )
+            return
+        for index, item in enumerate(value):
+            path = f"attribution[{index}]"
+            if not isinstance(item, dict):
+                diagnostics.append(
+                    self._error(
+                        path,
+                        "Attribution entry must be an object",
+                        "每条引用来源应包含 title/source/license 等字段。",
+                        code="character_package.attribution.item_type",
+                    )
+                )
+                continue
+            for field_name in ("title", "source", "license"):
+                field_value = item.get(field_name)
+                if field_value is not None and not isinstance(field_value, str):
+                    diagnostics.append(
+                        self._error(
+                            f"{path}.{field_name}",
+                            f"Attribution field '{field_name}' must be a string",
+                            "引用来源字段请使用字符串。",
+                            code="character_package.attribution.field_type",
+                        )
+                    )
+            source = item.get("source")
+            if isinstance(source, str) and source.startswith(("http://", "https://")):
+                self._validate_url(f"{path}.source", source, diagnostics)
+
+    def _validate_repository(self, value: Any, diagnostics: list[ConfigDiagnostic]) -> None:
+        if value is None:
+            return
+        if not isinstance(value, dict):
+            diagnostics.append(
+                self._error(
+                    "repository",
+                    "Manifest repository must be an object",
+                    "包仓库索引元数据请写成对象。",
+                    code="character_package.repository.type",
+                )
+            )
+            return
+        for field_name in ("id", "namespace", "url", "homepage", "download_url"):
+            field_value = value.get(field_name)
+            if field_value is not None and not isinstance(field_value, str):
+                diagnostics.append(
+                    self._error(
+                        f"repository.{field_name}",
+                        f"Repository field '{field_name}' must be a string",
+                        "仓库索引元数据字段请使用字符串。",
+                        code="character_package.repository.field_type",
+                    )
+                )
+        for field_name in ("url", "homepage", "download_url"):
+            field_value = value.get(field_name)
+            if isinstance(field_value, str) and field_value.strip():
+                self._validate_url(f"repository.{field_name}", field_value, diagnostics)
+
+    def _validate_signature(self, value: Any, diagnostics: list[ConfigDiagnostic]) -> None:
+        if value is None:
+            diagnostics.append(
+                self._warning(
+                    "signature",
+                    "Character package signature is not provided",
+                    "当前版本不强制验签，但建议仓库或分发方提供签名字段。",
+                    code="character_package.trust.signature_missing",
+                )
+            )
+            return
+        if not isinstance(value, dict):
+            diagnostics.append(
+                self._error(
+                    "signature",
+                    "Manifest signature must be an object",
+                    "signature 请写成包含 algorithm、value 和可选 signer 的对象。",
+                    code="character_package.signature.type",
+                )
+            )
+            return
+        algorithm = value.get("algorithm")
+        signature_value = value.get("value")
+        if not isinstance(algorithm, str) or algorithm not in ALLOWED_SIGNATURE_ALGORITHMS:
+            diagnostics.append(
+                self._warning(
+                    "signature.algorithm",
+                    "Signature algorithm is not recognized",
+                    "当前仅识别 ed25519、rsa-pss-sha256 或 minisign；本版本只校验字段格式，不做真实验签。",
+                    code="character_package.signature.algorithm",
+                )
+            )
+        if not isinstance(signature_value, str) or not SIGNATURE_VALUE_PATTERN.match(signature_value):
+            diagnostics.append(
+                self._warning(
+                    "signature.value",
+                    "Signature value format is unusual",
+                    "请提供 base64、minisign 或类似文本签名；本版本只校验字段格式，不做真实验签。",
+                    code="character_package.signature.value_format",
+                )
+            )
+        signer = value.get("signer")
+        if signer is not None and not isinstance(signer, str):
+            diagnostics.append(
+                self._error(
+                    "signature.signer",
+                    "Signature signer must be a string",
+                    "签名者标识请写成字符串。",
+                    code="character_package.signature.signer_type",
+                )
+            )
+
+    def _validate_checksums(
+        self,
+        value: Any,
+        archive: zipfile.ZipFile,
+        diagnostics: list[ConfigDiagnostic],
+    ) -> None:
+        if value is None:
+            diagnostics.append(
+                self._warning(
+                    "checksums",
+                    "Character package checksums are not provided",
+                    "建议提供 sha256 校验和，方便导入前发现分发过程中的文件变化。",
+                    code="character_package.trust.checksums_missing",
+                )
+            )
+            return
+        if not isinstance(value, dict):
+            diagnostics.append(
+                self._error(
+                    "checksums",
+                    "Manifest checksums must be an object",
+                    "请将 checksums 写成 {sha256: {path: hash}}。",
+                    code="character_package.checksums.type",
+                )
+            )
+            return
+        sha256 = value.get("sha256")
+        if not isinstance(sha256, dict):
+            diagnostics.append(
+                self._error(
+                    "checksums.sha256",
+                    "Manifest checksums.sha256 must be an object",
+                    "请将 sha256 校验和写成路径到哈希值的映射。",
+                    code="character_package.checksums.sha256_type",
+                )
+            )
+            return
+        names = set(archive.namelist())
+        for path, expected in sha256.items():
+            if not isinstance(path, str) or not isinstance(expected, str):
+                diagnostics.append(
+                    self._error(
+                        "checksums.sha256",
+                        "Checksum paths and values must be strings",
+                        "校验和映射中的路径和值都应为字符串。",
+                        code="character_package.checksums.entry_type",
+                    )
+                )
+                continue
+            try:
+                safe_path = self._safe_archive_name(path)
+            except ValueError:
+                diagnostics.append(
+                    self._error(
+                        "checksums.sha256",
+                        f"Checksum path is unsafe: {path}",
+                        "校验和路径不能使用绝对路径或 .. 穿越。",
+                        code="character_package.checksums.path_unsafe",
+                    )
+                )
+                continue
+            if safe_path == CHARACTER_PACKAGE_MANIFEST:
+                diagnostics.append(
+                    self._warning(
+                        "checksums.sha256",
+                        "Manifest checksum is ignored",
+                        "manifest.yaml 包含 checksums 字段，当前不要求自校验。",
+                        code="character_package.checksums.manifest_ignored",
+                    )
+                )
+                continue
+            if not SHA256_PATTERN.match(expected):
+                diagnostics.append(
+                    self._error(
+                        "checksums.sha256",
+                        f"Checksum is not a valid sha256 hex digest for {safe_path}",
+                        "sha256 值应为 64 位十六进制字符串。",
+                        code="character_package.checksums.value_format",
+                    )
+                )
+                continue
+            if safe_path not in names:
+                diagnostics.append(
+                    self._error(
+                        "checksums.sha256",
+                        f"Checksum target is missing from archive: {safe_path}",
+                        "请确认校验和路径实际存在于包内。",
+                        code="character_package.checksums.target_missing",
+                    )
+                )
+                continue
+            with archive.open(safe_path) as file:
+                actual = hashlib.sha256(file.read()).hexdigest()
+            if actual.lower() != expected.lower():
+                diagnostics.append(
+                    self._error(
+                        "checksums.sha256",
+                        f"Checksum mismatch for {safe_path}",
+                        "请重新导出角色包，或确认分发文件未被篡改。",
+                        code="character_package.checksums.mismatch",
+                    )
+                )
 
     @staticmethod
     def _safe_archive_name(name: str) -> str:
@@ -529,6 +962,14 @@ class CharacterPackageService:
         if output_path.suffix != CHARACTER_PACKAGE_EXTENSION:
             output_path = output_path.with_suffix(CHARACTER_PACKAGE_EXTENSION)
         return output_path.resolve()
+
+    @staticmethod
+    def _sha256_file(path: Path) -> str:
+        digest = hashlib.sha256()
+        with open(path, "rb") as file:
+            for chunk in iter(lambda: file.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
 
     @staticmethod
     def _load_yaml_file(path: Path, diagnostics: list[ConfigDiagnostic], prefix: str) -> Any:
@@ -568,8 +1009,17 @@ class CharacterPackageService:
             "name",
             "version",
             "author",
+            "author_url",
             "license",
+            "license_url",
+            "license_detail",
             "description",
+            "source",
+            "attribution",
+            "external_links",
+            "repository",
+            "signature",
+            "checksums",
             "gensokyoai_version",
             "compatible_gensokyoai_versions",
             "character",
@@ -580,6 +1030,42 @@ class CharacterPackageService:
             "created_at",
         }
         return {key: manifest.get(key) for key in keys if key in manifest}
+
+    @staticmethod
+    def _trust_summary(manifest: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(manifest, dict):
+            return {
+                "author_declared": False,
+                "source_declared": False,
+                "license_declared": False,
+                "signature_declared": False,
+                "checksums_declared": False,
+                "external_link_count": 0,
+            }
+        external_links = manifest.get("external_links")
+        return {
+            "author_declared": bool(manifest.get("author")),
+            "source_declared": bool(manifest.get("source")),
+            "license_declared": bool(manifest.get("license")),
+            "signature_declared": isinstance(manifest.get("signature"), dict),
+            "checksums_declared": isinstance(manifest.get("checksums"), dict),
+            "external_link_count": len(external_links) if isinstance(external_links, list) else 0,
+        }
+
+    @staticmethod
+    def _security_summary(
+        manifest: dict[str, Any], diagnostics: list[ConfigDiagnostic]
+    ) -> dict[str, Any]:
+        codes = {item.code for item in diagnostics}
+        return {
+            "https_external_links_only": "character_package.external_link.scheme" not in codes,
+            "checksums_valid": not any(code.startswith("character_package.checksums.") for code in codes),
+            "has_undeclared_files": "character_package.security.undeclared_file" in codes,
+            "signature_verification": "format_only",
+            "declared_asset_count": len(manifest.get("assets", []) or [])
+            if isinstance(manifest, dict) and isinstance(manifest.get("assets", []), list)
+            else 0,
+        }
 
     @staticmethod
     def _result_payload(

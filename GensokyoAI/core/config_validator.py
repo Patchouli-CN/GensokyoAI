@@ -117,15 +117,18 @@ class ConfigValidator:
     DEPRECATED_FIELDS: dict[str, tuple[str, str]] = {}
     PROVIDER_FIELD_MATRIX: dict[str, dict[str, set[str]]] = {
         "ollama": {
-            "discouraged": {
-                "api_key",
-                "auth",
+            "unsupported": {
                 "api_path",
                 "extra_headers",
                 "web_search_enabled",
                 "web_search_context_size",
                 "web_search_user_location",
                 "web_search_metadata",
+                "web_search_allow_fallback",
+            },
+            "discouraged": {
+                "api_key",
+                "auth",
                 "reasoning_effort",
             },
             "supported_web_search": set(),
@@ -147,12 +150,13 @@ class ConfigValidator:
             "supported_web_search": set(),
         },
         "deepseek": {
-            "discouraged": {
+            "unsupported": {
                 "api_path",
                 "web_search_enabled",
                 "web_search_context_size",
                 "web_search_user_location",
                 "web_search_metadata",
+                "web_search_allow_fallback",
             },
             "supported_web_search": set(),
         },
@@ -168,7 +172,7 @@ class ConfigValidator:
             },
         },
         "claude": {
-            "discouraged": {
+            "unsupported": {
                 "api_path",
                 "web_search_enabled",
                 "web_search_context_size",
@@ -179,7 +183,7 @@ class ConfigValidator:
             "supported_web_search": set(),
         },
         "gemini": {
-            "discouraged": {
+            "unsupported": {
                 "api_path",
                 "extra_headers",
                 "auth",
@@ -438,16 +442,6 @@ class ConfigValidator:
                     code="config.model.reasoning_effort_ignored",
                 )
             )
-        if provider == "ollama" and data.get("base_url") and data.get("api_path"):
-            diagnostics.append(
-                self._error(
-                    f"{section}.api_path",
-                    "Ollama provider does not support custom api_path",
-                    "Ollama 请只配置 base_url，例如 http://127.0.0.1:11434；不要配置 api_path。",
-                    code="config.provider.api_path_unsupported",
-                )
-            )
-
     def _validate_provider_field_matrix(
         self,
         section: str,
@@ -459,6 +453,21 @@ class ConfigValidator:
         if not matrix:
             return
         configured_fields = {key for key, value in data.items() if value not in (None, "", [], {})}
+        web_search_fields = {
+            "web_search_enabled",
+            "web_search_strategy",
+            "web_search_context_size",
+            "web_search_user_location",
+            "web_search_metadata",
+            "web_search_allow_fallback",
+        }
+        unsupported_fields = configured_fields & matrix.get("unsupported", set())
+        if data.get("web_search_enabled") is not True:
+            unsupported_fields -= web_search_fields
+        for field_name in sorted(unsupported_fields):
+            diagnostics.append(
+                self._provider_unsupported_field_diagnostic(section, provider, field_name)
+            )
         for field_name in sorted(configured_fields & matrix.get("discouraged", set())):
             diagnostics.append(
                 self._warning(
@@ -468,26 +477,37 @@ class ConfigValidator:
                     code="config.provider.field_discouraged",
                 )
             )
-        web_search_fields = {
-            "web_search_enabled",
-            "web_search_strategy",
-            "web_search_context_size",
-            "web_search_user_location",
-            "web_search_metadata",
-            "web_search_allow_fallback",
-        }
         configured_web_search_fields = configured_fields & web_search_fields
         supported_web_search = matrix.get("supported_web_search", set())
         unsupported_web_search_fields = configured_web_search_fields - supported_web_search
         if data.get("web_search_enabled") is True and unsupported_web_search_fields:
+            severity = "error" if unsupported_web_search_fields & unsupported_fields else "warning"
+            diagnostic_factory = self._error if severity == "error" else self._warning
             diagnostics.append(
-                self._warning(
+                diagnostic_factory(
                     f"{section}.web_search_enabled",
                     f"Provider '{provider}' does not expose built-in web search with the configured fields",
                     "如果需要联网搜索，请改用 openai_responses / gemini 的内置搜索，或启用 tool.web_search 自有搜索工具。",
                     code="config.provider.web_search_unsupported",
                 )
             )
+
+    def _provider_unsupported_field_diagnostic(
+        self, section: str, provider: str, field_name: str
+    ) -> ConfigDiagnostic:
+        if provider == "ollama" and field_name == "api_path":
+            return self._error(
+                f"{section}.{field_name}",
+                "Ollama provider does not support custom api_path",
+                "Ollama 请只配置 base_url，例如 http://127.0.0.1:11434；不要配置 api_path。",
+                code="config.provider.api_path_unsupported",
+            )
+        return self._error(
+            f"{section}.{field_name}",
+            f"Field '{field_name}' is not supported by provider '{provider}'",
+            f"{provider} Provider 不支持 {field_name}；请移除该字段，或改用支持该能力的 Provider。",
+            code="config.provider.field_unsupported",
+        )
 
     def _validate_embedding_data(self, data: Any, diagnostics: list[ConfigDiagnostic]) -> None:
         self._validate_object("embedding", data, diagnostics)

@@ -40,7 +40,14 @@
   ],
   "breaking_changes": [],
   "deprecated_fields": [],
-  "compatibility_notes": [],
+  "compatibility_notes": [
+    {
+      "scope": "runtime.rpc.legacy_methods",
+      "status": "deprecated",
+      "message": "Legacy non-namespaced RPC methods remain available for compatibility; new clients should use namespaced methods from runtime.info.methods.",
+      "replacement": "Use runtime.info.method_specs to map legacy methods to namespaced replacements."
+    }
+  ],
   "migration_diagnostics": {
     "recent": [],
     "counts": {"migrated": 0, "skipped": 0, "failed": 0}
@@ -71,7 +78,7 @@
 - `schema_versions.character_package`：角色包 schema version；当前 `.gensokyo-character` 格式为 `1`。
 - `deprecated_methods`：已废弃 RPC 方法及替代方法。
 - `deprecated_fields`：已废弃字段；当前为空数组。
-- `compatibility_notes`：兼容性提示；当前为空数组。
+- `compatibility_notes`：兼容性提示；当前包含 legacy 非命名空间 RPC 方法仍兼容但建议迁移到命名空间方法的说明。
 
 `runtime.info.migration_diagnostics` 返回最近迁移摘要：
 
@@ -237,6 +244,11 @@ HTTP `/rpc` 与 WebSocket 普通 RPC 使用相同请求格式：
 - `diagnostics`：每项包含 `code`、`path`、`severity`、`message` 和可选 `suggestion`。
 - `error_count` / `warning_count`：错误和警告数量。
 
+Provider 字段矩阵会区分两类兼容性诊断：
+
+- `config.provider.field_discouraged`：字段通常不需要或只适合自定义网关场景，保持 warning。
+- `config.provider.field_unsupported` / `config.provider.api_path_unsupported` / `config.provider.web_search_unsupported`：当前 Provider 明确不支持的字段或能力，返回 error。
+
 ## 角色校验 API
 
 `character.validate` 可校验角色文件、角色名或内联角色数据：
@@ -267,9 +279,9 @@ HTTP `/rpc` 与 WebSocket 普通 RPC 使用相同请求格式：
 
 ## 角色包 API
 
-角色包使用 `.gensokyo-character` 扩展名，本质为安全受限的 zip 包，根目录必须包含 `manifest.yaml`，当前格式名为 `gensokyoai.character.package`，schema version 为 `1`。
+角色包使用 `.gensokyo-character` 扩展名，本质为安全受限的 zip 包，根目录必须包含 `manifest.yaml`，当前格式名为 `gensokyoai.character.package`，schema version 为 `1`。P3 生态规范扩展后，manifest 支持来源、作者主页、许可证链接、引用来源、外部链接、仓库索引元数据、可选签名字段和 `checksums.sha256`。
 
-`character_package.validate` 校验角色包结构、manifest、包内路径安全、文件大小、角色 YAML 与资源路径：
+`character_package.validate` 校验角色包结构、manifest、包内路径安全、文件大小、角色 YAML、资源路径、生态字段、外部链接 URL scheme 和 checksum：
 
 ```json
 {
@@ -278,7 +290,7 @@ HTTP `/rpc` 与 WebSocket 普通 RPC 使用相同请求格式：
 }
 ```
 
-`character_package.preview` 返回同一套 diagnostics，并额外面向 UI 使用 manifest 摘要、角色 preview 和文件列表。
+`character_package.preview` 返回同一套 diagnostics，并额外面向 UI 使用 manifest 摘要、角色 preview、文件列表、`trust` 和 `security` 摘要。
 
 `character_package.import` 将角色包导入 `characters` 目录：
 
@@ -304,6 +316,11 @@ HTTP `/rpc` 与 WebSocket 普通 RPC 使用相同请求格式：
     "package_id": "HakureiReimu",
     "author": "GensokyoAI",
     "license": "MIT",
+    "source": "https://example.com/packages/reimu",
+    "license_url": "https://opensource.org/license/mit",
+    "external_links": [{"label": "发布页", "url": "https://example.com/packages/reimu", "purpose": "source"}],
+    "repository": {"id": "touhou/reimu", "url": "https://example.com/index.json"},
+    "signature": {"algorithm": "ed25519", "value": "base64-like-signature-value"},
     "assets": [],
     "overwrite": false
   }
@@ -314,11 +331,21 @@ HTTP `/rpc` 与 WebSocket 普通 RPC 使用相同请求格式：
 
 - `ok`：是否没有 error 级诊断。
 - `format` / `schema_version`：角色包格式和 schema version。
-- `manifest`：包 ID、名称、版本、作者、许可证、角色入口、资源列表等摘要。
+- `manifest`：包 ID、名称、版本、作者、许可证、来源、外部链接、签名、checksum、角色入口、资源列表等摘要。
 - `preview`：复用角色 YAML 校验预览结构。
 - `files`：包内文件路径和大小。
+- `trust`：信任元数据摘要，包括作者、来源、许可证、签名、checksum 是否声明，以及外部链接数量。
+- `security`：安全摘要，包括外部链接是否均为 `https`、checksum 是否有效、是否存在未声明文件、签名校验级别和声明资源数量。
 - `diagnostics` / `error_count` / `warning_count`：结构化诊断信息。
 - `imported` / `target_path`：导入结果字段。
+
+生态字段诊断规则：
+
+- `author`、`license`、`source`、`signature`、`checksums` 缺失为 warning，便于客户端导入前展示信任提示。
+- `source`、`author_url`、`license_url`、`external_links[].url`、`repository.url`、`repository.homepage`、`repository.download_url` 仅允许 `https` URL；非 `https` 为 error。
+- `signature` 当前只做字段格式校验，支持识别 `ed25519`、`rsa-pss-sha256` 和 `minisign`，不做真实加密验签；返回的 `security.signature_verification` 固定为 `format_only`。
+- `checksums.sha256` 会对包内文件执行 SHA-256 校验；哈希格式错误、目标缺失或内容不匹配为 error。
+- `assets` 中声明的资源必须存在；包内除 `manifest.yaml`、`character` 和 `assets` 声明外的额外文件会产生 `character_package.security.undeclared_file` warning。
 
 ## 资源控制
 

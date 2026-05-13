@@ -252,13 +252,13 @@ config_schema_version: 1
 
 可以通过 Runtime RPC 的 `config.validate` 在初始化 Agent 前获得结构化诊断；客户端可以展示 `diagnostics`、`error_count` 和 `warning_count`。
 
-P1.6 后配置诊断重点覆盖：
+P3 后配置诊断重点覆盖：
 
 - 顶层 `config_schema_version` 的类型、旧版本和未来版本提示。
 - `resource_control` 的范围、枚举和组合关系。
-- 确定失败组合，例如 Ollama 配置 `api_path`。
+- 确定失败组合，例如 Ollama 配置 `api_path`、DeepSeek / Claude 配置 Provider 内置 web search 字段。
 - 明显无效或被遮蔽的资源限制，例如子资源并发大于 Runtime 总并发。
-- Provider 字段矩阵 warning，例如某些 Provider 不支持内置 web search 字段。
+- Provider 字段矩阵分级诊断：确定不支持的字段返回 error；仅不推荐或只适合自定义网关的字段保留 warning。
 
 ## 7. 资源控制配置
 
@@ -326,14 +326,27 @@ gensokyoai-character characters/zh_cn --recursive
 
 ## 9. 角色包使用
 
-`.gensokyo-character` 角色包本质是安全受限 zip 包，根目录必须包含 `manifest.yaml`，当前 schema version 为 `1`。
+`.gensokyo-character` 角色包本质是安全受限 zip 包，根目录必须包含 `manifest.yaml`，当前 schema version 为 `1`。导入前会检查包内路径穿越、重复文件、文件大小、角色 YAML、资源声明、外部链接、校验和和基础信任元数据。
 
 Runtime API 支持：
 
-- `character_package.validate`：校验包结构、manifest、包内路径、文件大小、角色 YAML 和资源列表。
-- `character_package.preview`：返回角色预览、manifest 摘要和文件列表。
-- `character_package.import`：导入角色包到 `characters` 目录。
-- `character_package.export`：从本地角色 YAML 导出角色包。
+- `character_package.validate`：校验包结构、manifest、包内路径、文件大小、角色 YAML、资源列表、生态字段、外部链接和 checksum。
+- `character_package.preview`：返回角色预览、manifest 摘要、文件列表、`trust` 和 `security` 摘要。
+- `character_package.import`：导入角色包到 `characters` 目录；存在 error 级诊断时不会导入。
+- `character_package.export`：从本地角色 YAML 导出角色包，并自动写入包内 `checksums.sha256`。
+
+建议角色包 manifest 声明：
+
+- `author` / `author_url`：作者或维护者，以及可选主页。
+- `license` / `license_url` / `license_detail`：许可证、许可证链接和补充授权说明。
+- `source`：原始发布页、仓库或可信分发页面；外部 URL 仅允许 `https`。
+- `attribution`：引用来源列表，用于声明原始设定、图片或文本素材来源。
+- `external_links`：包安装前展示给用户的外部链接列表，每项包含 `label`、`url` 和可选 `purpose`。
+- `repository`：包仓库索引元数据预留，例如 `id`、`namespace`、`url`、`homepage`、`download_url`。
+- `signature`：可选签名字段；当前版本只校验 `algorithm` / `value` / `signer` 格式，不做真实加密验签。
+- `checksums.sha256`：包内角色 YAML 和资源文件的 SHA-256；导出时会自动生成。
+
+缺少 `author`、`license`、`source`、`signature` 或 `checksums` 会产生 warning，方便用户判断是否可信；`http`、`file`、`javascript` 等非 `https` 外部链接会产生 error。
 
 JSON Lines RPC 示例：
 
@@ -346,7 +359,7 @@ JSON Lines RPC 示例：
 ```
 
 ```json
-{"method":"character_package.export","params":{"character_path":"characters/zh_cn/HakureiReimu.yaml","output_path":"packages/reimu.gensokyo-character","package_id":"HakureiReimu","author":"Patchouli-CN"}}
+{"method":"character_package.export","params":{"character_path":"characters/zh_cn/HakureiReimu.yaml","output_path":"packages/reimu.gensokyo-character","package_id":"HakureiReimu","author":"Patchouli-CN","license":"MIT","source":"https://example.com/packages/reimu","external_links":[{"label":"发布页","url":"https://example.com/packages/reimu","purpose":"source"}]}}
 ```
 
 ## 10. 启动对话

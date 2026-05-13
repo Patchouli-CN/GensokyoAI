@@ -57,6 +57,15 @@ from GensokyoAI.session.context import SessionContext
 from GensokyoAI.tools.external_manager import ExternalToolManager
 
 RUNTIME_EVENT_BACKPRESSURE_DROPPED = "runtime.backpressure.dropped"
+RUNTIME_DEPRECATED_FIELDS: tuple[dict[str, str | None], ...] = ()
+RUNTIME_COMPATIBILITY_NOTES: tuple[dict[str, str], ...] = (
+    {
+        "scope": "runtime.rpc.legacy_methods",
+        "status": "deprecated",
+        "message": "Legacy non-namespaced RPC methods remain available for compatibility; new clients should use namespaced methods from runtime.info.methods.",
+        "replacement": "Use runtime.info.method_specs to map legacy methods to namespaced replacements.",
+    },
+)
 REDACTED_VALUE = "[redacted]"
 SENSITIVE_EVENT_FIELD_NAMES = {
     "api_key",
@@ -85,6 +94,18 @@ class RuntimeState:
     character_path: Path | None = None
     agent: Agent | None = None
     started: bool = False
+
+
+def runtime_deprecated_fields() -> list[dict[str, str | None]]:
+    """Return Runtime public field deprecation metadata."""
+
+    return [dict(item) for item in RUNTIME_DEPRECATED_FIELDS]
+
+
+def runtime_compatibility_notes() -> list[dict[str, str]]:
+    """Return Runtime compatibility notes for clients and release docs."""
+
+    return [dict(item) for item in RUNTIME_COMPATIBILITY_NOTES]
 
 
 class RuntimeService:
@@ -160,8 +181,8 @@ class RuntimeService:
             "method_specs": rpc_method_specs(),
             "schema_versions": schema_versions_payload(),
             "config_schema_version": CONFIG_SCHEMA_VERSION,
-            "deprecated_fields": [],
-            "compatibility_notes": [],
+            "deprecated_fields": runtime_deprecated_fields(),
+            "compatibility_notes": runtime_compatibility_notes(),
             "migration_diagnostics": migration_diagnostics_summary(),
             "external_tools": self.external_tool_manager.source_status(include_tools=False),
             "resource_control": self._resource_control_payload(),
@@ -273,6 +294,14 @@ class RuntimeService:
         license: str | None = None,
         assets: list[str] | None = None,
         overwrite: bool = False,
+        source: str | None = None,
+        author_url: str | None = None,
+        license_url: str | None = None,
+        license_detail: str | None = None,
+        attribution: list[dict[str, Any]] | None = None,
+        external_links: list[dict[str, Any]] | None = None,
+        repository: dict[str, Any] | None = None,
+        signature: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Export a character YAML file as a .gensokyo-character package."""
 
@@ -287,6 +316,14 @@ class RuntimeService:
             license=license,
             assets=resolved_assets,
             overwrite=overwrite,
+            source=source,
+            author_url=author_url,
+            license_url=license_url,
+            license_detail=license_detail,
+            attribution=attribution,
+            external_links=external_links,
+            repository=repository,
+            signature=signature,
         )
 
     async def init(
