@@ -1109,10 +1109,14 @@ class RuntimeResourceControlTests(unittest.TestCase):
             }
         )
 
-        warnings = [item for item in diagnostics if item.code == "config.provider.field_discouraged"]
+        warnings = [
+            item for item in diagnostics if item.code == "config.provider.field_discouraged"
+        ]
         errors = [item for item in diagnostics if item.severity == "error"]
 
-        self.assertEqual({item.path for item in warnings}, {"model.api_key", "model.reasoning_effort"})
+        self.assertEqual(
+            {item.path for item in warnings}, {"model.api_key", "model.reasoning_effort"}
+        )
         self.assertEqual(errors, [])
 
     def test_runtime_info_exposes_resource_control_capability_and_snapshot(self):
@@ -1481,7 +1485,9 @@ class RuntimeConfigValidationApiTests(unittest.TestCase):
         result = asyncio.run(run())
         paths = {item["path"] for item in result["diagnostics"]}
         codes = {item["code"] for item in result["diagnostics"]}
-        error_codes = {item["code"] for item in result["diagnostics"] if item["severity"] == "error"}
+        error_codes = {
+            item["code"] for item in result["diagnostics"] if item["severity"] == "error"
+        }
         warning_codes = {
             item["code"] for item in result["diagnostics"] if item["severity"] == "warning"
         }

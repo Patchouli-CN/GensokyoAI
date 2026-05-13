@@ -117,7 +117,6 @@ class CharacterPackageServiceTests(unittest.TestCase):
                 "character_package.import.duplicate", {d["code"] for d in imported["diagnostics"]}
             )
 
-
     def test_validate_warns_for_missing_ecosystem_trust_metadata_on_legacy_package(self):
         with tempfile.TemporaryDirectory() as tmp:
             package_path = Path(tmp) / "legacy.gensokyo-character"

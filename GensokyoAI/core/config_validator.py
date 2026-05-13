@@ -442,6 +442,7 @@ class ConfigValidator:
                     code="config.model.reasoning_effort_ignored",
                 )
             )
+
     def _validate_provider_field_matrix(
         self,
         section: str,

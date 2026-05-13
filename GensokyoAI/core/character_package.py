@@ -649,9 +649,7 @@ class CharacterPackageService:
         self._validate_signature(manifest.get("signature"), diagnostics)
         self._validate_checksums(manifest.get("checksums"), archive, diagnostics)
 
-    def _validate_url(
-        self, path: str, value: str, diagnostics: list[ConfigDiagnostic]
-    ) -> None:
+    def _validate_url(self, path: str, value: str, diagnostics: list[ConfigDiagnostic]) -> None:
         parsed = urlparse(value)
         if parsed.scheme not in ALLOWED_EXTERNAL_URL_SCHEMES or not parsed.netloc:
             diagnostics.append(
@@ -663,9 +661,7 @@ class CharacterPackageService:
                 )
             )
 
-    def _validate_external_links(
-        self, value: Any, diagnostics: list[ConfigDiagnostic]
-    ) -> None:
+    def _validate_external_links(self, value: Any, diagnostics: list[ConfigDiagnostic]) -> None:
         if value is None:
             return
         if not isinstance(value, list):
@@ -723,9 +719,7 @@ class CharacterPackageService:
                     )
                 )
 
-    def _validate_attribution(
-        self, value: Any, diagnostics: list[ConfigDiagnostic]
-    ) -> None:
+    def _validate_attribution(self, value: Any, diagnostics: list[ConfigDiagnostic]) -> None:
         if value is None:
             return
         if not isinstance(value, list):
@@ -826,7 +820,9 @@ class CharacterPackageService:
                     code="character_package.signature.algorithm",
                 )
             )
-        if not isinstance(signature_value, str) or not SIGNATURE_VALUE_PATTERN.match(signature_value):
+        if not isinstance(signature_value, str) or not SIGNATURE_VALUE_PATTERN.match(
+            signature_value
+        ):
             diagnostics.append(
                 self._warning(
                     "signature.value",
@@ -1059,7 +1055,9 @@ class CharacterPackageService:
         codes = {item.code for item in diagnostics}
         return {
             "https_external_links_only": "character_package.external_link.scheme" not in codes,
-            "checksums_valid": not any(code.startswith("character_package.checksums.") for code in codes),
+            "checksums_valid": not any(
+                code.startswith("character_package.checksums.") for code in codes
+            ),
             "has_undeclared_files": "character_package.security.undeclared_file" in codes,
             "signature_verification": "format_only",
             "declared_asset_count": len(manifest.get("assets", []) or [])
