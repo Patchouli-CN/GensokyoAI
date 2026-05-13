@@ -4,10 +4,11 @@
 
 ## 版本与兼容性
 
-- 当前协议版本：`1.1.0`
+- 当前协议版本：`1.0.0`
 - 当前协议主版本：`1`
 - 兼容性策略：同一主版本内可以新增字段和方法；删除字段、修改语义或改变错误结构需要进入 breaking changes。
-- 客户端应优先调用 `runtime.info`，再根据 `protocol_version`、`capabilities`、`methods` 与 `legacy_methods` 决定可用功能。
+- 客户端应优先调用 `runtime.info`，再根据 `protocol_version`、`capabilities`、`methods`、`legacy_methods` 与 `method_specs` 决定可用功能。
+- 文档中的方法清单应以 `runtime.info.methods` 和 `runtime.info.method_specs` 为准；示例会尽量列出当前 `GensokyoAI.runtime.rpc.RPC_METHOD_SPECS` 的完整非 legacy 方法，避免只展示子集导致客户端误解。
 
 ## 发现接口
 
@@ -16,13 +17,17 @@
 ```json
 {
   "name": "GensokyoAI Runtime",
-  "package_version": "0.1.0",
+  "package_version": "2026.5.13.0",
   "protocol": "json-lines-rpc",
-  "protocol_version": "1.1.0",
+  "protocol_version": "1.0.0",
   "protocol_major_version": 1,
-  "capabilities": ["agent.messaging", "config.validation", "character.validation", "character_package.management", "migration.diagnostics", "resource_control.runtime_gates", "runtime.events", "runtime.versioning"],
-  "methods": ["runtime.info", "runtime.health", "config.validate", "character.validate", "character_package.validate", "character_package.preview", "character_package.import", "character_package.export"],
-  "legacy_methods": ["init"],
+  "capabilities": ["agent.lifecycle", "agent.messaging", "agent.streaming", "character.discovery", "character.validation", "character_package.management", "dependency.management", "external_tool.status", "memory.management", "memory.search", "memory.graph", "model.discovery", "config.validation", "migration.diagnostics", "resource_control.runtime_gates", "runtime.events", "runtime.health", "runtime.versioning", "session.management"],
+  "methods": ["runtime.info", "runtime.health", "runtime.shutdown", "config.validate", "character.validate", "character_package.validate", "character_package.preview", "character_package.import", "character_package.export", "agent.init", "agent.send_message", "agent.send_message_stream", "character.list", "model.list", "model.info", "session.create", "session.list", "session.current", "session.resume", "session.delete", "session.export", "session.rename", "session.rollback", "dependency.status", "dependency.install", "external_tool.status", "memory.list", "memory.search", "memory.get", "memory.update", "memory.delete", "memory.graph"],
+  "legacy_methods": ["init", "send_message", "send_message_stream", "list_characters", "create_session", "list_sessions", "current_session", "resume_session", "delete_session", "export_session", "rename_session", "rollback_session", "shutdown", "dependency_status", "install_dependencies", "external_tool_status"],
+  "method_specs": [
+    {"method": "runtime.info", "handler": "info", "legacy": false, "namespace": "runtime", "deprecated": false, "replacement": null, "remove_after": null},
+    {"method": "init", "handler": "init", "legacy": true, "namespace": "legacy", "deprecated": true, "replacement": "agent.init", "remove_after": "2.0.0"}
+  ],
   "schema_versions": {
     "config": 1,
     "session": 1,
@@ -64,6 +69,21 @@
   }
 }
 ```
+
+非 legacy 方法清单按当前命名空间分组如下：
+
+- `runtime.info`、`runtime.health`、`runtime.shutdown`
+- `config.validate`
+- `character.validate`、`character.list`
+- `character_package.validate`、`character_package.preview`、`character_package.import`、`character_package.export`
+- `agent.init`、`agent.send_message`、`agent.send_message_stream`
+- `model.list`、`model.info`
+- `session.create`、`session.list`、`session.current`、`session.resume`、`session.delete`、`session.export`、`session.rename`、`session.rollback`
+- `dependency.status`、`dependency.install`
+- `external_tool.status`
+- `memory.list`、`memory.search`、`memory.get`、`memory.update`、`memory.delete`、`memory.graph`
+
+Legacy 兼容方法仍可用但已废弃：`init`、`send_message`、`send_message_stream`、`list_characters`、`create_session`、`list_sessions`、`current_session`、`resume_session`、`delete_session`、`export_session`、`rename_session`、`rollback_session`、`shutdown`、`dependency_status`、`install_dependencies`、`external_tool_status`。新客户端应使用 `method_specs[].replacement` 迁移到命名空间方法。
 
 ## Runtime 版本与迁移诊断
 

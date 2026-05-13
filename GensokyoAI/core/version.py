@@ -17,10 +17,14 @@ def package_version(root_dir: Path | None = None) -> str:
     fall back to ``pyproject.toml`` under ``root_dir`` or the current working tree.
     """
 
+    source_version = _package_version_from_pyproject(root_dir)
+    if source_version is not None:
+        return source_version
+
     try:
         return metadata.version(PACKAGE_NAME)
     except metadata.PackageNotFoundError:
-        return _package_version_from_pyproject(root_dir) or UNKNOWN_VERSION
+        return UNKNOWN_VERSION
 
 
 def _package_version_from_pyproject(root_dir: Path | None = None) -> str | None:

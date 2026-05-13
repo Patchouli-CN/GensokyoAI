@@ -10,9 +10,9 @@
 
 简要规则：
 
-- 对外版本和 changelog 使用 `vYYYY.M.D.N`，例如 `v2026.5.11.0`。
-- [`pyproject.toml`](../pyproject.toml) 中的 package version 不带 `v`，例如 `2026.5.11.0`。
-- Runtime protocol version 不带 `v`，但客户端兼容性优先看 `protocol_major_version`。
+- 对外版本和 changelog 使用 `vYYYY.M.D.N`，当前首版为 `v2026.5.13.0`。
+- [`pyproject.toml`](../pyproject.toml) 中的 package version 不带 `v`，当前首版为 `2026.5.13.0`。
+- Runtime protocol version 使用独立语义版本且不带 `v`，当前首版为 `1.0.0`；客户端兼容性优先看 `protocol_major_version`。
 - schema version 继续使用整数，例如 `1`、`2`、`3`。
 
 ## 使用方式
@@ -130,4 +130,4 @@
 
 ## 当前项目版本记录起点
 
-正式发布时建议从日期版本号开始建立连续记录，例如 `v2026.5.11.0`。当前文件先作为模板使用，不代表已经发布。
+正式发布记录从 `v2026.5.13.0` 开始建立连续记录。当前文件作为模板使用；具体版本记录见 `docs/changelog/` 目录。

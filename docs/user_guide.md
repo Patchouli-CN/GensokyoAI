@@ -1,6 +1,6 @@
 # 使用指南
 
-本指南面向从源码运行、发布包安装和客户端集成用户。本文档会尽量与 `pyproject.toml`、`requirements.txt`、`run_default_uv.cmd` 和 `run_default_pip.cmd` 保持一致。
+本指南面向从源码运行、发布包安装和客户端集成用户。本文档会尽量与 `pyproject.toml`、`requirements.txt`、`run_default_uv.cmd` 和 `run_default_pip.cmd` 保持一致。当前项目处于 Alpha 收口阶段，Runtime API 已可用于集成，但正式 release 前仍可能继续做兼容性和文档收口。
 
 ## 1. 环境要求
 
@@ -86,11 +86,15 @@ uv sync --extra all
 python -m pip install -r requirements.txt
 ```
 
-推荐以可编辑包形式安装对应 Provider extra，这样会注册命令行脚本：
+推荐以可编辑包形式安装对应 Provider extra，这样会注册命令行脚本。`requirements.txt` 只包含最小运行依赖，不会强制安装任何 LLM Provider SDK；如果要使用默认本地 Ollama 启动方式，请安装 `default` 或 `ollama` extra：
 
 ```bash
 python -m pip install -e .[default]
+python -m pip install -e .[ollama]
 python -m pip install -e .[openai]
+python -m pip install -e .[openrouter]
+python -m pip install -e .[deepseek]
+python -m pip install -e .[openai_responses]
 python -m pip install -e .[claude]
 python -m pip install -e .[gemini]
 python -m pip install -e .[all]
@@ -117,7 +121,7 @@ run_default_pip.cmd
 - `run_default_uv.cmd` 会执行 `uv run --extra ollama -m GensokyoAI.cli.main --character "characters\zh_cn\KirisameMarisa.yaml" --new-session`。
 - `run_default_pip.cmd` 会执行 `python -m GensokyoAI.cli.main --character "characters\zh_cn\KirisameMarisa.yaml" --new-session`。
 
-首次使用 `run_default_uv.cmd` 前请先安装 uv；通常不需要另外手动安装 Python 3.14，uv 可以自动准备运行时。首次使用 `run_default_pip.cmd` 前请先手动安装 Python 3.14+，再用 pip 安装依赖。
+首次使用 `run_default_uv.cmd` 前请先安装 uv；通常不需要另外手动安装 Python 3.14，uv 可以自动准备运行时，并会按 `--extra ollama` 安装默认 Ollama SDK。首次使用 `run_default_pip.cmd` 前请先手动安装 Python 3.14+，再用 `python -m pip install -e .[default]` 或 `python -m pip install -e .[ollama]` 安装默认启动所需依赖；只执行 `python -m pip install -r requirements.txt` 不会安装 Ollama SDK。
 
 ## 4. 配置主聊天模型
 
@@ -445,9 +449,11 @@ python runtime_http.py --host 127.0.0.1 --port 8765
 常用端点：
 
 - `GET /health`：健康检查。
-- `GET /info`：方法、能力、版本和 schema 信息。
+- `GET /info`：方法、能力、版本和 schema 信息；返回的 `methods`、`legacy_methods` 和 `method_specs` 是客户端发现 RPC 能力的首选来源。
 - `POST /rpc`：JSON RPC 请求。
-- `WebSocket /ws`：WebSocket RPC；可逐事件推送 stream 结果。
+- `WebSocket /ws`：WebSocket RPC；`agent.send_message_stream` 可逐事件推送 stream 结果。
+
+当前非 legacy Runtime RPC 方法包括 `runtime.info`、`runtime.health`、`runtime.shutdown`、`config.validate`、`character.validate`、`character.list`、`character_package.validate`、`character_package.preview`、`character_package.import`、`character_package.export`、`agent.init`、`agent.send_message`、`agent.send_message_stream`、`model.list`、`model.info`、`session.*`、`dependency.*`、`external_tool.status` 和 `memory.*`。旧的非命名空间方法仍兼容但已废弃，新客户端应以 `method_specs[].replacement` 迁移到命名空间方法。
 
 ## 13. 升级流程
 
@@ -534,14 +540,28 @@ ollama pull qwen3.5:9b
 
 ## 15. 测试与开发命令
 
+发布前建议运行完整测试、lint、格式检查和类型检查：
+
 ```bash
-python -m unittest tests.test_claude_provider_conversion tests.test_deepseek_provider tests.test_model_client_embeddings
-python -m compileall GensokyoAI tests
+python -m pytest
+python -m ruff check .
+python -m ruff format --check .
+python -m pyright
 ```
 
-如果使用 uv 开发环境：
+如果当前解释器环境缺少 dev 工具，推荐使用 uv 开发环境：
 
 ```bash
 uv run pytest
+uv run ruff check .
+uv run ruff format --check .
+uv run pyright
+```
+
+也可以保留局部回归或编译检查作为快速验证：
+
+```bash
+python -m unittest tests.test_claude_provider_conversion tests.test_deepseek_provider tests.test_model_client_embeddings
+python -m compileall GensokyoAI tests
 uv run python -m compileall GensokyoAI tests
 ```

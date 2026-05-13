@@ -11,20 +11,20 @@ class BaseBackend(ABC):
 
     @abstractmethod
     async def start(self) -> None:
-        """启动后端"""
-        pass
+        """启动后端。"""
+        raise NotImplementedError
 
     @abstractmethod
     async def send(self, message: str, system_contexts: list[str] | None = None) -> str:
-        """发送消息"""
-        pass
+        """发送消息并返回后端响应。"""
+        raise NotImplementedError
 
     @abstractmethod
     async def stop(self) -> None:
-        """停止后端"""
-        pass
+        """停止后端。"""
+        raise NotImplementedError
 
     @abstractmethod
     def set_stream_handler(self, handler: Callable | None) -> None:
-        """设置流式处理器"""
-        pass
+        """设置流式处理器。"""
+        raise NotImplementedError

@@ -11,5 +11,5 @@ class BaseWorker(ABC):
 
     @abstractmethod
     async def process(self, task: BackgroundTask) -> TaskResult:
-        """处理任务"""
-        pass
+        """处理任务并返回任务结果。"""
+        raise NotImplementedError

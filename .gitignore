@@ -17,6 +17,8 @@ plans/
 .venv/
 uv.lock
 
+dist/
+
 local.yaml
 
 run.cmd

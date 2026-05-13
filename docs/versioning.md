@@ -4,10 +4,11 @@
 
 ## 一、总体原则
 
-GensokyoAI 采用“日期版本 + 独立兼容版本”的混合策略：
+GensokyoAI 采用“日期发布版本 + 独立兼容版本”的混合策略：
 
-- 对外发布版本使用日期版本号，方便普通用户判断新旧。
-- Runtime protocol version 也使用日期版本号，但客户端兼容性只看 protocol major version。
+- 对外 release 版本使用日期版本号，方便普通用户判断新旧。
+- Runtime protocol version 使用独立语义版本；客户端兼容性主要看 protocol major version。
+- 首个正式 release 的 Runtime protocol version 为 `1.0.0`，不随日期版本同步。
 - 持久化 schema version 继续使用整数，方便迁移逻辑判断。
 - changelog 版本号与 package version 一致，但文件名和标题带 `v` 前缀。
 
@@ -36,14 +37,14 @@ vYYYY.M.D.N
 
 | 位置 | 是否带 `v` | 示例 | 说明 |
 | --- | --- | --- | --- |
-| Python package version | 不带 | `2026.5.11.0` | 写入 [`pyproject.toml`](../pyproject.toml) |
-| Git tag | 带 | `v2026.5.11.0` | 发布 tag |
-| changelog 文件名 | 带 | `docs/changelog/v2026.5.11.0.md` | 对外更新日志 |
-| changelog 标题 | 带 | `# GensokyoAI v2026.5.11.0 更新日志` | 普通用户阅读 |
-| UI 展示版本 | 建议带 | `v2026.5.11.0` | 用户更容易识别 |
-| Runtime protocol version | 不带 | `2026.5.11.0` | JSON 字段值不带 `v` |
+| Python package version | 不带 | `2026.5.13.0` | 写入 [`pyproject.toml`](../pyproject.toml) |
+| Git tag | 带 | `v2026.5.13.0` | 发布 tag |
+| changelog 文件名 | 带 | `docs/changelog/v2026.5.13.0.md` | 对外更新日志 |
+| changelog 标题 | 带 | `# GensokyoAI v2026.5.13.0 更新日志` | 普通用户阅读 |
+| UI 展示版本 | 建议带 | `v2026.5.13.0` | 用户更容易识别 |
+| Runtime protocol version | 不带 | `1.0.0` | Runtime API 独立协议版本，JSON 字段值不带 `v` |
 
-注意：[`pyproject.toml`](../pyproject.toml) 中的 Python 包版本应遵循 PEP 440，不能写 `v2026.5.11.0`，应写 `2026.5.11.0`。
+注意：[`pyproject.toml`](../pyproject.toml) 中的 Python 包版本应遵循 PEP 440，不能写 `v2026.5.13.0`，应写 `2026.5.13.0`。
 
 ## 四、项目 / 包版本
 
@@ -51,7 +52,7 @@ vYYYY.M.D.N
 
 ```toml
 [project]
-version = "2026.5.11.0"
+version = "2026.5.13.0"
 ```
 
 用途：
@@ -76,9 +77,9 @@ Runtime 读取规则：
 示例：
 
 ```text
-pyproject.toml: version = "2026.5.11.0"
-Git tag: v2026.5.11.0
-Changelog: docs/changelog/v2026.5.11.0.md
+pyproject.toml: version = "2026.5.13.0"
+Git tag: v2026.5.13.0
+Changelog: docs/changelog/v2026.5.13.0.md
 ```
 
 ## 五、Runtime 协议版本
@@ -86,13 +87,14 @@ Changelog: docs/changelog/v2026.5.11.0.md
 Runtime 协议版本写在 [`rpc.py`](../GensokyoAI/runtime/rpc.py)：
 
 ```python
-RUNTIME_PROTOCOL_VERSION = "2026.5.11.0"
+RUNTIME_PROTOCOL_VERSION = "1.0.0"
 RUNTIME_PROTOCOL_MAJOR_VERSION = 1
 ```
 
 规则：
 
-- `RUNTIME_PROTOCOL_VERSION` 使用日期版本号，不带 `v`。
+- `RUNTIME_PROTOCOL_VERSION` 使用独立语义版本，不带 `v`。
+- 首个正式 release 的 Runtime protocol version 为 `1.0.0`；后续同一主版本内新增兼容字段或方法时递增次版本或修订版本。
 - `RUNTIME_PROTOCOL_MAJOR_VERSION` 使用整数。
 - 客户端判断是否兼容时，优先看 `protocol_major_version`。
 - `protocol_version` 表示协议发布批次，不单独代表兼容等级。
@@ -338,10 +340,10 @@ docs/
 
 | 类型 | 格式 | 示例 | 写入位置 |
 | --- | --- | --- | --- |
-| package version | `YYYY.M.D.N` | `2026.5.11.0` | [`pyproject.toml`](../pyproject.toml) |
-| Git tag | `vYYYY.M.D.N` | `v2026.5.11.0` | Git tag |
-| changelog | `vYYYY.M.D.N` | [`docs/changelog/v2026.5.11.0.md`](changelog) | [`docs/changelog`](changelog) |
-| Runtime protocol version | `YYYY.M.D.N` | `2026.5.11.0` | [`rpc.py`](../GensokyoAI/runtime/rpc.py) |
+| package version | `YYYY.M.D.N` | `2026.5.13.0` | [`pyproject.toml`](../pyproject.toml) |
+| Git tag | `vYYYY.M.D.N` | `v2026.5.13.0` | Git tag |
+| changelog | `vYYYY.M.D.N` | [`docs/changelog/v2026.5.13.0.md`](changelog) | [`docs/changelog`](changelog) |
+| Runtime protocol version | 独立语义版本 | `1.0.0` | [`rpc.py`](../GensokyoAI/runtime/rpc.py) |
 | Runtime protocol major | integer | `1` | [`rpc.py`](../GensokyoAI/runtime/rpc.py) |
 | config schema | integer | `1` | [`schema_versions.py`](../GensokyoAI/core/schema_versions.py) |
 | session schema | integer | `1` | [`schema_versions.py`](../GensokyoAI/core/schema_versions.py) |
@@ -351,15 +353,10 @@ docs/
 
 ## 十一、当前状态
 
-当前项目仍保留已有版本值，后续正式发布时再切换到日期版本：
+首个正式 release 当前状态：
 
-- package version 当前见 [`pyproject.toml`](../pyproject.toml)。
-- Runtime protocol version 当前见 [`rpc.py`](../GensokyoAI/runtime/rpc.py)。
-- schema versions 当前见 [`schema_versions.py`](../GensokyoAI/core/schema_versions.py)。
-
-后续如果决定以某一天作为正式发布点，例如 `v2026.5.11.0`，则同步更新：
-
-1. [`pyproject.toml`](../pyproject.toml) 的 `version`。
-2. [`rpc.py`](../GensokyoAI/runtime/rpc.py) 的 `RUNTIME_PROTOCOL_VERSION`。
-3. [`docs/changelog/v2026.5.11.0.md`](changelog)。
-4. Git tag `v2026.5.11.0`。
+- package version 当前见 [`pyproject.toml`](../pyproject.toml)，应为 `2026.5.13.0`。
+- Runtime protocol version 当前见 [`rpc.py`](../GensokyoAI/runtime/rpc.py)，应为 `1.0.0`。
+- schema versions 当前见 [`schema_versions.py`](../GensokyoAI/core/schema_versions.py)，继续使用整数。
+- release changelog 为 [`docs/changelog/v2026.5.13.0.md`](changelog/v2026.5.13.0.md)。
+- Git tag 应为 `v2026.5.13.0`。

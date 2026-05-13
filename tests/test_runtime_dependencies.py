@@ -579,7 +579,7 @@ class RuntimeRpcDispatchTests(unittest.TestCase):
 
         info = asyncio.run(run())
 
-        self.assertEqual(info["protocol_version"], "1.1.0")
+        self.assertEqual(info["protocol_version"], "1.0.0")
         self.assertEqual(info["protocol_major_version"], 1)
         self.assertIn("agent.streaming", info["capabilities"])
         self.assertIn("runtime.events", info["capabilities"])
