@@ -11,7 +11,7 @@ import importlib.util
 import subprocess
 import sys
 from collections.abc import Iterable
-from dataclasses import dataclass
+from msgspec import Struct
 from typing import Any, Literal
 
 OPTIONAL_PROVIDER_DEPENDENCIES: dict[str, list[str]] = {
@@ -54,8 +54,7 @@ class DependencyError(RuntimeError):
         self.recoverable = recoverable
 
 
-@dataclass(frozen=True, slots=True)
-class ProviderDependencyStatus:
+class ProviderDependencyStatus(Struct, frozen=True):
     provider: str
     installed: bool
     packages: list[str]

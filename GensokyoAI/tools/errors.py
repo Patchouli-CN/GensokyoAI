@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from msgspec import Struct, field
 from typing import Any
 
 
-@dataclass(slots=True)
-class ToolError:
+class ToolError(Struct):
     """工具错误的双层结构。
 
     technical_message 给日志/模型诊断使用；user_message 给调用方/UI 展示使用。

@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from msgspec import Struct
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -85,8 +85,7 @@ SENSITIVE_EVENT_FIELD_NAMES = {
 }
 
 
-@dataclass(slots=True)
-class RuntimeState:
+class RuntimeState(Struct):
     """Mutable state owned by a single runtime service instance."""
 
     root_dir: Path

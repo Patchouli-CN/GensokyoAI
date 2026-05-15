@@ -12,7 +12,7 @@ P7 目标是先提供轻量服务层，不改变现有 Provider 请求行为和 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from msgspec import Struct, field
 from typing import Any
 
 from ...utils.logger import logger
@@ -24,8 +24,7 @@ from .types import ModelInfo, ProviderCapability
 ProviderBuilder = Callable[[ModelConfig], BaseProvider]
 
 
-@dataclass(frozen=True)
-class ModelMetadataOverride:
+class ModelMetadataOverride(Struct, frozen=True):
     """用户显式模型元数据修正。"""
 
     id: str
@@ -37,8 +36,7 @@ class ModelMetadataOverride:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass(frozen=True)
-class _CacheKey:
+class _CacheKey(Struct, frozen=True):
     provider: str
     model_registry_id: str | None
     base_url: str | None

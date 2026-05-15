@@ -11,7 +11,7 @@ import contextlib
 import hmac
 import json
 import os
-from dataclasses import dataclass
+from msgspec import Struct
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -31,8 +31,7 @@ DEFAULT_WS_HEARTBEAT_INTERVAL = 30.0
 DEFAULT_MAX_REQUEST_BODY_SIZE = 1024 * 1024
 
 
-@dataclass(frozen=True, slots=True)
-class RuntimeHttpSecurityConfig:
+class RuntimeHttpSecurityConfig(Struct, frozen=True):
     token: str | None = None
     allowed_origins: tuple[str, ...] = ()
     max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE

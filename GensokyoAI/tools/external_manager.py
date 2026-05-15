@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from dataclasses import dataclass, field
+from msgspec import Struct, field
 from enum import StrEnum
 from typing import Any, Protocol
 
@@ -61,8 +61,7 @@ RISKY_EXTERNAL_PERMISSIONS = frozenset(
 )
 
 
-@dataclass(frozen=True, slots=True)
-class ExternalToolExecutionPolicy:
+class ExternalToolExecutionPolicy(Struct, frozen=True):
     """外部工具执行策略。"""
 
     allowed_permissions: frozenset[str] = DEFAULT_ALLOWED_EXTERNAL_PERMISSIONS
@@ -76,8 +75,7 @@ class ExternalToolExecutionPolicy:
         return permissions.issubset(self.allowed_permissions)
 
 
-@dataclass(frozen=True, slots=True)
-class ExternalToolDefinition:
+class ExternalToolDefinition(Struct, frozen=True):
     """外部工具定义快照。
 
     namespaced_name 是注入模型与 Runtime 调用时使用的稳定名称，格式为
@@ -123,8 +121,7 @@ class ExternalToolDefinition:
         }
 
 
-@dataclass(slots=True)
-class ExternalToolSourceState:
+class ExternalToolSourceState(Struct):
     """外部工具源状态快照。"""
 
     source_id: str

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from msgspec import Struct, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -27,8 +27,7 @@ if TYPE_CHECKING:
     from .think_engine import ThinkEngine
 
 
-@dataclass(slots=True)
-class AgentRuntimeContext:
+class AgentRuntimeContext(Struct):
     """保存 Agent 初始化阶段装配出的核心组件。"""
 
     event_bus: EventBus
@@ -44,8 +43,7 @@ class AgentRuntimeContext:
     session_manager: SessionManager
 
 
-@dataclass(slots=True)
-class AgentLazyComponents:
+class AgentLazyComponents(Struct):
     """保存 Agent 启动前后按需创建的行为组件。"""
 
     message_builder: MessageBuilder | None = None
@@ -57,8 +55,7 @@ class AgentLazyComponents:
     action_executor: ActionExecutor | None = None
 
 
-@dataclass(slots=True)
-class AgentBootstrapState:
+class AgentBootstrapState(Struct):
     """Agent 初始化阶段装配出的完整状态。"""
 
     runtime_context: AgentRuntimeContext

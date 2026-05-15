@@ -7,7 +7,7 @@ import html as _html
 import json
 import re
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from msgspec import Struct
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -29,8 +29,7 @@ HTTP_STATUS_MESSAGES: dict[int, str] = {
 DEFAULT_RETRY_STATUS_CODES = {500, 502, 503, 504}
 
 
-@dataclass(frozen=True)
-class NormalizedEndpoint:
+class NormalizedEndpoint(Struct, frozen=True):
     """规范化后的 API 端点。"""
 
     api_host: str

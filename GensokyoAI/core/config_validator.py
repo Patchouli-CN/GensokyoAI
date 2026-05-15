@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from msgspec import Struct
 from typing import Any, Literal
 
 from .config_schema import (
@@ -20,8 +20,7 @@ from .schema_versions import CONFIG_SCHEMA_VERSION
 DiagnosticSeverity = Literal["error", "warning"]
 
 
-@dataclass(frozen=True, slots=True)
-class ConfigDiagnostic:
+class ConfigDiagnostic(Struct, frozen=True):
     """单条配置诊断。"""
 
     code: str

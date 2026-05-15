@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from msgspec import Struct, field
 from typing import Any
 
 
-@dataclass(slots=True)
-class SearchItem:
+class SearchItem(Struct):
     """统一搜索结果项。"""
 
     title: str
@@ -28,8 +27,7 @@ class SearchItem:
         }
 
 
-@dataclass(slots=True)
-class ProviderSearchResult:
+class ProviderSearchResult(Struct):
     """单个搜索 Provider 的执行结果。"""
 
     provider: str
@@ -39,8 +37,7 @@ class ProviderSearchResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass(slots=True)
-class WebSearchResult:
+class WebSearchResult(Struct):
     """Web search 工具最终结果。"""
 
     query: str

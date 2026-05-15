@@ -2,7 +2,7 @@
 
 # GensokyoAI/core/agent/providers/__init__.py
 
-from dataclasses import dataclass, field
+from msgspec import Struct, field
 from typing import TYPE_CHECKING
 
 from ....utils.logger import logger
@@ -13,8 +13,7 @@ if TYPE_CHECKING:
     from ...config import ModelConfig
 
 
-@dataclass(frozen=True)
-class ProviderDefinition:
+class ProviderDefinition(Struct, frozen=True):
     """Provider 控制面定义。
 
     该结构集中描述 Provider 的稳定元信息、默认配置、能力与外部模型注册表映射。

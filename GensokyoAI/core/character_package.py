@@ -6,7 +6,7 @@ import hashlib
 import re
 import shutil
 import zipfile
-from dataclasses import dataclass
+from msgspec import Struct
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -42,8 +42,7 @@ SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
 SIGNATURE_VALUE_PATTERN = re.compile(r"^[A-Za-z0-9+/=_:.-]{16,4096}$")
 
 
-@dataclass(frozen=True, slots=True)
-class CharacterPackageOptions:
+class CharacterPackageOptions(Struct, frozen=True):
     """角色包安全限制。"""
 
     max_package_bytes: int = MAX_CHARACTER_PACKAGE_BYTES

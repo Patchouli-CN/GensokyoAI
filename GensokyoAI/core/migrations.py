@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from msgspec import Struct, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -19,8 +19,7 @@ from .schema_versions import (
 MAX_RECENT_MIGRATION_DIAGNOSTICS = 100
 
 
-@dataclass(slots=True)
-class MigrationDiagnostic:
+class MigrationDiagnostic(Struct):
     """Structured diagnostic emitted when persisted data is migrated."""
 
     source: str

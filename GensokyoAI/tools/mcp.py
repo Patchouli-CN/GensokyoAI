@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from msgspec import Struct, field
 from typing import Any, Protocol
 
 from .external_manager import (
@@ -27,8 +27,7 @@ class McpTransport(Protocol):
     async def request(self, method: str, params: dict[str, Any] | None = None) -> Any: ...
 
 
-@dataclass(slots=True)
-class McpSource:
+class McpSource(Struct):
     """将 MCP server 暴露为 ExternalToolSource。"""
 
     source_id: str

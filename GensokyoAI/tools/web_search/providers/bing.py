@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import html
-from dataclasses import dataclass
+from msgspec import Struct
 from html.parser import HTMLParser
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode, urljoin, urlsplit
@@ -18,8 +18,7 @@ if TYPE_CHECKING:
     pass
 
 
-@dataclass(slots=True)
-class _LinkCandidate:
+class _LinkCandidate(Struct):
     """从 HTML 中抽取出的通用链接候选。"""
 
     title: str

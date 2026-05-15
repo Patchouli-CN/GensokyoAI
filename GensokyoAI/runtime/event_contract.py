@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from msgspec import Struct
 from typing import Any
 
 SENSITIVE_FIELD_NAMES = {
@@ -22,8 +22,7 @@ SENSITIVE_FIELD_NAMES = {
 REDACTED_VALUE = "[REDACTED]"
 
 
-@dataclass(frozen=True, slots=True)
-class RuntimeEventSpec:
+class RuntimeEventSpec(Struct, frozen=True):
     """单个 Runtime 事件 payload 契约。"""
 
     event: str

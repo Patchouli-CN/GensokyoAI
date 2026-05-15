@@ -9,7 +9,7 @@ mapping through :class:`GensokyoAI.runtime.service.RuntimeService`.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from msgspec import Struct
 from typing import Any
 
 from GensokyoAI.tools.errors import ToolExecutionError
@@ -27,8 +27,7 @@ _EXTERNAL_TOOL_STATUS_METHODS: dict[str, str] = {
 RuntimeRpcTarget = Any
 
 
-@dataclass(frozen=True, slots=True)
-class RpcMethodSpec:
+class RpcMethodSpec(Struct, frozen=True):
     """Mapping from public RPC method name to runtime service method name."""
 
     method: str
