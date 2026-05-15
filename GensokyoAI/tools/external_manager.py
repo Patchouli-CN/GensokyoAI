@@ -9,9 +9,10 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from msgspec import Struct, field
 from enum import StrEnum
 from typing import Any, Protocol
+
+from msgspec import Struct, field
 
 from GensokyoAI.runtime.event_contract import sanitize_event_payload
 from GensokyoAI.tools.errors import ToolError, ToolExecutionError

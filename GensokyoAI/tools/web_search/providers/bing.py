@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import html
-from msgspec import Struct
 from html.parser import HTMLParser
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode, urljoin, urlsplit
 
 import aiohttp
+from msgspec import Struct
 
 from ....utils.request_utils import normalize_search_url
 from ..types import ProviderSearchResult, SearchItem

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from msgspec import Struct, field
 from typing import Any
+
+from msgspec import Struct, field
 
 
 class SearchItem(Struct):

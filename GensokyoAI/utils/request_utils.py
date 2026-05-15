@@ -7,11 +7,11 @@ import html as _html
 import json
 import re
 from collections.abc import AsyncIterator
-from msgspec import Struct
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import aiohttp
+from msgspec import Struct
 
 HTTP_STATUS_MESSAGES: dict[int, str] = {
     400: "Bad Request",

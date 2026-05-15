@@ -11,8 +11,9 @@ import importlib.util
 import subprocess
 import sys
 from collections.abc import Iterable
-from msgspec import Struct
 from typing import Any, Literal
+
+from msgspec import Struct
 
 OPTIONAL_PROVIDER_DEPENDENCIES: dict[str, list[str]] = {
     "ollama": ["ollama"],

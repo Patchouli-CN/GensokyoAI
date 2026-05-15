@@ -6,13 +6,13 @@ import hashlib
 import re
 import shutil
 import zipfile
-from msgspec import Struct
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 import yaml
+from msgspec import Struct
 
 from .character_validator import CharacterValidator
 from .config_validator import ConfigDiagnostic

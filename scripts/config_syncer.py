@@ -96,9 +96,7 @@ def sync_config(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="将 default.yaml 的新增字段同步到本地配置文件"
-    )
+    parser = argparse.ArgumentParser(description="将 default.yaml 的新增字段同步到本地配置文件")
     parser.add_argument(
         "source",
         nargs="?",

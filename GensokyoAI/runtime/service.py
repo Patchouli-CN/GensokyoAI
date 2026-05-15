@@ -11,12 +11,12 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
-from msgspec import Struct
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import yaml
+from msgspec import Struct
 
 from GensokyoAI.core.agent import Agent
 from GensokyoAI.core.agent.model_registry import ModelRegistryService

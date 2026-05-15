@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from msgspec import Struct, field
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from msgspec import Struct, field
 
 from ...memory.episodic import EpisodicMemoryManager
 from ...runtime.resource_control import ResourceGate

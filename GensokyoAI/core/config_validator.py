@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from msgspec import Struct
 from typing import Any, Literal
+
+from msgspec import Struct
 
 from .config_schema import (
     EmbeddingConfig,

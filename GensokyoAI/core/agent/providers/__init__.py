@@ -2,8 +2,9 @@
 
 # GensokyoAI/core/agent/providers/__init__.py
 
-from msgspec import Struct, field
 from typing import TYPE_CHECKING
+
+from msgspec import Struct, field
 
 from ....utils.logger import logger
 from ..types import ProviderCapability

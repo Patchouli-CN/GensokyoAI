@@ -5,8 +5,9 @@
 
 from __future__ import annotations
 
-from msgspec import Struct
 from typing import Any
+
+from msgspec import Struct
 
 SENSITIVE_FIELD_NAMES = {
     "api_key",

@@ -11,13 +11,13 @@ import contextlib
 import hmac
 import json
 import os
-from msgspec import Struct
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from aiohttp import WSMsgType, web
+from msgspec import Struct
 
 from GensokyoAI.runtime.rpc import runtime_error_to_dict
 from GensokyoAI.runtime.service import RuntimeService

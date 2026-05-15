@@ -6,8 +6,9 @@
 
 from __future__ import annotations
 
-from msgspec import Struct, field
 from typing import Any, Protocol
+
+from msgspec import Struct, field
 
 from .external_manager import (
     ExternalToolDefinition,

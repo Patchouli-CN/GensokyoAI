@@ -9,8 +9,9 @@ mapping through :class:`GensokyoAI.runtime.service.RuntimeService`.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from msgspec import Struct
 from typing import Any
+
+from msgspec import Struct
 
 from GensokyoAI.tools.errors import ToolExecutionError
 from GensokyoAI.tools.external_manager import ExternalToolSourceStatus

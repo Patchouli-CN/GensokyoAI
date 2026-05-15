@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections import deque
-from msgspec import Struct, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from msgspec import Struct, field
 
 from .schema_versions import (
     GENSOKYOAI_CREATED_BY,

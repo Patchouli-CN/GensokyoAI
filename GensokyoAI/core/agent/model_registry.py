@@ -12,8 +12,9 @@ P7 目标是先提供轻量服务层，不改变现有 Provider 请求行为和 
 from __future__ import annotations
 
 from collections.abc import Callable
-from msgspec import Struct, field
 from typing import Any
+
+from msgspec import Struct, field
 
 from ...utils.logger import logger
 from ..config import ModelConfig
