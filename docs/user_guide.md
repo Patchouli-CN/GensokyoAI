@@ -363,7 +363,7 @@ JSON Lines RPC 示例：
 ```
 
 ```json
-{"method":"character_package.export","params":{"character_path":"characters/zh_cn/HakureiReimu.yaml","output_path":"packages/reimu.gensokyo-character","package_id":"HakureiReimu","author":"Patchouli-CN","license":"MIT","source":"https://example.com/packages/reimu","external_links":[{"label":"发布页","url":"https://example.com/packages/reimu","purpose":"source"}]}}
+{"method":"character_package.export","params":{"character_path":"characters/zh_cn/HakureiReimu.yaml","output_path":"packages/reimu.gensokyo-character","package_id":"HakureiReimu","author":"Patchouli-CN","license":"Apache-2.0","source":"https://example.com/packages/reimu","external_links":[{"label":"发布页","url":"https://example.com/packages/reimu","purpose":"source"}]}}
 ```
 
 ## 10. 启动对话
