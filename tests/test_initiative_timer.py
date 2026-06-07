@@ -23,9 +23,15 @@ class InitiativeTimerManagerTests(unittest.TestCase):
         async def run():
             event_bus = EventBus(enable_trace=False)
             events = []
-            event_bus.subscribe(SystemEvent.INITIATIVE_TIMER_CREATED, lambda event: events.append(event))
-            event_bus.subscribe(SystemEvent.INITIATIVE_TIMER_UPDATED, lambda event: events.append(event))
-            event_bus.subscribe(SystemEvent.INITIATIVE_TIMER_TRIGGERED, lambda event: events.append(event))
+            event_bus.subscribe(
+                SystemEvent.INITIATIVE_TIMER_CREATED, lambda event: events.append(event)
+            )
+            event_bus.subscribe(
+                SystemEvent.INITIATIVE_TIMER_UPDATED, lambda event: events.append(event)
+            )
+            event_bus.subscribe(
+                SystemEvent.INITIATIVE_TIMER_TRIGGERED, lambda event: events.append(event)
+            )
             await event_bus.start()
             try:
                 manager = InitiativeTimerManager(

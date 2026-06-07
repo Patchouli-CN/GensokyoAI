@@ -28,13 +28,13 @@ from ..exceptions import AgentError
 from .action_executor import ActionExecutor
 from .action_planner import ActionPlanner
 from .composition import AgentComposition
+from .initiative_timer import InitiativeTimerManager
 from .lifecycle import LifecycleManager
 from .message_builder import MessageBuilder
 from .response_handler import ResponseHandler
 from .runtime_context import AgentLazyComponents
 from .save_coordinator import SaveCoordinator
 from .think_engine import ThinkEngine
-from .initiative_timer import InitiativeTimerManager
 from .types import ProviderCapability, StreamChunk, UnifiedMessage
 
 request_id_var: ContextVar[str] = ContextVar("request_id", default="")

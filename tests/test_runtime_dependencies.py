@@ -1056,7 +1056,9 @@ class RuntimeSessionRpcTests(unittest.TestCase):
         async def send(message, system_contexts=None):
             send_calls.append((message, system_contexts))
             manager.messages_by_session[session_id].append({"role": "user", "content": message})
-            manager.messages_by_session[session_id].append({"role": "assistant", "content": "重新生成"})
+            manager.messages_by_session[session_id].append(
+                {"role": "assistant", "content": "重新生成"}
+            )
             return SimpleNamespace(content="重新生成")
 
         cast(Any, service.state).agent = SimpleNamespace(

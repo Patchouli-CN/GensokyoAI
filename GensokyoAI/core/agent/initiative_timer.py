@@ -13,6 +13,7 @@ from uuid import uuid4
 from ...utils.logger import logger
 from ..config import InitiativeTimerConfig
 from ..events import Event, EventBus, SystemEvent
+
 if TYPE_CHECKING:
     from ...memory.working import WorkingMemoryManager
 
@@ -96,7 +97,9 @@ class InitiativeTimerManager:
             self._publish(SystemEvent.INITIATIVE_TIMER_CREATED, state)
             return self._payload(state)
 
-    async def discard(self, *, reason: str = "discarded", source: str = "system") -> dict[str, Any] | None:
+    async def discard(
+        self, *, reason: str = "discarded", source: str = "system"
+    ) -> dict[str, Any] | None:
         """丢弃当前积存消息。用户新消息进入时调用。"""
         async with self._lock:
             return await self._discard_locked(reason=reason, source=source)
@@ -113,8 +116,17 @@ class InitiativeTimerManager:
             payload = self._payload(state)
             self._state = None
             self._cancel_task()
-            self._publish(SystemEvent.INITIATIVE_TIMER_CANCELLED, state, extra={"reason": reason, "source": source})
-            return {"cancelled": True, "timer_id": state.timer_id, "status": "cancelled", "timer": payload}
+            self._publish(
+                SystemEvent.INITIATIVE_TIMER_CANCELLED,
+                state,
+                extra={"reason": reason, "source": source},
+            )
+            return {
+                "cancelled": True,
+                "timer_id": state.timer_id,
+                "status": "cancelled",
+                "timer": payload,
+            }
 
     async def update(
         self,
@@ -276,7 +288,9 @@ JSON 格式：
         payload = self._payload(state)
         self._state = None
         self._cancel_task()
-        self._publish(SystemEvent.THINK_ENGINE_INITIATIVE, state, extra={"message": message, "source": source})
+        self._publish(
+            SystemEvent.THINK_ENGINE_INITIATIVE, state, extra={"message": message, "source": source}
+        )
         self.event_bus.publish(
             Event(
                 type=SystemEvent.MESSAGE_SENT,
@@ -284,7 +298,11 @@ JSON 格式：
                 data={"content": message, "initiative": True, "timer_id": state.timer_id},
             )
         )
-        self._publish(SystemEvent.INITIATIVE_TIMER_TRIGGERED, state, extra={"message": message, "source": source})
+        self._publish(
+            SystemEvent.INITIATIVE_TIMER_TRIGGERED,
+            state,
+            extra={"message": message, "source": source},
+        )
         return {"triggered": True, "timer_id": state.timer_id, "message": message, "timer": payload}
 
     async def _discard_locked(self, *, reason: str, source: str) -> dict[str, Any] | None:
@@ -297,7 +315,11 @@ JSON 格式：
         payload = self._payload(state)
         self._state = None
         self._cancel_task()
-        self._publish(SystemEvent.INITIATIVE_TIMER_DISCARDED, state, extra={"reason": reason, "source": source})
+        self._publish(
+            SystemEvent.INITIATIVE_TIMER_DISCARDED,
+            state,
+            extra={"reason": reason, "source": source},
+        )
         return payload
 
     def _require_current(self, timer_id: str | None = None) -> InitiativeTimerState:
@@ -352,7 +374,7 @@ JSON 格式：
     def _clamp_delay(self, value: Any) -> int:
         try:
             seconds = int(value)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             seconds = self.config.min_delay_seconds
         return max(self.config.min_delay_seconds, min(self.config.max_delay_seconds, seconds))
 
