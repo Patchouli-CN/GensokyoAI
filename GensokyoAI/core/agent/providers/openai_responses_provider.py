@@ -182,9 +182,7 @@ class OpenAIResponsesProvider(BaseProvider):
             call_kwargs["max_output_tokens"] = max_tokens
 
         if response_format := options.get("response_format"):
-            call_kwargs["text"] = {
-                "format": self._response_format_to_text_format(response_format)
-            }
+            call_kwargs["text"] = {"format": self._response_format_to_text_format(response_format)}
 
         # 工具支持
         converted_tools = self._convert_tools_to_responses(tools) if tools else []

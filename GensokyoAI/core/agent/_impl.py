@@ -549,7 +549,9 @@ class Agent:
             return None
         return await self._ensure_initiative_timer().schedule_after_response(assistant_response)
 
-    async def _handle_initiative_timer_trigger(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+    async def _handle_initiative_timer_trigger(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """定时器到点后：基于摘要先思考，再生成真正主动消息。"""
         pending_summary = str(payload.get("pending_summary") or "").strip()
         timer_id = str(payload.get("timer_id") or "").strip()
@@ -620,7 +622,12 @@ class Agent:
             message = ""
 
         if not message:
-            return {"sent": False, "timer_id": timer_id, "pending_summary": pending_summary, "thought": thought}
+            return {
+                "sent": False,
+                "timer_id": timer_id,
+                "pending_summary": pending_summary,
+                "thought": thought,
+            }
 
         self.event_bus.publish(
             Event(

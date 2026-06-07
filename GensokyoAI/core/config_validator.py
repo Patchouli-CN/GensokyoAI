@@ -829,9 +829,10 @@ class ConfigValidator:
                     code="config.range.cross_field",
                 )
             )
-        if data.get("allow_frontend_edit_summary") is True and data.get(
-            "expose_pending_summary"
-        ) is False:
+        if (
+            data.get("allow_frontend_edit_summary") is True
+            and data.get("expose_pending_summary") is False
+        ):
             diagnostics.append(
                 self._error(
                     "initiative_timer.expose_pending_summary",

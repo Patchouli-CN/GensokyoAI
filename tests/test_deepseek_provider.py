@@ -213,7 +213,6 @@ class DeepSeekProviderTests(unittest.TestCase):
         self.assertEqual(kwargs["temperature"], 0.3)
         self.assertEqual(kwargs["top_p"], 0.8)
 
-
     def test_chat_converts_structured_output_to_json_object(self):
         with patch.dict(
             sys.modules,

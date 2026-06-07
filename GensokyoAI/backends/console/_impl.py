@@ -198,7 +198,9 @@ class ConsoleBackend(BaseBackend):
     def _show_initiative_timer_panel(self, timer: dict[str, Any] | None) -> None:
         """显示主动定时器状态面板。"""
         if not timer:
-            self.console.print(Panel("[dim]当前没有主动定时器[/]", title="主动定时器", border_style="yellow"))
+            self.console.print(
+                Panel("[dim]当前没有主动定时器[/]", title="主动定时器", border_style="yellow")
+            )
             return
 
         content = Text()
@@ -227,7 +229,11 @@ class ConsoleBackend(BaseBackend):
     def _show_initiative_trigger_result(self, result: dict[str, Any] | None) -> None:
         """显示主动定时器立即触发结果。"""
         if not result:
-            self.console.print(Panel("[dim]没有可触发的主动定时器[/]", title="主动定时器触发", border_style="yellow"))
+            self.console.print(
+                Panel(
+                    "[dim]没有可触发的主动定时器[/]", title="主动定时器触发", border_style="yellow"
+                )
+            )
             return
 
         content = Text()

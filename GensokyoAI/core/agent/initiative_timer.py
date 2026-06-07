@@ -120,7 +120,9 @@ class InitiativeTimerManager:
             self._publish(SystemEvent.INITIATIVE_TIMER_CREATED, state)
             return self._payload(state)
 
-    async def discard(self, *, reason: str = "discarded", source: str = "system") -> dict[str, Any] | None:
+    async def discard(
+        self, *, reason: str = "discarded", source: str = "system"
+    ) -> dict[str, Any] | None:
         """丢弃当前积存摘要。用户新消息进入时调用。"""
         async with self._lock:
             return await self._discard_locked(reason=reason, source=source)

@@ -124,7 +124,7 @@ def test_timer_command_supports_prefix_and_tag_forms():
     assert agent.updated is not None
     assert agent.updated["pending_summary"] == "新摘要"
 
-    asyncio.run(_execute('/timer update delay 30', agent, backend))
+    asyncio.run(_execute("/timer update delay 30", agent, backend))
     assert agent.updated is not None
     assert agent.updated["delay_seconds"] == 30
 

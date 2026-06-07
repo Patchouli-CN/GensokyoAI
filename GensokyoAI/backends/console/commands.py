@@ -184,7 +184,10 @@ def _split_command_content(content: str) -> list[str]:
         parts = shlex.split(content, posix=False)
     except ValueError:
         parts = content.split()
-    return [part[1:-1] if len(part) >= 2 and part[0] == part[-1] and part[0] in {'"', "'"} else part for part in parts]
+    return [
+        part[1:-1] if len(part) >= 2 and part[0] == part[-1] and part[0] in {'"', "'"} else part
+        for part in parts
+    ]
 
 
 def _parse_timer_update_args(args: list[str]) -> tuple[int | None, str | None]:
@@ -339,7 +342,9 @@ async def cmd_history(ctx: CommandContext, cmd=None) -> CommandResult:
     if action in {"show", "list", "view"}:
         limit = int(args[0]) if args else 20
         backend._show_history_messages_panel(messages, session=session, limit=limit)
-        return CommandResult.success("history", f"已显示 {min(limit, len(messages))}/{len(messages)} 条历史消息")
+        return CommandResult.success(
+            "history", f"已显示 {min(limit, len(messages))}/{len(messages)} 条历史消息"
+        )
 
     if action == "export":
         path = _history_export_path(session_id, args[0] if args else None)
@@ -350,7 +355,9 @@ async def cmd_history(ctx: CommandContext, cmd=None) -> CommandResult:
         }
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        backend._show_history_file_hint(path, "历史消息已导出，可编辑 messages 后用 /history import 导入")
+        backend._show_history_file_hint(
+            path, "历史消息已导出，可编辑 messages 后用 /history import 导入"
+        )
         return CommandResult.success("history", f"已导出 {len(messages)} 条消息到 {path}")
 
     if action == "import":
@@ -372,9 +379,7 @@ async def cmd_history(ctx: CommandContext, cmd=None) -> CommandResult:
         removed = messages.pop(index)
         _replace_current_session_messages(ctx, messages)
         backend._show_history_messages_panel(messages, session=session, limit=20)
-        return CommandResult.success(
-            "history", f"已删除 #{index} {removed.get('role', '?')} 消息"
-        )
+        return CommandResult.success("history", f"已删除 #{index} {removed.get('role', '?')} 消息")
 
     if action == "insert":
         if len(args) < 3:

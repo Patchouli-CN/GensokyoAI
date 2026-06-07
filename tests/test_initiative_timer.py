@@ -115,7 +115,6 @@ class InitiativeTimerManagerTests(unittest.TestCase):
 
         asyncio.run(run())
 
-
     def test_invalid_decision_json_is_treated_as_no_timer(self):
         async def run():
             event_bus = EventBus(enable_trace=False)
@@ -147,9 +146,9 @@ class InitiativeTimerManagerTests(unittest.TestCase):
                 manager = InitiativeTimerManager(
                     config=InitiativeTimerConfig(),
                     model_client=_FakeModelClient(
-                        '```json\n'
+                        "```json\n"
                         '{"should_schedule": true, "delay_seconds": 60, "summary": "Markdown 里的摘要", "reason": "想补充"}'
-                        '\n```'
+                        "\n```"
                     ),
                     event_bus=event_bus,
                     character_name="测试角色",
@@ -164,7 +163,6 @@ class InitiativeTimerManagerTests(unittest.TestCase):
                 await event_bus.stop()
 
         asyncio.run(run())
-
 
     def test_structured_output_options_are_sent_when_supported(self):
         async def run():
@@ -186,7 +184,9 @@ class InitiativeTimerManagerTests(unittest.TestCase):
                 assert model_client.last_options is not None
                 response_format = model_client.last_options.get("response_format")
                 self.assertEqual(response_format["type"], "json_schema")
-                self.assertEqual(response_format["json_schema"]["name"], "initiative_timer_decision")
+                self.assertEqual(
+                    response_format["json_schema"]["name"], "initiative_timer_decision"
+                )
                 self.assertTrue(response_format["json_schema"]["strict"])
             finally:
                 await event_bus.stop()

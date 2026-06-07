@@ -1250,7 +1250,9 @@ class P1ApiCallFeatureTests(unittest.TestCase):
 
         provider = OpenAIResponsesProvider.__new__(OpenAIResponsesProvider)
         BaseProvider.__init__(provider, ModelConfig(provider="openai_responses", name="test"))
-        provider._endpoint = SimpleNamespace(api_host="https://api.openai.com/v1", api_path="/responses")
+        provider._endpoint = SimpleNamespace(
+            api_host="https://api.openai.com/v1", api_path="/responses"
+        )
         provider._client = SimpleNamespace(responses=_FakeResponses())
         schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}}
 
