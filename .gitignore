@@ -26,3 +26,7 @@ GENSOKYOAI.log
 GENSOKYOAI2.log
 
 .claude
+
+# 备份
+
+*.bak
