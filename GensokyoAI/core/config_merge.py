@@ -6,6 +6,7 @@ from typing import Any
 from .config_schema import (
     AppConfig,
     EmbeddingConfig,
+    InitiativeTimerConfig,
     LogLevel,
     MemoryConfig,
     ModelConfig,
@@ -66,6 +67,10 @@ class ConfigMerger:
         result.tool = self._merge_tool(base.tool, override.tool)
         result.session = self._merge_session(base.session, override.session)
         result.think_engine = self._merge_think_engine(base.think_engine, override.think_engine)
+        result.initiative_timer = self._merge_initiative_timer(
+            base.initiative_timer,
+            override.initiative_timer,
+        )
         result.resource_control = self._merge_resource_control(
             base.resource_control,
             override.resource_control,
@@ -611,6 +616,72 @@ class ConfigMerger:
                 override.overflow_policy
                 if override.overflow_policy != defaults.overflow_policy
                 else base.overflow_policy,
+            ),
+        )
+
+    def _merge_initiative_timer(
+        self,
+        base: InitiativeTimerConfig,
+        override: InitiativeTimerConfig,
+    ) -> InitiativeTimerConfig:
+        """合并主动定时器配置。"""
+        provided = self._provided_fields.get(id(override))
+
+        def choose(field_name: str, legacy_value: Any) -> Any:
+            if provided is not None:
+                return (
+                    getattr(override, field_name)
+                    if field_name in provided
+                    else getattr(base, field_name)
+                )
+            return legacy_value
+
+        defaults = InitiativeTimerConfig()
+        return InitiativeTimerConfig(
+            enabled=choose(
+                "enabled", override.enabled if override.enabled != base.enabled else base.enabled
+            ),
+            min_delay_seconds=choose(
+                "min_delay_seconds",
+                override.min_delay_seconds
+                if override.min_delay_seconds != defaults.min_delay_seconds
+                else base.min_delay_seconds,
+            ),
+            max_delay_seconds=choose(
+                "max_delay_seconds",
+                override.max_delay_seconds
+                if override.max_delay_seconds != defaults.max_delay_seconds
+                else base.max_delay_seconds,
+            ),
+            decision_temperature=choose(
+                "decision_temperature",
+                override.decision_temperature
+                if override.decision_temperature != defaults.decision_temperature
+                else base.decision_temperature,
+            ),
+            decision_max_tokens=choose(
+                "decision_max_tokens",
+                override.decision_max_tokens
+                if override.decision_max_tokens != defaults.decision_max_tokens
+                else base.decision_max_tokens,
+            ),
+            max_pending_message_chars=choose(
+                "max_pending_message_chars",
+                override.max_pending_message_chars
+                if override.max_pending_message_chars != defaults.max_pending_message_chars
+                else base.max_pending_message_chars,
+            ),
+            allow_frontend_edit_message=choose(
+                "allow_frontend_edit_message",
+                override.allow_frontend_edit_message,
+            ),
+            replace_user_modified_timer=choose(
+                "replace_user_modified_timer",
+                override.replace_user_modified_timer,
+            ),
+            expose_pending_message=choose(
+                "expose_pending_message",
+                override.expose_pending_message,
             ),
         )
 

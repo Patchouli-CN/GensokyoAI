@@ -121,6 +121,20 @@ class ThinkEngineConfig(Struct):
     initiative_max_tokens: int = 100  # 生成主动消息最大 token 数
 
 
+class InitiativeTimerConfig(Struct):
+    """回答后主动定时器配置。"""
+
+    enabled: bool = True
+    min_delay_seconds: int = 30
+    max_delay_seconds: int = 1800
+    decision_temperature: float = 0.4
+    decision_max_tokens: int = 180
+    max_pending_message_chars: int = 240
+    allow_frontend_edit_message: bool = True
+    replace_user_modified_timer: bool = True
+    expose_pending_message: bool = True
+
+
 class WebSearchAPIConfig(Struct):
     """自有 Web search API Provider 配置。"""
 
@@ -254,6 +268,7 @@ class AppConfig(Struct):
     tool: ToolConfig = field(default_factory=ToolConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
     think_engine: ThinkEngineConfig = field(default_factory=ThinkEngineConfig)
+    initiative_timer: InitiativeTimerConfig = field(default_factory=InitiativeTimerConfig)
     resource_control: ResourceControlConfig = field(default_factory=ResourceControlConfig)
 
     # 角色

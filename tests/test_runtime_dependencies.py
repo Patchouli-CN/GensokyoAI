@@ -558,6 +558,9 @@ class RuntimeRpcDispatchTests(unittest.TestCase):
         self.assertIn("session.delete", rpc_methods())
         self.assertIn("session.export", rpc_methods())
         self.assertIn("session.rename", rpc_methods())
+        self.assertIn("session.messages", rpc_methods())
+        self.assertIn("session.replace_messages", rpc_methods())
+        self.assertIn("session.regenerate_from", rpc_methods())
         self.assertIn("session.rollback", rpc_methods())
         self.assertNotIn("init", rpc_methods())
         self.assertIn("init", legacy_rpc_methods())
@@ -635,6 +638,18 @@ class RuntimeRpcDispatchTests(unittest.TestCase):
         self.assertEqual(resolve_rpc_handler(service, "session.delete").__name__, "delete_session")
         self.assertEqual(resolve_rpc_handler(service, "session.export").__name__, "export_session")
         self.assertEqual(resolve_rpc_handler(service, "session.rename").__name__, "rename_session")
+        self.assertEqual(
+            resolve_rpc_handler(service, "session.messages").__name__,
+            "session_messages",
+        )
+        self.assertEqual(
+            resolve_rpc_handler(service, "session.replace_messages").__name__,
+            "session_replace_messages",
+        )
+        self.assertEqual(
+            resolve_rpc_handler(service, "session.regenerate_from").__name__,
+            "session_regenerate_from",
+        )
         self.assertEqual(
             resolve_rpc_handler(service, "session.rollback").__name__,
             "rollback_session",
@@ -723,6 +738,9 @@ class FakeRuntimeSessionPersistence:
     def save_session(self, session):
         self.saved_sessions.append(session.session_id)
 
+    def replace_messages(self, session_id, messages):
+        self.manager.messages_by_session[session_id] = [dict(message) for message in messages]
+
 
 class FakeRuntimeSessionManager:
     def __init__(self):
@@ -750,6 +768,23 @@ class FakeRuntimeSessionManager:
     def get_working_memory(self, session_id=None):
         sid = session_id or (self.current.session_id if self.current else "")
         return FakeWorkingMemory(self.messages_by_session.get(sid, []))
+
+    def set_current_session(self, session_id):
+        if session_id not in self.sessions:
+            return False
+        self.current = self.sessions[session_id]
+        return True
+
+    def replace_messages(self, session_id, messages):
+        if session_id not in self.sessions:
+            return False
+        normalized = [dict(message) for message in messages]
+        self.messages_by_session[session_id] = normalized
+        self.sessions[session_id].total_turns = len(normalized) // 2
+        self.sessions[session_id].touch()
+        self.persistence.replace_messages(session_id, normalized)
+        self.persistence.save_session(self.sessions[session_id])
+        return True
 
     def delete_session(self, session_id):
         if session_id not in self.sessions:
@@ -967,6 +1002,85 @@ class RuntimeSessionRpcTests(unittest.TestCase):
         self.assertTrue(manager.saved)
         self.assertFalse(invalid["ok"])
         self.assertEqual(invalid["error_code"], "runtime.error")
+
+    def test_session_messages_and_replace_messages_support_frontend_editing(self):
+        service = RuntimeService()
+        manager = FakeRuntimeSessionManager()
+        cast(Any, service.state).agent = SimpleNamespace(session_manager=manager)
+        assert manager.current is not None
+        session_id = manager.current.session_id
+        edited_messages = [
+            {"role": "system", "content": "背景设定"},
+            {"role": "user", "content": "改写", "reasoning_content": "keep"},
+            {"role": "assistant", "content": "新回复"},
+        ]
+
+        async def run():
+            before = await service.handle("session.messages", {"session_id": session_id})
+            replaced = await service.handle(
+                "session.replace_messages",
+                {"session_id": session_id, "messages": edited_messages},
+            )
+            invalid = await service.handle(
+                "session.replace_messages",
+                {"session_id": session_id, "messages": [{"role": "bad", "content": "x"}]},
+            )
+            return before, replaced, invalid
+
+        before, replaced, invalid = asyncio.run(run())
+
+        self.assertEqual(before["message_count"], 2)
+        self.assertTrue(replaced["replaced"])
+        self.assertEqual(replaced["message_count"], 3)
+        self.assertEqual(replaced["messages"][1]["reasoning_content"], "keep")
+        self.assertEqual(manager.messages_by_session[session_id], edited_messages)
+        self.assertEqual(manager.current.total_turns, 1)
+        self.assertIn(session_id, manager.persistence.saved_sessions)
+        self.assertFalse(invalid["ok"])
+        self.assertEqual(invalid["error_code"], "runtime.error")
+
+    def test_session_regenerate_from_truncates_to_user_message_and_generates_reply(self):
+        service = RuntimeService()
+        manager = FakeRuntimeSessionManager()
+        assert manager.current is not None
+        session_id = manager.current.session_id
+        send_calls = []
+        resume_calls = []
+
+        def resume_session(target_session_id):
+            resume_calls.append(target_session_id)
+            return manager.set_current_session(target_session_id)
+
+        async def start():
+            return None
+
+        async def send(message, system_contexts=None):
+            send_calls.append((message, system_contexts))
+            manager.messages_by_session[session_id].append({"role": "user", "content": message})
+            manager.messages_by_session[session_id].append({"role": "assistant", "content": "重新生成"})
+            return SimpleNamespace(content="重新生成")
+
+        cast(Any, service.state).agent = SimpleNamespace(
+            session_manager=manager,
+            resume_session=resume_session,
+            start=start,
+            send=send,
+        )
+
+        async def run():
+            return await service.handle(
+                "session.regenerate_from",
+                {"session_id": session_id, "message_index": 1, "system_contexts": ["ctx"]},
+            )
+
+        result = asyncio.run(run())
+
+        self.assertTrue(result["regenerated"])
+        self.assertEqual(result["user_message_index"], 0)
+        self.assertEqual(result["content"], "重新生成")
+        self.assertEqual(send_calls, [("你好", ["ctx"])])
+        self.assertEqual(manager.messages_by_session[session_id][-1]["content"], "重新生成")
+        self.assertIn(session_id, resume_calls)
 
 
 class RuntimeStreamingRpcTests(unittest.TestCase):

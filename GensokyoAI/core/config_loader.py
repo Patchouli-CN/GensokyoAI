@@ -12,6 +12,7 @@ from .config_schema import (
     AppConfig,
     CharacterConfig,
     EmbeddingConfig,
+    InitiativeTimerConfig,
     LogLevel,
     MemoryConfig,
     ModelConfig,
@@ -135,6 +136,11 @@ class ConfigLoader(ConfigMerger):
             think_engine_data = data["think_engine"] or {}
             config.think_engine = ThinkEngineConfig(**think_engine_data)
             self._provided_fields[id(config.think_engine)] = set(think_engine_data.keys())
+
+        if "initiative_timer" in data:
+            initiative_timer_data = data["initiative_timer"] or {}
+            config.initiative_timer = InitiativeTimerConfig(**initiative_timer_data)
+            self._provided_fields[id(config.initiative_timer)] = set(initiative_timer_data.keys())
 
         if "resource_control" in data:
             resource_control_data = data["resource_control"] or {}

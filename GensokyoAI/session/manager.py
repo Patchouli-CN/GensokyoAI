@@ -128,6 +128,24 @@ class SessionManager:
                 # 立即保存会话信息
                 self._persistence.save_session(session)
 
+    def replace_messages(self, session_id: str, messages: list[dict]) -> bool:
+        """全量替换指定会话消息，并同步持久化与工作记忆缓存。"""
+        session = self._sessions.get(session_id)
+        if session is None:
+            return False
+
+        normalized_messages = [dict(message) for message in messages]
+        wm = WorkingMemoryManager(max_turns=self._working_max_turns)
+        wm.replace_messages(normalized_messages)
+        self._working_memories[session_id] = wm
+
+        session.total_turns = len(normalized_messages) // 2
+        session.touch()
+        self._persistence.replace_messages(session_id, normalized_messages)
+        self._persistence.save_session(session)
+        logger.debug(f"替换会话消息: {session_id}, {len(normalized_messages)} 条")
+        return True
+
     async def save_working_memory_async(self, session_id: str | None = None) -> bool:
         """异步保存工作记忆到持久化，用于关机最终保存等需要等待落盘的场景"""
         sid = session_id or self._current_session_id

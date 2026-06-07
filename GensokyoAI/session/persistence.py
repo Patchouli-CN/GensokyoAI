@@ -268,6 +268,14 @@ class SessionPersistence:
             await self._atomic_write_json_async(path, data)
         logger.debug(f"会话已异步保存: {path}")
 
+    def replace_messages(self, session_id: str, messages: list[dict]) -> None:
+        """全量替换消息（同步），复用原子写入与备份逻辑。"""
+        self.save_messages(session_id, messages)
+
+    async def replace_messages_async(self, session_id: str, messages: list[dict]) -> None:
+        """全量替换消息（异步），复用原子写入与备份逻辑。"""
+        await self.async_save_message(session_id, messages)
+
     def save_messages(self, session_id: str, messages: list[dict]) -> None:
         """保存消息（同步）- 优化版"""
         char_id = self._session_index.get(session_id)

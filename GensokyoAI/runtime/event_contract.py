@@ -110,6 +110,36 @@ RUNTIME_EVENT_CONTRACT: dict[str, RuntimeEventSpec] = {
         optional_fields=("context", "provider", "model", "error", "error_type"),
         description="模型认证刷新状态，payload 必须清洗敏感字段。",
     ),
+    "initiative_timer.created": RuntimeEventSpec(
+        event="initiative_timer.created",
+        required_fields=("timer_id", "generation", "status", "due_at", "delay_seconds"),
+        optional_fields=("pending_message", "reason", "source", "remaining_seconds"),
+        description="主动定时器已创建。",
+    ),
+    "initiative_timer.updated": RuntimeEventSpec(
+        event="initiative_timer.updated",
+        required_fields=("timer_id", "generation", "status", "due_at", "delay_seconds"),
+        optional_fields=("pending_message", "reason", "source", "remaining_seconds"),
+        description="主动定时器已更新。",
+    ),
+    "initiative_timer.cancelled": RuntimeEventSpec(
+        event="initiative_timer.cancelled",
+        required_fields=("timer_id", "generation", "status"),
+        optional_fields=("reason", "source"),
+        description="主动定时器已取消，积存消息已丢弃。",
+    ),
+    "initiative_timer.triggered": RuntimeEventSpec(
+        event="initiative_timer.triggered",
+        required_fields=("timer_id", "generation", "status"),
+        optional_fields=("message", "source"),
+        description="主动定时器已触发，积存消息已发送。",
+    ),
+    "initiative_timer.discarded": RuntimeEventSpec(
+        event="initiative_timer.discarded",
+        required_fields=("timer_id", "generation", "status"),
+        optional_fields=("reason", "source"),
+        description="主动定时器因新消息或替换被丢弃。",
+    ),
 }
 
 

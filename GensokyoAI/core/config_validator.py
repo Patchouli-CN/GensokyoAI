@@ -8,6 +8,7 @@ from msgspec import Struct
 
 from .config_schema import (
     EmbeddingConfig,
+    InitiativeTimerConfig,
     LogLevel,
     MemoryConfig,
     ModelConfig,
@@ -223,6 +224,8 @@ class ConfigValidator:
             self._validate_session_data(data.get("session") or {}, diagnostics)
         if "think_engine" in data:
             self._validate_think_engine_data(data.get("think_engine") or {}, diagnostics)
+        if "initiative_timer" in data:
+            self._validate_initiative_timer_data(data.get("initiative_timer") or {}, diagnostics)
         if "resource_control" in data:
             self._validate_resource_control_data(data.get("resource_control") or {}, diagnostics)
         self._validate_deprecated_fields(data, diagnostics)
@@ -768,6 +771,76 @@ class ConfigValidator:
                 )
             )
 
+    def _validate_initiative_timer_data(
+        self, data: Any, diagnostics: list[ConfigDiagnostic]
+    ) -> None:
+        self._validate_object("initiative_timer", data, diagnostics)
+        if not isinstance(data, dict):
+            return
+        self._validate_unknown_fields(
+            "initiative_timer",
+            data,
+            self._struct_field_names(InitiativeTimerConfig),
+            diagnostics,
+        )
+        self._validate_numeric_range(
+            "initiative_timer.min_delay_seconds",
+            data.get("min_delay_seconds"),
+            diagnostics,
+            minimum=1,
+        )
+        self._validate_numeric_range(
+            "initiative_timer.max_delay_seconds",
+            data.get("max_delay_seconds"),
+            diagnostics,
+            minimum=1,
+        )
+        self._validate_numeric_range(
+            "initiative_timer.decision_temperature",
+            data.get("decision_temperature"),
+            diagnostics,
+            minimum=0,
+            maximum=2,
+        )
+        self._validate_numeric_range(
+            "initiative_timer.decision_max_tokens",
+            data.get("decision_max_tokens"),
+            diagnostics,
+            minimum=1,
+        )
+        self._validate_numeric_range(
+            "initiative_timer.max_pending_message_chars",
+            data.get("max_pending_message_chars"),
+            diagnostics,
+            minimum=1,
+        )
+        min_delay = data.get("min_delay_seconds")
+        max_delay = data.get("max_delay_seconds")
+        if (
+            isinstance(min_delay, (int, float))
+            and isinstance(max_delay, (int, float))
+            and min_delay > max_delay
+        ):
+            diagnostics.append(
+                self._error(
+                    "initiative_timer.max_delay_seconds",
+                    "max_delay_seconds must be >= min_delay_seconds",
+                    "请确保主动定时器最大延迟不小于最小延迟。",
+                    code="config.range.cross_field",
+                )
+            )
+        if data.get("allow_frontend_edit_message") is True and data.get(
+            "expose_pending_message"
+        ) is False:
+            diagnostics.append(
+                self._error(
+                    "initiative_timer.expose_pending_message",
+                    "expose_pending_message must be true when allow_frontend_edit_message is true",
+                    "前端需要看到积存消息正文后才能编辑它。",
+                    code="config.initiative_timer.edit_without_expose",
+                )
+            )
+
     def _validate_resource_control_data(
         self, data: Any, diagnostics: list[ConfigDiagnostic]
     ) -> None:
@@ -1043,6 +1116,7 @@ class ConfigValidator:
             "tool",
             "session",
             "think_engine",
+            "initiative_timer",
             "resource_control",
             "character",
             "character_file",

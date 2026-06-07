@@ -9,6 +9,7 @@ transport such as ``bridge_main.py`` or a future HTTP/WebSocket adapter.
 from __future__ import annotations
 
 import asyncio
+import copy
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -174,6 +175,7 @@ class RuntimeService:
                 "runtime.health",
                 "runtime.versioning",
                 "session.management",
+                "initiative_timer.management",
             ],
             "methods": rpc_methods(),
             "legacy_methods": legacy_rpc_methods(),
@@ -617,6 +619,111 @@ class RuntimeService:
             manager.persistence.save_session(session)
             return self._session_payload(session)
 
+    async def session_messages(self, session_id: str | None = None) -> dict[str, Any]:
+        """Return complete editable messages for one session."""
+        agent = self._require_agent()
+        manager = agent.session_manager
+        current = manager.get_current_session()
+        target_session_id = session_id or (current.session_id if current else None)
+        if not target_session_id:
+            raise ValueError("No active session to read messages")
+
+        session = manager.get_session(target_session_id)
+        if session is None:
+            raise ValueError(f"Session does not exist: {target_session_id}")
+
+        messages = manager.persistence.load_messages(target_session_id)
+        return self._session_messages_payload(manager, session, messages)
+
+    async def session_replace_messages(
+        self,
+        messages: list[dict[str, Any]],
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Replace all messages in a session after frontend-side edits."""
+        agent = self._require_agent()
+        manager = agent.session_manager
+        current = manager.get_current_session()
+        target_session_id = session_id or (current.session_id if current else None)
+        if not target_session_id:
+            raise ValueError("No active session to replace messages")
+
+        session = manager.get_session(target_session_id)
+        if session is None:
+            raise ValueError(f"Session does not exist: {target_session_id}")
+
+        normalized_messages = self._normalize_session_messages(messages)
+        async with self._lock:
+            if not manager.replace_messages(target_session_id, normalized_messages):
+                raise ValueError(f"Session does not exist: {target_session_id}")
+            updated_session = manager.get_session(target_session_id) or session
+            updated_messages = manager.persistence.load_messages(target_session_id)
+            return {
+                "replaced": True,
+                **self._session_messages_payload(manager, updated_session, updated_messages),
+            }
+
+    async def session_regenerate_from(
+        self,
+        message_index: int,
+        session_id: str | None = None,
+        system_contexts: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Truncate from a historical user message and regenerate following assistant reply."""
+        if message_index < 0:
+            raise ValueError("Message index must be greater than or equal to 0")
+
+        async with (
+            self._resource_scope("runtime", "agent_message"),
+            self._resource_scope("agent_message", "agent_message"),
+        ):
+            agent = await self._ensure_started()
+            manager = agent.session_manager
+            current = manager.get_current_session()
+            target_session_id = session_id or (current.session_id if current else None)
+            if not target_session_id:
+                raise ValueError("No active session to regenerate messages")
+
+            session = manager.get_session(target_session_id)
+            if session is None:
+                raise ValueError(f"Session does not exist: {target_session_id}")
+
+            original_messages = manager.persistence.load_messages(target_session_id)
+            if message_index >= len(original_messages):
+                raise ValueError("Message index is out of range")
+
+            user_index = self._find_regeneration_user_index(original_messages, message_index)
+            if user_index is None:
+                raise ValueError("No user message found at or before message_index")
+
+            user_message = original_messages[user_index]
+            user_content = user_message.get("content")
+            if not isinstance(user_content, str) or not user_content:
+                raise ValueError("Regeneration target user message content is required")
+
+            previous_session_id = current.session_id if current else None
+            async with self._lock:
+                self._activate_session_for_regeneration(agent, target_session_id)
+                manager.replace_messages(target_session_id, original_messages[:user_index])
+
+            try:
+                response = await agent.send(user_content, system_contexts)
+                content = response.content if response else ""
+            finally:
+                if previous_session_id and previous_session_id != target_session_id:
+                    self._activate_session_for_regeneration(agent, previous_session_id)
+
+            updated_session = manager.get_session(target_session_id) or session
+            updated_messages = manager.persistence.load_messages(target_session_id)
+            return {
+                "regenerated": True,
+                "from_index": message_index,
+                "user_message_index": user_index,
+                "role": "assistant",
+                "content": content,
+                **self._session_messages_payload(manager, updated_session, updated_messages),
+            }
+
     async def rollback_session(
         self,
         num: int = 1,
@@ -667,6 +774,7 @@ class RuntimeService:
                 "role": "assistant",
                 "content": content,
                 "session": self._session_payload(session) if session else None,
+                "initiative_timer": self._agent_initiative_timer_payload(agent),
             }
 
     async def iter_message_stream(
@@ -722,6 +830,7 @@ class RuntimeService:
             "index": index,
             "content": full_content,
             "session": self._session_payload(session) if session else None,
+            "initiative_timer": self._agent_initiative_timer_payload(agent),
         }
 
     async def send_message_stream(
@@ -742,6 +851,37 @@ class RuntimeService:
             "events": events,
             "session": session_payload,
         }
+
+    async def initiative_timer_current(self) -> dict[str, Any] | None:
+        agent = self._require_agent()
+        return agent.current_initiative_timer()
+
+    async def initiative_timer_update(
+        self,
+        timer_id: str | None = None,
+        delay_seconds: int | float | None = None,
+        due_at: str | None = None,
+        pending_message: str | None = None,
+    ) -> dict[str, Any]:
+        agent = self._require_agent()
+        return await agent.update_initiative_timer(
+            timer_id=timer_id,
+            delay_seconds=delay_seconds,
+            due_at=due_at,
+            pending_message=pending_message,
+        )
+
+    async def initiative_timer_cancel(
+        self,
+        timer_id: str | None = None,
+        reason: str = "cancelled",
+    ) -> dict[str, Any]:
+        agent = self._require_agent()
+        return await agent.cancel_initiative_timer(timer_id=timer_id, reason=reason)
+
+    async def initiative_timer_trigger(self, timer_id: str | None = None) -> dict[str, Any]:
+        agent = self._require_agent()
+        return await agent.trigger_initiative_timer(timer_id=timer_id)
 
     async def dependency_status(self, providers: list[str] | None = None) -> dict[str, Any]:
         """Return optional Provider dependency status for generic clients."""
@@ -1201,6 +1341,14 @@ class RuntimeService:
         }
 
     @staticmethod
+    def _agent_initiative_timer_payload(agent: Any) -> dict[str, Any] | None:
+        current = getattr(agent, "current_initiative_timer", None)
+        if not callable(current):
+            return None
+        payload = current()
+        return payload if isinstance(payload, dict) else None
+
+    @staticmethod
     def _runtime_backpressure_payload(
         *,
         dropped_count: int,
@@ -1324,14 +1472,75 @@ class RuntimeService:
                 SystemEvent.TOOL_ERROR,
             ),
         }
+        categories["initiative_timer"] = (
+            SystemEvent.INITIATIVE_TIMER_CREATED,
+            SystemEvent.INITIATIVE_TIMER_UPDATED,
+            SystemEvent.INITIATIVE_TIMER_CANCELLED,
+            SystemEvent.INITIATIVE_TIMER_TRIGGERED,
+            SystemEvent.INITIATIVE_TIMER_DISCARDED,
+        )
         categories["runtime_observable"] = (
             *categories["tool"],
             *categories["model"],
             *categories["background"],
             *categories["persistence"],
             *categories["error"],
+            *categories["initiative_timer"],
         )
         return categories
+
+    @staticmethod
+    def _normalize_session_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not isinstance(messages, list):
+            raise ValueError("Messages must be a list")
+
+        normalized: list[dict[str, Any]] = []
+        allowed_roles = {"system", "user", "assistant", "tool"}
+        for index, message in enumerate(messages):
+            if not isinstance(message, dict):
+                raise ValueError(f"Message at index {index} must be an object")
+            role = message.get("role")
+            content = message.get("content")
+            if role not in allowed_roles:
+                raise ValueError(f"Message at index {index} has invalid role")
+            if not isinstance(content, str):
+                raise ValueError(f"Message at index {index} content must be a string")
+            normalized.append(copy.deepcopy(message))
+        return normalized
+
+    @staticmethod
+    def _find_regeneration_user_index(
+        messages: list[dict[str, Any]], message_index: int
+    ) -> int | None:
+        for index in range(message_index, -1, -1):
+            if messages[index].get("role") == "user":
+                return index
+        return None
+
+    @staticmethod
+    def _activate_session_for_regeneration(agent: Agent, session_id: str) -> None:
+        if hasattr(agent, "resume_session"):
+            if not agent.resume_session(session_id):
+                raise ValueError(f"Session does not exist: {session_id}")
+            return
+        if not agent.session_manager.set_current_session(session_id):
+            raise ValueError(f"Session does not exist: {session_id}")
+
+    def _session_messages_payload(
+        self,
+        manager: Any,
+        session: SessionContext,
+        messages: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        current = manager.get_current_session()
+        is_current = bool(current and current.session_id == session.session_id)
+        return {
+            "session": self._session_payload(session),
+            "session_id": session.session_id,
+            "is_current": is_current,
+            "messages": copy.deepcopy(messages),
+            "message_count": len(messages),
+        }
 
     @staticmethod
     def _session_payload(session: SessionContext | None) -> dict[str, Any]:

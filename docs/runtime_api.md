@@ -21,8 +21,8 @@
   "protocol": "json-lines-rpc",
   "protocol_version": "1.0.0",
   "protocol_major_version": 1,
-  "capabilities": ["agent.lifecycle", "agent.messaging", "agent.streaming", "character.discovery", "character.validation", "character_package.management", "dependency.management", "external_tool.status", "memory.management", "memory.search", "memory.graph", "model.discovery", "config.validation", "migration.diagnostics", "resource_control.runtime_gates", "runtime.events", "runtime.health", "runtime.versioning", "session.management"],
-  "methods": ["runtime.info", "runtime.health", "runtime.shutdown", "config.validate", "character.validate", "character_package.validate", "character_package.preview", "character_package.import", "character_package.export", "agent.init", "agent.send_message", "agent.send_message_stream", "character.list", "model.list", "model.info", "session.create", "session.list", "session.current", "session.resume", "session.delete", "session.export", "session.rename", "session.rollback", "dependency.status", "dependency.install", "external_tool.status", "memory.list", "memory.search", "memory.get", "memory.update", "memory.delete", "memory.graph"],
+  "capabilities": ["agent.lifecycle", "agent.messaging", "agent.streaming", "character.discovery", "character.validation", "character_package.management", "dependency.management", "external_tool.status", "initiative_timer.management", "memory.management", "memory.search", "memory.graph", "model.discovery", "config.validation", "migration.diagnostics", "resource_control.runtime_gates", "runtime.events", "runtime.health", "runtime.versioning", "session.management"],
+  "methods": ["runtime.info", "runtime.health", "runtime.shutdown", "config.validate", "character.validate", "character_package.validate", "character_package.preview", "character_package.import", "character_package.export", "agent.init", "agent.send_message", "agent.send_message_stream", "character.list", "model.list", "model.info", "session.create", "session.list", "session.current", "session.resume", "session.delete", "session.export", "session.rename", "session.rollback", "dependency.status", "dependency.install", "external_tool.status", "initiative_timer.current", "initiative_timer.update", "initiative_timer.cancel", "initiative_timer.trigger", "memory.list", "memory.search", "memory.get", "memory.update", "memory.delete", "memory.graph"],
   "legacy_methods": ["init", "send_message", "send_message_stream", "list_characters", "create_session", "list_sessions", "current_session", "resume_session", "delete_session", "export_session", "rename_session", "rollback_session", "shutdown", "dependency_status", "install_dependencies", "external_tool_status"],
   "method_specs": [
     {"method": "runtime.info", "handler": "info", "legacy": false, "namespace": "runtime", "deprecated": false, "replacement": null, "remove_after": null},
@@ -78,9 +78,10 @@
 - `character_package.validate`、`character_package.preview`、`character_package.import`、`character_package.export`
 - `agent.init`、`agent.send_message`、`agent.send_message_stream`
 - `model.list`、`model.info`
-- `session.create`、`session.list`、`session.current`、`session.resume`、`session.delete`、`session.export`、`session.rename`、`session.rollback`
+- `session.create`、`session.list`、`session.current`、`session.resume`、`session.delete`、`session.export`、`session.rename`、`session.messages`、`session.replace_messages`、`session.regenerate_from`、`session.rollback`
 - `dependency.status`、`dependency.install`
 - `external_tool.status`
+- `initiative_timer.current`、`initiative_timer.update`、`initiative_timer.cancel`、`initiative_timer.trigger`
 - `memory.list`、`memory.search`、`memory.get`、`memory.update`、`memory.delete`、`memory.graph`
 
 Legacy 兼容方法仍可用但已废弃：`init`、`send_message`、`send_message_stream`、`list_characters`、`create_session`、`list_sessions`、`current_session`、`resume_session`、`delete_session`、`export_session`、`rename_session`、`rollback_session`、`shutdown`、`dependency_status`、`install_dependencies`、`external_tool_status`。新客户端应使用 `method_specs[].replacement` 迁移到命名空间方法。
@@ -258,7 +259,22 @@ WebSocket 客户端发送：
       {"type": "content", "index": 0, "content": "..."},
       {"type": "finish", "index": 1, "content": "..."}
     ],
-    "session": {}
+    "session": {},
+    "initiative_timer": {
+      "timer_id": "abcd1234",
+      "status": "scheduled",
+      "generation": 3,
+      "source": "ai",
+      "created_at": "2026-06-07T09:00:00+00:00",
+      "updated_at": "2026-06-07T09:00:00+00:00",
+      "due_at": "2026-06-07T09:05:00+00:00",
+      "delay_seconds": 300,
+      "remaining_seconds": 299,
+      "pending_message": "刚才那件事我又想了想……",
+      "reason": "角色想稍后补充一句",
+      "user_modified": false,
+      "editable_fields": ["due_at", "delay_seconds", "pending_message"]
+    }
   }
 }
 ```
@@ -270,6 +286,67 @@ WebSocket 客户端发送：
 - SSE `/events` 客户端断开或关闭响应时，Runtime 会关闭对应事件订阅；重复关闭客户端连接不会要求客户端再调用额外 RPC。
 - HTTP `/rpc` 请求如果被客户端取消，底层请求协程会随连接取消而收敛；涉及 Runtime resource gate 的方法仍应依赖服务端 `finally` 路径释放资源。
 - 多个 Runtime HTTP app / service 实例之间的 stream task、事件订阅、事件队列、shutdown 生命周期和资源状态相互隔离。
+
+## 主动定时器 API
+
+主动定时器让 AI 在每次回答完成后决定是否积存一条短主动消息，并设置触发时间。若用户在触发前发送新消息，或前端取消定时器，Runtime 会直接丢弃旧积存消息；到点时不再二次调用模型检查，而是直接发送仍有效的积存消息。
+
+`agent.send_message` 的返回结果和 `agent.send_message_stream` 的 `finish` 事件都会新增 `initiative_timer` 字段；无当前定时器时为 `null`。
+
+`initiative_timer.current` 获取当前定时器：
+
+```json
+{"method": "initiative_timer.current", "params": {}}
+```
+
+`initiative_timer.update` 修改当前定时器，可修改触发时间或积存消息正文：
+
+```json
+{
+  "method": "initiative_timer.update",
+  "params": {
+    "timer_id": "abcd1234",
+    "delay_seconds": 180,
+    "pending_message": "我改了一下稍后要说的话。"
+  }
+}
+```
+
+字段规则：
+
+- `timer_id` 可省略；提供时必须匹配当前定时器。
+- `delay_seconds` 与 `due_at` 二选一，不可同时提供。
+- `pending_message` 只有在配置 `initiative_timer.allow_frontend_edit_message` 为 `true` 时可编辑。
+- 编辑后 `user_modified` 会变为 `true`，并刷新 `generation`，旧异步任务自动失效。
+
+`initiative_timer.cancel` 取消并丢弃积存消息：
+
+```json
+{"method": "initiative_timer.cancel", "params": {"timer_id": "abcd1234", "reason": "user_cancelled"}}
+```
+
+`initiative_timer.trigger` 立即触发当前积存消息：
+
+```json
+{"method": "initiative_timer.trigger", "params": {"timer_id": "abcd1234"}}
+```
+
+可订阅的事件包括：`initiative_timer.created`、`initiative_timer.updated`、`initiative_timer.cancelled`、`initiative_timer.triggered`、`initiative_timer.discarded`。事件 payload 包含 `timer_id`、`generation`、`status`、`due_at`、`delay_seconds`、`reason` 和可选 `pending_message`。
+
+相关配置段：
+
+```yaml
+initiative_timer:
+  enabled: true
+  min_delay_seconds: 30
+  max_delay_seconds: 1800
+  decision_temperature: 0.4
+  decision_max_tokens: 180
+  max_pending_message_chars: 240
+  allow_frontend_edit_message: true
+  replace_user_modified_timer: true
+  expose_pending_message: true
+```
 
 ## 配置校验 API
 
@@ -412,6 +489,63 @@ Runtime 资源控制由配置段 `resource_control` 控制。当前 Runtime gate
 - `dependency_install`：可选依赖安装并发。
 
 `runtime.info.resource_control` 会返回当前配置摘要和 gate 快照。深层 Provider / 工具调用限流与入口级 gate 使用同一套 `resource.limit_exceeded` 错误结构，错误 details 会包含 `resource`、`reason`、`max_concurrent`、`queue_size`、`active`、`waiting` 和 `action`，便于客户端展示恢复建议。
+
+## 会话消息编辑 API
+
+`session.messages` 返回指定会话的完整可编辑历史消息；未传 `session_id` 时使用当前会话：
+
+```json
+{
+  "method": "session.messages",
+  "params": {"session_id": "optional-session-id"}
+}
+```
+
+响应包含 `session`、`session_id`、`is_current`、`messages` 和 `message_count`。`messages` 会保留消息扩展字段，例如 `reasoning_content`、`tool_calls`、`tool_call_id`，前端编辑时应尽量原样保留不理解的字段。
+
+`session.replace_messages` 用于提交编辑后的完整消息数组，可实现编辑、删除、插入任意历史消息：
+
+```json
+{
+  "method": "session.replace_messages",
+  "params": {
+    "session_id": "optional-session-id",
+    "messages": [
+      {"role": "user", "content": "改写后的用户消息"},
+      {"role": "assistant", "content": "插入或编辑后的助手消息"}
+    ]
+  }
+}
+```
+
+校验规则：
+
+- `messages` 必须是数组。
+- 每条消息必须是对象，且包含字符串 `content`。
+- `role` 仅允许 `system`、`user`、`assistant`、`tool`。
+- Runtime 会全量替换目标会话消息，更新 `message_count` / `total_turns`，并同步当前会话工作记忆缓存。
+
+`session.regenerate_from` 从指定消息索引附近重新生成后续助手回复：Runtime 会从 `message_index` 向前找到最近一条 `user` 消息，保留该用户消息之前的历史，将该用户消息重新发送给 Agent，然后返回更新后的完整消息列表。
+
+```json
+{
+  "method": "session.regenerate_from",
+  "params": {
+    "session_id": "optional-session-id",
+    "message_index": 6,
+    "system_contexts": ["可选临时系统上下文"]
+  }
+}
+```
+
+响应额外包含：
+
+- `regenerated`：是否完成重生成。
+- `from_index`：前端传入的索引。
+- `user_message_index`：实际用于重生成的用户消息索引。
+- `content`：本次新生成的助手回复。
+
+前端推荐流程：先调用 `session.messages` 拉取完整历史；用户在 UI 中编辑、删除或插入消息后调用 `session.replace_messages` 保存；若用户选择“从这里重新生成”，调用 `session.regenerate_from`，然后用返回的 `messages` 刷新 UI。
 
 ## 会话导出与 schema version
 

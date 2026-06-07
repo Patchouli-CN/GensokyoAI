@@ -172,6 +172,18 @@ think_engine:
   initiative_temperature: 0.8
   initiative_max_tokens: 100
 
+# 主动定时器：AI 回复完成后可生成一条积存主动消息和可编辑触发时间
+initiative_timer:
+  enabled: true
+  min_delay_seconds: 30
+  max_delay_seconds: 1800
+  decision_temperature: 0.4
+  decision_max_tokens: 180
+  max_pending_message_chars: 240
+  allow_frontend_edit_message: true
+  replace_user_modified_timer: true
+  expose_pending_message: true
+
 # 工具配置
 tool:
   enabled: true

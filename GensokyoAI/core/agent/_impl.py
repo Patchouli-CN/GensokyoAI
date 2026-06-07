@@ -34,6 +34,7 @@ from .response_handler import ResponseHandler
 from .runtime_context import AgentLazyComponents
 from .save_coordinator import SaveCoordinator
 from .think_engine import ThinkEngine
+from .initiative_timer import InitiativeTimerManager
 from .types import ProviderCapability, StreamChunk, UnifiedMessage
 
 request_id_var: ContextVar[str] = ContextVar("request_id", default="")
@@ -117,6 +118,8 @@ class Agent:
         self._save_coordinator = self._lazy_components.save_coordinator
         self._response_handler = self._lazy_components.response_handler
         self._background_manager: BackgroundManager | None = None
+        self._initiative_timer: InitiativeTimerManager | None = None
+        self._last_initiative_timer_payload: dict | None = None
 
     def _init_event_listeners(self) -> None:
         self.core_listeners = CoreListeners(self, self.event_bus)
@@ -250,6 +253,7 @@ class Agent:
         async with self._request_semaphore:
             if self.is_shutting_down:
                 return None
+            await self.discard_initiative_timer(reason="user_message_received", source="user")
             response_future = self._action_executor.prepare_response()  # type: ignore
             self._publish_message_received(user_input, system_contexts)
 
@@ -274,6 +278,7 @@ class Agent:
         async with self._request_semaphore:
             if self.is_shutting_down:
                 return
+            await self.discard_initiative_timer(reason="user_message_received", source="user")
             response_future = self._action_executor.prepare_response()  # type: ignore
             self._publish_message_received(user_input, system_contexts)
 
@@ -505,10 +510,6 @@ class Agent:
                 await self._action_executor.feed_chunk(error_msg)  # type: ignore
 
         finally:
-            # 🔑 无论如何都要把控制权还给用户
-            if self._action_executor:
-                self._action_executor.complete_response(full_response)
-
             if full_response and "响应中断" not in full_response:
                 data = {"content": full_response}
                 # reasoning_content 对 DeepSeek thinking mode 是多轮协议状态，
@@ -522,6 +523,70 @@ class Agent:
                         data=data,
                     )
                 )
+                self._last_initiative_timer_payload = await self.schedule_initiative_timer(
+                    full_response
+                )
+
+            # 🔑 无论如何都要把控制权还给用户；放在定时器计划后，确保 Runtime 返回可携带 initiative_timer。
+            if self._action_executor:
+                self._action_executor.complete_response(full_response)
+
+    def _ensure_initiative_timer(self) -> InitiativeTimerManager:
+        if self._initiative_timer is None:
+            self._initiative_timer = InitiativeTimerManager(
+                config=self.config.initiative_timer,
+                model_client=self._model_client,
+                event_bus=self.event_bus,
+                character_name=self.character_name,
+                working_memory=self.working_memory,
+                debug_silent_output=self.config.debug_silent_output,
+            )
+        return self._initiative_timer
+
+    async def schedule_initiative_timer(self, assistant_response: str) -> dict | None:
+        if not self.config.initiative_timer.enabled:
+            return None
+        return await self._ensure_initiative_timer().schedule_after_response(assistant_response)
+
+    async def discard_initiative_timer(
+        self, *, reason: str = "discarded", source: str = "system"
+    ) -> dict | None:
+        if self._initiative_timer is None:
+            return None
+        self._last_initiative_timer_payload = None
+        return await self._initiative_timer.discard(reason=reason, source=source)
+
+    def current_initiative_timer(self) -> dict | None:
+        if self._initiative_timer is None:
+            return None
+        return self._initiative_timer.current_payload()
+
+    async def update_initiative_timer(
+        self,
+        *,
+        timer_id: str | None = None,
+        delay_seconds: int | float | None = None,
+        due_at: str | None = None,
+        pending_message: str | None = None,
+    ) -> dict:
+        payload = await self._ensure_initiative_timer().update(
+            timer_id=timer_id,
+            delay_seconds=delay_seconds,
+            due_at=due_at,
+            pending_message=pending_message,
+        )
+        self._last_initiative_timer_payload = payload
+        return payload
+
+    async def cancel_initiative_timer(
+        self, *, timer_id: str | None = None, reason: str = "cancelled"
+    ) -> dict:
+        self._last_initiative_timer_payload = None
+        return await self._ensure_initiative_timer().cancel(timer_id=timer_id, reason=reason)
+
+    async def trigger_initiative_timer(self, *, timer_id: str | None = None) -> dict:
+        self._last_initiative_timer_payload = None
+        return await self._ensure_initiative_timer().trigger(timer_id=timer_id)
 
     async def _on_shutdown(self) -> None:
         if self._generate_response_subscription_id is not None:
@@ -534,6 +599,9 @@ class Agent:
 
         if self._think_engine:
             await self._think_engine.stop()
+
+        if self._initiative_timer:
+            await self._initiative_timer.shutdown()
 
         if self._background_manager:
             await self._background_manager.stop(wait=True)

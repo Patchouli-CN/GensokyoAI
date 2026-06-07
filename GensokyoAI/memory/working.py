@@ -78,6 +78,10 @@ class WorkingMemoryManager:
         """按对话轮回滚消息，每轮默认包含 user/assistant 两条消息。"""
         return self.rollback_messages(count * 2)
 
+    def replace_messages(self, messages: list[dict[str, Any]]) -> None:
+        """全量替换工作记忆消息，保留消息扩展字段。"""
+        self._memory.messages = [dict(message) for message in messages]
+
     def get_context(self) -> list[dict[str, Any]]:
         """获取当前上下文"""
         return self._memory.get_context()

@@ -103,6 +103,13 @@ class SystemEvent(Enum):
     THINK_ENGINE_THOUGHT = "think.engine.thought"  # 静默思考完成
     THINK_ENGINE_INITIATIVE = "think.engine.initiative"  # 产生主动消息
 
+    # 主动定时器事件
+    INITIATIVE_TIMER_CREATED = "initiative_timer.created"
+    INITIATIVE_TIMER_UPDATED = "initiative_timer.updated"
+    INITIATIVE_TIMER_CANCELLED = "initiative_timer.cancelled"
+    INITIATIVE_TIMER_TRIGGERED = "initiative_timer.triggered"
+    INITIATIVE_TIMER_DISCARDED = "initiative_timer.discarded"
+
     # 🆕 行动决策事件
     ACTION_DECIDED = "action.decided"  # ActionPlanner 决策完成
     ACTION_EXECUTED = "action.executed"  # ActionExecutor 执行完成
