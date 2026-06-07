@@ -4,7 +4,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
-from GensokyoAI.backends.console import commands as console_commands
 from GensokyoAI.commands.context import CommandContext
 from GensokyoAI.commands.executor import CommandExecutor
 from GensokyoAI.core.agent.types import UnifiedMessage
