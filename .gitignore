@@ -27,3 +27,8 @@ GENSOKYOAI2.log
 
 .claude
 推送草稿.txt
+
+
+# 备份
+
+*.bak
