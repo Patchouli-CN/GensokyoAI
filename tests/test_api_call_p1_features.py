@@ -339,6 +339,7 @@ class P1ApiCallFeatureTests(unittest.TestCase):
                     ProviderCapability.VISION,
                     ProviderCapability.EMBEDDINGS,
                     ProviderCapability.WEB_SEARCH,
+                    ProviderCapability.STRUCTURED_OUTPUT,
                 },
             ),
             (ClaudeProvider, {ProviderCapability.REASONING, ProviderCapability.VISION}),
@@ -1089,6 +1090,34 @@ class P1ApiCallFeatureTests(unittest.TestCase):
         self.assertEqual(unified.web_search_references[0].title, "Example")
         self.assertEqual(unified.web_search_references[0].url, "https://example.test/a")
         self.assertEqual(unified.web_search_diagnostics.status, "completed")
+
+    def test_gemini_converts_response_format(self):
+        schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}}
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "test_schema",
+                "strict": True,
+                "schema": schema,
+            },
+        }
+
+        converted = GeminiProvider._response_format_to_gemini(response_format)
+
+        self.assertEqual(
+            converted,
+            {
+                "text": {
+                    "mime_type": "application/json",
+                    "schema": schema,
+                }
+            },
+        )
+
+    def test_gemini_converts_json_object_response_format(self):
+        converted = GeminiProvider._response_format_to_gemini({"type": "json_object"})
+
+        self.assertEqual(converted, {"text": {"mime_type": "application/json"}})
 
     def test_gemini_injects_google_search_tool_when_enabled(self):
         provider = GeminiProvider.__new__(GeminiProvider)

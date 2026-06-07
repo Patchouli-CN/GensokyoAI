@@ -54,6 +54,7 @@ class GeminiProvider(BaseProvider):
                 ProviderCapability.VISION,
                 ProviderCapability.REASONING,
                 ProviderCapability.WEB_SEARCH,
+                ProviderCapability.STRUCTURED_OUTPUT,
             }
         )
 
@@ -75,6 +76,22 @@ class GeminiProvider(BaseProvider):
         """构建 Gemini 客户端"""
         genai = self._load_genai_module()
         return genai.Client(api_key=self.config.api_key)
+
+    @staticmethod
+    def _response_format_to_gemini(response_format: dict) -> dict:
+        """将统一 response_format 转换为 google-genai response_format。"""
+        if response_format.get("type") == "json_schema":
+            json_schema = response_format.get("json_schema")
+            if isinstance(json_schema, dict) and isinstance(json_schema.get("schema"), dict):
+                return {
+                    "text": {
+                        "mime_type": "application/json",
+                        "schema": json_schema["schema"],
+                    }
+                }
+        if response_format.get("type") == "json_object":
+            return {"text": {"mime_type": "application/json"}}
+        return response_format
 
     async def chat(
         self,
@@ -101,6 +118,9 @@ class GeminiProvider(BaseProvider):
 
         if system_instruction:
             config_kwargs["system_instruction"] = system_instruction
+
+        if response_format := options.get("response_format"):
+            config_kwargs["response_format"] = self._response_format_to_gemini(response_format)
 
         gemini_tools = self._convert_tools_to_gemini(tools) if tools else []
         self._inject_google_search_tool(gemini_tools, options, genai_types)
@@ -142,6 +162,9 @@ class GeminiProvider(BaseProvider):
 
         if system_instruction:
             config_kwargs["system_instruction"] = system_instruction
+
+        if response_format := options.get("response_format"):
+            config_kwargs["response_format"] = self._response_format_to_gemini(response_format)
 
         gemini_tools = self._convert_tools_to_gemini(tools) if tools else []
         self._inject_google_search_tool(gemini_tools, options, genai_types)
