@@ -129,10 +129,10 @@ class InitiativeTimerConfig(Struct):
     max_delay_seconds: int = 1800
     decision_temperature: float = 0.4
     decision_max_tokens: int = 180
-    max_pending_message_chars: int = 240
-    allow_frontend_edit_message: bool = True
+    max_pending_summary_chars: int = 240
+    allow_frontend_edit_summary: bool = True
     replace_user_modified_timer: bool = True
-    expose_pending_message: bool = True
+    expose_pending_summary: bool = True
 
 
 class WebSearchAPIConfig(Struct):

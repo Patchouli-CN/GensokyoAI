@@ -665,23 +665,23 @@ class ConfigMerger:
                 if override.decision_max_tokens != defaults.decision_max_tokens
                 else base.decision_max_tokens,
             ),
-            max_pending_message_chars=choose(
-                "max_pending_message_chars",
-                override.max_pending_message_chars
-                if override.max_pending_message_chars != defaults.max_pending_message_chars
-                else base.max_pending_message_chars,
+            max_pending_summary_chars=choose(
+                "max_pending_summary_chars",
+                override.max_pending_summary_chars
+                if override.max_pending_summary_chars != defaults.max_pending_summary_chars
+                else base.max_pending_summary_chars,
             ),
-            allow_frontend_edit_message=choose(
-                "allow_frontend_edit_message",
-                override.allow_frontend_edit_message,
+            allow_frontend_edit_summary=choose(
+                "allow_frontend_edit_summary",
+                override.allow_frontend_edit_summary,
             ),
             replace_user_modified_timer=choose(
                 "replace_user_modified_timer",
                 override.replace_user_modified_timer,
             ),
-            expose_pending_message=choose(
-                "expose_pending_message",
-                override.expose_pending_message,
+            expose_pending_summary=choose(
+                "expose_pending_summary",
+                override.expose_pending_summary,
             ),
         )
 

@@ -809,8 +809,8 @@ class ConfigValidator:
             minimum=1,
         )
         self._validate_numeric_range(
-            "initiative_timer.max_pending_message_chars",
-            data.get("max_pending_message_chars"),
+            "initiative_timer.max_pending_summary_chars",
+            data.get("max_pending_summary_chars"),
             diagnostics,
             minimum=1,
         )
@@ -829,14 +829,14 @@ class ConfigValidator:
                     code="config.range.cross_field",
                 )
             )
-        if data.get("allow_frontend_edit_message") is True and data.get(
-            "expose_pending_message"
+        if data.get("allow_frontend_edit_summary") is True and data.get(
+            "expose_pending_summary"
         ) is False:
             diagnostics.append(
                 self._error(
-                    "initiative_timer.expose_pending_message",
-                    "expose_pending_message must be true when allow_frontend_edit_message is true",
-                    "前端需要看到积存消息正文后才能编辑它。",
+                    "initiative_timer.expose_pending_summary",
+                    "expose_pending_summary must be true when allow_frontend_edit_summary is true",
+                    "前端需要看到积存摘要后才能编辑它。",
                     code="config.initiative_timer.edit_without_expose",
                 )
             )

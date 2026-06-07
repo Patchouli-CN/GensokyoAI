@@ -56,7 +56,8 @@ GensokyoAI 提供前端无关的 Runtime 边界。机器可读版本、能力、
 - `agent.init` / `agent.send_message` / `agent.send_message_stream`
 - `model.list` / `model.info`
 - `session.create` / `session.list` / `session.current` / `session.resume`
-- `session.delete` / `session.export` / `session.rename` / `session.rollback`
+- `session.delete` / `session.export` / `session.rename` / `session.messages` / `session.replace_messages` / `session.regenerate_from` / `session.rollback`
+- `initiative_timer.current` / `initiative_timer.update` / `initiative_timer.cancel` / `initiative_timer.trigger`
 - `memory.list` / `memory.search` / `memory.get` / `memory.update` / `memory.delete` / `memory.graph`
 - `dependency.status` / `dependency.install`
 - `external_tool.status`
@@ -102,9 +103,11 @@ GensokyoAI 不是简单的问答机器人，而是围绕“角色扮演”设计
 
 启用静默思考后，角色可以在空闲时回顾已有话题、整理思绪；当系统判断时机合适时，还可以主动开口。这让角色不只是被动回答，而更像拥有自己的内心世界。
 
+启用主动定时器后，角色还可以在一次正常回复结束后只积存稍后想主动表达的摘要，并设置触发时间。到点时系统会基于摘要、当前上下文和说话前思考重新生成真正发给用户的主动消息，而不是提前保存一条可能过期的完整话术。
+
 ### 更好的会话管理
 
-支持创建、保存、恢复、列出、删除、回滚、导出和重命名会话；Runtime RPC 已暴露 `session.current`、`session.delete`、`session.export`、`session.rename`、`session.rollback` 等会话管理方法。说错话可以撤回，历史会话可以继续，也可以把完整机器可读的会话包导出给其他程序使用，不同角色也可以分别维护自己的交流记录。
+支持创建、保存、恢复、列出、删除、回滚、导出、重命名和完整历史编辑会话；Runtime RPC 已暴露 `session.current`、`session.delete`、`session.export`、`session.rename`、`session.messages`、`session.replace_messages`、`session.regenerate_from`、`session.rollback` 等会话管理方法。说错话可以撤回，历史会话可以继续，也可以把完整机器可读的会话包导出给其他程序使用，不同角色也可以分别维护自己的交流记录。
 
 ### 可选择不同模型服务
 
@@ -443,9 +446,11 @@ GensokyoAI 提供前端无关的 Runtime 服务边界，当前可通过 [`bridge
 - `model.list` / `model.info`：查询当前 Provider 的模型列表和模型元信息。
 - `session.create` / `session.list` / `session.current` / `session.resume`：创建、列出、查询当前和恢复会话。
 - `session.delete`：删除会话；删除当前会话后返回空当前会话，并附带剩余会话数量和列表。
+- `session.messages` / `session.replace_messages` / `session.regenerate_from`：读取完整历史、全量替换编辑后的消息，并从指定历史位置重新生成后续助手回复。
 - `session.rollback`：回滚当前会话，返回回滚前后的轮数与消息数，便于客户端刷新界面。
 - `session.export`：导出完整机器可读会话包，包含格式版本、schema version、导出时间、角色、会话元信息、消息列表、消息数量和 Runtime 基本信息。
 - `session.rename`：重命名会话，标题保存到会话 `metadata.title` 中，不改变旧会话文件结构。
+- `initiative_timer.current` / `initiative_timer.update` / `initiative_timer.cancel` / `initiative_timer.trigger`：查看、编辑、取消或立即触发 AI 主动定时器摘要。
 - `memory.list` / `memory.search` / `memory.get` / `memory.update` / `memory.delete` / `memory.graph`：管理当前会话语义记忆与话题图。
 - `dependency.status` / `dependency.install`：查询和安装白名单内 Provider 可选依赖；安装动作受 Runtime 资源闸门保护。
 - `external_tool.status`：查询外部工具来源状态。
@@ -459,6 +464,8 @@ gensokyoai --character characters/zh_cn/KirisameMarisa.yaml --new-session
 ```
 
 Windows 用户也可以直接使用 `run_default_uv.cmd`，该脚本会通过 `uv run --extra ollama -m GensokyoAI.cli.main` 启动默认角色。若使用 pip / 普通 Python，请先自行安装 Python 3.14+ 并安装依赖。
+
+自带 CLI 的对话界面支持斜杠命令和标签命令。除 `/help`、`/save`、`/new`、`/back`、`/sessions` 等基础命令外，还可以用 `/timer` 或 `<timer>...</timer>` 查看、编辑、取消和触发主动定时器摘要，用 `/history` 或 `<history>...</history>` 查看、导出、导入、插入、删除历史消息，并从指定历史位置重新生成回复。
 
 角色校验也提供独立命令行入口：
 

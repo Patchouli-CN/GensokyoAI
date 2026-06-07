@@ -270,10 +270,10 @@ WebSocket 客户端发送：
       "due_at": "2026-06-07T09:05:00+00:00",
       "delay_seconds": 300,
       "remaining_seconds": 299,
-      "pending_message": "刚才那件事我又想了想……",
+      "pending_summary": "刚才那件事我又想了想……",
       "reason": "角色想稍后补充一句",
       "user_modified": false,
-      "editable_fields": ["due_at", "delay_seconds", "pending_message"]
+      "editable_fields": ["due_at", "delay_seconds", "pending_summary"]
     }
   }
 }
@@ -289,7 +289,7 @@ WebSocket 客户端发送：
 
 ## 主动定时器 API
 
-主动定时器让 AI 在每次回答完成后决定是否积存一条短主动消息，并设置触发时间。若用户在触发前发送新消息，或前端取消定时器，Runtime 会直接丢弃旧积存消息；到点时不再二次调用模型检查，而是直接发送仍有效的积存消息。
+主动定时器让 AI 在每次回答完成后决定是否积存一条稍后主动发言意图摘要，并设置触发时间。若用户在触发前发送新消息，或前端取消定时器，Runtime 会直接丢弃旧积存摘要；到点时不再二次判断是否要说话，而是基于仍有效的 `pending_summary`、当前上下文和说话前内部思考重新生成真正发给用户的主动消息。
 
 `agent.send_message` 的返回结果和 `agent.send_message_stream` 的 `finish` 事件都会新增 `initiative_timer` 字段；无当前定时器时为 `null`。
 
@@ -299,7 +299,7 @@ WebSocket 客户端发送：
 {"method": "initiative_timer.current", "params": {}}
 ```
 
-`initiative_timer.update` 修改当前定时器，可修改触发时间或积存消息正文：
+`initiative_timer.update` 修改当前定时器，可修改触发时间或积存摘要：
 
 ```json
 {
@@ -307,7 +307,7 @@ WebSocket 客户端发送：
   "params": {
     "timer_id": "abcd1234",
     "delay_seconds": 180,
-    "pending_message": "我改了一下稍后要说的话。"
+    "pending_summary": "我改了一下稍后要说的话。"
   }
 }
 ```
@@ -316,22 +316,22 @@ WebSocket 客户端发送：
 
 - `timer_id` 可省略；提供时必须匹配当前定时器。
 - `delay_seconds` 与 `due_at` 二选一，不可同时提供。
-- `pending_message` 只有在配置 `initiative_timer.allow_frontend_edit_message` 为 `true` 时可编辑。
+- `pending_summary` 只有在配置 `initiative_timer.allow_frontend_edit_summary` 为 `true` 时可编辑。
 - 编辑后 `user_modified` 会变为 `true`，并刷新 `generation`，旧异步任务自动失效。
 
-`initiative_timer.cancel` 取消并丢弃积存消息：
+`initiative_timer.cancel` 取消并丢弃积存摘要：
 
 ```json
 {"method": "initiative_timer.cancel", "params": {"timer_id": "abcd1234", "reason": "user_cancelled"}}
 ```
 
-`initiative_timer.trigger` 立即触发当前积存消息：
+`initiative_timer.trigger` 立即触发当前积存摘要，并返回触发摘要与最终生成结果：
 
 ```json
 {"method": "initiative_timer.trigger", "params": {"timer_id": "abcd1234"}}
 ```
 
-可订阅的事件包括：`initiative_timer.created`、`initiative_timer.updated`、`initiative_timer.cancelled`、`initiative_timer.triggered`、`initiative_timer.discarded`。事件 payload 包含 `timer_id`、`generation`、`status`、`due_at`、`delay_seconds`、`reason` 和可选 `pending_message`。
+可订阅的事件包括：`initiative_timer.created`、`initiative_timer.updated`、`initiative_timer.cancelled`、`initiative_timer.triggered`、`initiative_timer.discarded`。事件 payload 包含 `timer_id`、`generation`、`status`、`due_at`、`delay_seconds`、`reason` 和可选 `pending_summary`。`initiative_timer.triggered` 只表示定时器有效触发，真正发出的主动消息仍通过 `message.sent` / 主动消息事件暴露 `content`。
 
 相关配置段：
 
@@ -342,11 +342,31 @@ initiative_timer:
   max_delay_seconds: 1800
   decision_temperature: 0.4
   decision_max_tokens: 180
-  max_pending_message_chars: 240
-  allow_frontend_edit_message: true
+  max_pending_summary_chars: 240
+  allow_frontend_edit_summary: true
   replace_user_modified_timer: true
-  expose_pending_message: true
+  expose_pending_summary: true
 ```
+
+自带控制台 CLI 也提供对应交互入口：
+
+```text
+/timer
+/timer update delay 120
+/timer update due 2026-06-07T21:30:00+08:00
+/timer summary 稍后提醒用户继续刚才的话题
+/timer cancel
+/timer trigger
+```
+
+标签命令形式等价：
+
+```text
+<timer>summary 稍后提醒用户继续刚才的话题</timer>
+<timer>trigger</timer>
+```
+
+CLI 命令复用同一套 Agent 定时器能力，不绕过 Runtime / Agent 的状态、失效和触发语义。
 
 ## 配置校验 API
 
@@ -546,6 +566,26 @@ Runtime 资源控制由配置段 `resource_control` 控制。当前 Runtime gate
 - `content`：本次新生成的助手回复。
 
 前端推荐流程：先调用 `session.messages` 拉取完整历史；用户在 UI 中编辑、删除或插入消息后调用 `session.replace_messages` 保存；若用户选择“从这里重新生成”，调用 `session.regenerate_from`，然后用返回的 `messages` 刷新 UI。
+
+自带控制台 CLI 提供同等历史编辑入口：
+
+```text
+/history
+/history export session_history.json
+/history import session_history.json
+/history delete 3
+/history insert 2 assistant 插入一条助手消息
+/history regen 6
+```
+
+标签命令形式等价：
+
+```text
+<history>import session_history.json</history>
+<history>regen 6</history>
+```
+
+CLI 的 `/history import`、`/history delete`、`/history insert` 和 `/history regen` 会复用会话管理层的全量替换与持久化能力，保持当前工作记忆、会话消息和 `total_turns` 同步。
 
 ## 会话导出与 schema version
 

@@ -1,4 +1,4 @@
-"""主动定时器 - 回答后积存主动消息并按可编辑定时器触发。"""
+"""主动定时器 - 回答后积存主动发言摘要并按可编辑定时器触发。"""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -29,13 +30,13 @@ class InitiativeTimerState:
     updated_at: datetime
     due_at: datetime
     delay_seconds: int
-    pending_message: str
+    pending_summary: str
     reason: str = ""
     user_modified: bool = False
 
 
 class InitiativeTimerManager:
-    """管理回答后由 AI 生成的积存主动消息与定时器。"""
+    """管理回答后由 AI 生成的积存主动发言摘要与定时器。"""
 
     def __init__(
         self,
@@ -46,6 +47,7 @@ class InitiativeTimerManager:
         character_name: str,
         working_memory: WorkingMemoryManager,
         debug_silent_output: bool = False,
+        trigger_handler: Callable[[dict[str, Any]], Awaitable[dict[str, Any] | None]] | None = None,
     ) -> None:
         self.config = config
         self.model_client = model_client
@@ -53,6 +55,7 @@ class InitiativeTimerManager:
         self.character_name = character_name
         self.working_memory = working_memory
         self.debug_silent_output = debug_silent_output
+        self.trigger_handler = trigger_handler
         self._state: InitiativeTimerState | None = None
         self._generation = 0
         self._task: asyncio.Task | None = None
@@ -65,7 +68,7 @@ class InitiativeTimerManager:
         return self._payload(self._state)
 
     async def schedule_after_response(self, assistant_response: str) -> dict[str, Any] | None:
-        """AI 回复完成后生成并设置下一条积存主动消息。"""
+        """AI 回复完成后生成并设置下一条积存主动发言摘要。"""
         if not self.config.enabled or not assistant_response.strip():
             return None
 
@@ -74,11 +77,11 @@ class InitiativeTimerManager:
             return None
 
         should_schedule = bool(decision.get("should_schedule"))
-        message = str(decision.get("message") or "").strip()
-        if not should_schedule or not message:
+        summary = str(decision.get("summary") or "").strip()
+        if not should_schedule or not summary:
             return None
 
-        message = self._trim_message(message)
+        summary = self._trim_summary(summary)
         delay_seconds = self._clamp_delay(decision.get("delay_seconds"))
         reason = str(decision.get("reason") or "").strip()
 
@@ -86,7 +89,7 @@ class InitiativeTimerManager:
             await self._discard_locked(reason="replaced_by_new_ai_plan", source="ai")
             state = self._create_state(
                 delay_seconds=delay_seconds,
-                pending_message=message,
+                pending_summary=summary,
                 reason=reason,
                 source="ai",
                 user_modified=False,
@@ -97,14 +100,14 @@ class InitiativeTimerManager:
             return self._payload(state)
 
     async def discard(self, *, reason: str = "discarded", source: str = "system") -> dict[str, Any] | None:
-        """丢弃当前积存消息。用户新消息进入时调用。"""
+        """丢弃当前积存摘要。用户新消息进入时调用。"""
         async with self._lock:
             return await self._discard_locked(reason=reason, source=source)
 
     async def cancel(
         self, *, timer_id: str | None = None, reason: str = "cancelled", source: str = "user"
     ) -> dict[str, Any]:
-        """取消当前定时器并丢弃积存消息。"""
+        """取消当前定时器并丢弃积存摘要。"""
         async with self._lock:
             state = self._require_current(timer_id)
             self._generation += 1
@@ -122,9 +125,9 @@ class InitiativeTimerManager:
         timer_id: str | None = None,
         delay_seconds: int | float | None = None,
         due_at: str | None = None,
-        pending_message: str | None = None,
+        pending_summary: str | None = None,
     ) -> dict[str, Any]:
-        """更新当前定时器触发时间或积存消息。"""
+        """更新当前定时器触发时间或积存摘要。"""
         if delay_seconds is not None and due_at is not None:
             raise ValueError("delay_seconds and due_at cannot be provided together")
 
@@ -143,13 +146,13 @@ class InitiativeTimerManager:
                 state.due_at = now + timedelta(seconds=state.delay_seconds)
                 changed = True
 
-            if pending_message is not None:
-                if not self.config.allow_frontend_edit_message:
-                    raise ValueError("Frontend editing pending_message is disabled")
-                message = self._trim_message(pending_message.strip())
-                if not message:
-                    raise ValueError("pending_message cannot be empty")
-                state.pending_message = message
+            if pending_summary is not None:
+                if not self.config.allow_frontend_edit_summary:
+                    raise ValueError("Frontend editing pending_summary is disabled")
+                summary = self._trim_summary(pending_summary.strip())
+                if not summary:
+                    raise ValueError("pending_summary cannot be empty")
+                state.pending_summary = summary
                 changed = True
 
             if changed:
@@ -163,7 +166,7 @@ class InitiativeTimerManager:
             return self._payload(state)
 
     async def trigger(self, *, timer_id: str | None = None, source: str = "user") -> dict[str, Any]:
-        """立即触发当前积存主动消息。"""
+        """立即触发当前积存主动摘要。"""
         async with self._lock:
             state = self._require_current(timer_id)
             return await self._trigger_locked(state, source=source)
@@ -182,7 +185,8 @@ class InitiativeTimerManager:
 
 请判断你是否想在稍后主动补充一句话。要求：
 - 如果没有自然、必要、符合角色的补充，就不要设置定时器。
-- 如果设置，只写一条短消息，像真实角色稍后主动开口一样自然。
+- 如果设置，只写“稍后主动发言意图的一句话摘要”，不要写完整可发送话术。
+- 摘要只描述到点后要围绕什么思考和表达，真正说出口的话会在触发时重新生成。
 - 延迟秒数必须在 {self.config.min_delay_seconds} 到 {self.config.max_delay_seconds} 之间。
 - 只输出 JSON，不要输出解释。
 
@@ -190,7 +194,7 @@ JSON 格式：
 {{
   "should_schedule": true/false,
   "delay_seconds": 120,
-  "message": "稍后主动说的话",
+  "summary": "稍后主动发言意图的一句话摘要",
   "reason": "简短理由"
 }}
 """
@@ -230,7 +234,7 @@ JSON 格式：
         self,
         *,
         delay_seconds: int,
-        pending_message: str,
+        pending_summary: str,
         reason: str,
         source: str,
         user_modified: bool,
@@ -246,7 +250,7 @@ JSON 格式：
             updated_at=now,
             due_at=now + timedelta(seconds=delay_seconds),
             delay_seconds=delay_seconds,
-            pending_message=pending_message,
+            pending_summary=pending_summary,
             reason=reason,
             user_modified=user_modified,
         )
@@ -272,20 +276,35 @@ JSON 格式：
         self._generation += 1
         state.status = "triggered"
         state.updated_at = datetime.now(UTC)
-        message = state.pending_message
+        pending_summary = state.pending_summary
         payload = self._payload(state)
         self._state = None
         self._cancel_task()
-        self._publish(SystemEvent.THINK_ENGINE_INITIATIVE, state, extra={"message": message, "source": source})
-        self.event_bus.publish(
-            Event(
-                type=SystemEvent.MESSAGE_SENT,
-                source="initiative_timer",
-                data={"content": message, "initiative": True, "timer_id": state.timer_id},
-            )
+        self._publish(
+            SystemEvent.INITIATIVE_TIMER_TRIGGERED,
+            state,
+            extra={"pending_summary": pending_summary, "source": source},
         )
-        self._publish(SystemEvent.INITIATIVE_TIMER_TRIGGERED, state, extra={"message": message, "source": source})
-        return {"triggered": True, "timer_id": state.timer_id, "message": message, "timer": payload}
+
+        result: dict[str, Any] | None = None
+        if self.trigger_handler is not None:
+            result = await self.trigger_handler(
+                {
+                    "timer_id": state.timer_id,
+                    "pending_summary": pending_summary,
+                    "reason": state.reason,
+                    "source": source,
+                    "timer": payload,
+                }
+            )
+
+        return {
+            "triggered": True,
+            "timer_id": state.timer_id,
+            "pending_summary": pending_summary,
+            "timer": payload,
+            "result": result,
+        }
 
     async def _discard_locked(self, *, reason: str, source: str) -> dict[str, Any] | None:
         state = self._state
@@ -329,12 +348,12 @@ JSON 格式：
             "remaining_seconds": remaining,
             "reason": state.reason,
             "user_modified": state.user_modified,
-            "editable_fields": ["due_at", "delay_seconds", "pending_message"]
-            if self.config.allow_frontend_edit_message
+            "editable_fields": ["due_at", "delay_seconds", "pending_summary"]
+            if self.config.allow_frontend_edit_summary
             else ["due_at", "delay_seconds"],
         }
-        if self.config.expose_pending_message:
-            payload["pending_message"] = state.pending_message
+        if self.config.expose_pending_summary:
+            payload["pending_summary"] = state.pending_summary
         return payload
 
     def _publish(
@@ -356,8 +375,8 @@ JSON 格式：
             seconds = self.config.min_delay_seconds
         return max(self.config.min_delay_seconds, min(self.config.max_delay_seconds, seconds))
 
-    def _trim_message(self, message: str) -> str:
-        return message[: self.config.max_pending_message_chars].strip()
+    def _trim_summary(self, summary: str) -> str:
+        return summary[: self.config.max_pending_summary_chars].strip()
 
     @staticmethod
     def _parse_due_at(value: str) -> datetime:

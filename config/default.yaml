@@ -179,10 +179,10 @@ initiative_timer:
   max_delay_seconds: 1800
   decision_temperature: 0.4
   decision_max_tokens: 180
-  max_pending_message_chars: 240
-  allow_frontend_edit_message: true
+  max_pending_summary_chars: 240
+  allow_frontend_edit_summary: true
   replace_user_modified_timer: true
-  expose_pending_message: true
+  expose_pending_summary: true
 
 # 工具配置
 tool:

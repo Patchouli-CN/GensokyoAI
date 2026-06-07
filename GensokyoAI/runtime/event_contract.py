@@ -113,13 +113,13 @@ RUNTIME_EVENT_CONTRACT: dict[str, RuntimeEventSpec] = {
     "initiative_timer.created": RuntimeEventSpec(
         event="initiative_timer.created",
         required_fields=("timer_id", "generation", "status", "due_at", "delay_seconds"),
-        optional_fields=("pending_message", "reason", "source", "remaining_seconds"),
+        optional_fields=("pending_summary", "reason", "source", "remaining_seconds"),
         description="主动定时器已创建。",
     ),
     "initiative_timer.updated": RuntimeEventSpec(
         event="initiative_timer.updated",
         required_fields=("timer_id", "generation", "status", "due_at", "delay_seconds"),
-        optional_fields=("pending_message", "reason", "source", "remaining_seconds"),
+        optional_fields=("pending_summary", "reason", "source", "remaining_seconds"),
         description="主动定时器已更新。",
     ),
     "initiative_timer.cancelled": RuntimeEventSpec(
@@ -131,8 +131,8 @@ RUNTIME_EVENT_CONTRACT: dict[str, RuntimeEventSpec] = {
     "initiative_timer.triggered": RuntimeEventSpec(
         event="initiative_timer.triggered",
         required_fields=("timer_id", "generation", "status"),
-        optional_fields=("message", "source"),
-        description="主动定时器已触发，积存消息已发送。",
+        optional_fields=("pending_summary", "source"),
+        description="主动定时器已触发，积存摘要将用于生成真正主动消息。",
     ),
     "initiative_timer.discarded": RuntimeEventSpec(
         event="initiative_timer.discarded",

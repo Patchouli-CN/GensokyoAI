@@ -861,14 +861,14 @@ class RuntimeService:
         timer_id: str | None = None,
         delay_seconds: int | float | None = None,
         due_at: str | None = None,
-        pending_message: str | None = None,
+        pending_summary: str | None = None,
     ) -> dict[str, Any]:
         agent = self._require_agent()
         return await agent.update_initiative_timer(
             timer_id=timer_id,
             delay_seconds=delay_seconds,
             due_at=due_at,
-            pending_message=pending_message,
+            pending_summary=pending_summary,
         )
 
     async def initiative_timer_cancel(

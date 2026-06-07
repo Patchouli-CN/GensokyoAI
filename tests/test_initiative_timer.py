@@ -13,7 +13,7 @@ class _FakeModelClient:
         return UnifiedResponse(
             message=UnifiedMessage(
                 role="assistant",
-                content='{"should_schedule": true, "delay_seconds": 60, "message": "我稍后再和你说一句。", "reason": "想补充"}',
+                content='{"should_schedule": true, "delay_seconds": 60, "summary": "稍后补充刚才话题的一个想法", "reason": "想补充"}',
             )
         )
 
@@ -32,7 +32,7 @@ class InitiativeTimerManagerTests(unittest.TestCase):
                     config=InitiativeTimerConfig(
                         min_delay_seconds=10,
                         max_delay_seconds=120,
-                        max_pending_message_chars=50,
+                        max_pending_summary_chars=50,
                     ),
                     model_client=_FakeModelClient(),
                     event_bus=event_bus,
@@ -45,21 +45,21 @@ class InitiativeTimerManagerTests(unittest.TestCase):
                 assert payload is not None
                 self.assertEqual(payload["status"], "scheduled")
                 self.assertEqual(payload["delay_seconds"], 60)
-                self.assertEqual(payload["pending_message"], "我稍后再和你说一句。")
+                self.assertEqual(payload["pending_summary"], "稍后补充刚才话题的一个想法")
 
                 updated = await manager.update(
                     timer_id=payload["timer_id"],
                     delay_seconds=30,
-                    pending_message="用户编辑后的积存消息",
+                    pending_summary="用户编辑后的积存摘要",
                 )
                 self.assertTrue(updated["user_modified"])
                 self.assertEqual(updated["delay_seconds"], 30)
-                self.assertEqual(updated["pending_message"], "用户编辑后的积存消息")
+                self.assertEqual(updated["pending_summary"], "用户编辑后的积存摘要")
                 self.assertGreater(updated["generation"], payload["generation"])
 
                 triggered = await manager.trigger(timer_id=payload["timer_id"])
                 self.assertTrue(triggered["triggered"])
-                self.assertEqual(triggered["message"], "用户编辑后的积存消息")
+                self.assertEqual(triggered["pending_summary"], "用户编辑后的积存摘要")
                 self.assertIsNone(manager.current_payload())
 
                 await asyncio.sleep(0.05)

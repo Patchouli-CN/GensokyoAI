@@ -5,10 +5,13 @@
 import asyncio
 import contextlib
 from collections.abc import Callable
+from pathlib import Path
+from typing import Any
 
 import aioconsole
 from rich.console import Console as RichConsole
 from rich.panel import Panel
+from rich.table import Table
 from rich.text import Text
 
 from ...commands import CommandContext, CommandExecutor, CommandResult, CommandStatus, CommandType
@@ -191,6 +194,99 @@ class ConsoleBackend(BaseBackend):
             panel_content.append(f"({sess.total_turns} 轮)\n", style="yellow")
 
         self.console.print(Panel(panel_content, title="会话列表", border_style="cyan"))
+
+    def _show_initiative_timer_panel(self, timer: dict[str, Any] | None) -> None:
+        """显示主动定时器状态面板。"""
+        if not timer:
+            self.console.print(Panel("[dim]当前没有主动定时器[/]", title="主动定时器", border_style="yellow"))
+            return
+
+        content = Text()
+        content.append("状态: ", style="dim")
+        content.append(f"{timer.get('status', 'unknown')}\n", style="bold yellow")
+        content.append("Timer ID: ", style="dim")
+        content.append(f"{timer.get('timer_id', '')}\n", style="white")
+        content.append("Generation: ", style="dim")
+        content.append(f"{timer.get('generation', '')}\n", style="white")
+        content.append("触发时间: ", style="dim")
+        content.append(f"{timer.get('due_at', '')}\n", style="cyan")
+        content.append("剩余秒数: ", style="dim")
+        content.append(f"{timer.get('remaining_seconds', '')}\n", style="cyan")
+        content.append("可编辑字段: ", style="dim")
+        content.append(", ".join(timer.get("editable_fields", [])) or "无", style="green")
+        content.append("\n")
+        if timer.get("reason"):
+            content.append("理由: ", style="dim")
+            content.append(f"{timer.get('reason')}\n", style="magenta")
+        if timer.get("pending_summary"):
+            content.append("待表达意图摘要:\n", style="dim")
+            content.append(str(timer.get("pending_summary")), style="bold white")
+
+        self.console.print(Panel(content, title="主动定时器", border_style="yellow"))
+
+    def _show_initiative_trigger_result(self, result: dict[str, Any] | None) -> None:
+        """显示主动定时器立即触发结果。"""
+        if not result:
+            self.console.print(Panel("[dim]没有可触发的主动定时器[/]", title="主动定时器触发", border_style="yellow"))
+            return
+
+        content = Text()
+        content.append("Timer ID: ", style="dim")
+        content.append(f"{result.get('timer_id', '')}\n", style="white")
+        content.append("已发送: ", style="dim")
+        content.append(f"{bool(result.get('sent'))}\n", style="green")
+        if result.get("pending_summary"):
+            content.append("摘要: ", style="dim")
+            content.append(f"{result.get('pending_summary')}\n", style="yellow")
+        if result.get("thought"):
+            content.append("内部思考: ", style="dim")
+            content.append(f"{result.get('thought')}\n", style="magenta")
+        if result.get("message"):
+            content.append("主动消息:\n", style="dim")
+            content.append(str(result.get("message")), style=self.colors["assistant"])
+
+        self.console.print(Panel(content, title="主动定时器触发结果", border_style="yellow"))
+
+    def _show_history_messages_panel(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        session: Any = None,
+        limit: int = 20,
+    ) -> None:
+        """显示历史消息列表。"""
+        table = Table(title="历史消息", show_lines=True)
+        table.add_column("#", justify="right", style="dim", no_wrap=True)
+        table.add_column("role", style="bold cyan", no_wrap=True)
+        table.add_column("content", style="white")
+
+        start = max(0, len(messages) - max(1, limit))
+        for index, message in enumerate(messages[start:], start=start):
+            content = str(message.get("content", ""))
+            preview = content.replace("\n", "\\n")
+            if len(preview) > 160:
+                preview = preview[:157] + "..."
+            table.add_row(str(index), str(message.get("role", "?")), preview)
+
+        caption_parts = [f"总数: {len(messages)}"]
+        if session is not None:
+            caption_parts.append(f"会话: {format_session_id(session.session_id)}")
+            caption_parts.append(f"轮数: {getattr(session, 'total_turns', 0)}")
+        table.caption = " | ".join(caption_parts)
+        self.console.print(table)
+
+    def _show_history_file_hint(self, path: Path, message: str) -> None:
+        """显示历史消息文件操作提示。"""
+        content = Text()
+        content.append(f"{message}\n", style="green")
+        content.append("文件: ", style="dim")
+        content.append(str(path), style="bold cyan")
+        self.console.print(Panel(content, title="历史消息文件", border_style="green"))
+
+    def _show_regenerated_message(self, message: str) -> None:
+        """显示从历史位置重新生成的助手回复。"""
+        content = message or "[dim]未生成内容[/]"
+        self.console.print(Panel(content, title="重新生成的助手回复", border_style="magenta"))
 
     async def send(self, message: str, system_contexts: list[str] | None = None) -> str:
         """发送消息并获取回复"""

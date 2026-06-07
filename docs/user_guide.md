@@ -424,7 +424,67 @@ gensokyoai --list-sessions
 - `/clear`：清空提示词上下文。
 - `/errors`：查看最近错误统计。
 
-### 11.3 聊天命令（仅本地显示，不发送给 AI）
+### 11.3 主动定时器命令
+
+主动定时器启用后，AI 每次正常回答完成时可以只保存稍后主动发言意图摘要 `pending_summary` 和触发时间。用户在触发前发送新消息会让旧定时器失效；到点或手动触发时，系统会基于摘要、当前上下文和说话前思考重新生成真正发给用户的主动消息。
+
+控制台中可以使用斜杠命令：
+
+```text
+/timer
+/timer update delay 120
+/timer update due 2026-06-07T21:30:00+08:00
+/timer summary 稍后提醒用户继续刚才的话题
+/timer cancel
+/timer trigger
+```
+
+也可以使用等价标签命令：
+
+```text
+<timer>summary 稍后提醒用户继续刚才的话题</timer>
+<timer>trigger</timer>
+```
+
+常见用途：
+
+- `/timer`：查看当前主动定时器状态、触发时间、剩余秒数和摘要。
+- `/timer update delay <秒数>`：修改剩余触发延迟。
+- `/timer update due <ISO时间>`：直接修改触发时间。
+- `/timer summary <摘要>`：编辑 `pending_summary`。
+- `/timer cancel [原因]`：取消当前主动定时器。
+- `/timer trigger`：立即触发当前主动定时器，并生成真正的主动消息。
+
+### 11.4 历史消息编辑命令
+
+控制台 CLI 可以直接查看和编辑当前会话的完整历史消息。历史编辑会复用会话管理层的全量替换逻辑，保持工作记忆、持久化消息和会话轮数同步。
+
+```text
+/history
+/history export session_history.json
+/history import session_history.json
+/history delete 3
+/history insert 2 assistant 插入一条助手消息
+/history regen 6
+```
+
+也可以使用等价标签命令：
+
+```text
+<history>import session_history.json</history>
+<history>regen 6</history>
+```
+
+常见用途：
+
+- `/history [数量]`：显示最近若干条历史消息，默认显示最近 20 条。
+- `/history export [json路径]`：把当前会话完整历史导出为 JSON 草稿，便于手动编辑。
+- `/history import <json路径>`：从 JSON 文件读取 `messages` 并全量替换当前会话历史。
+- `/history delete <消息索引>`：删除指定索引消息。
+- `/history insert <索引> <role> <content>`：在指定位置插入 `system`、`user`、`assistant` 或 `tool` 消息。
+- `/history regen <消息索引>`：从指定索引向前寻找最近 `user` 消息，截断后续历史并重新生成助手回复。
+
+### 11.5 聊天命令（仅本地显示，不发送给 AI）
 
 - `<think>内心独白</think>`：表达角色内心想法。
 - `<whisper>悄悄话</whisper>`：小声说话。

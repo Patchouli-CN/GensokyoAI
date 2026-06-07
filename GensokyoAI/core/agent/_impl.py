@@ -4,7 +4,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from ...background import BackgroundManager, PersistenceWorker
 from ...memory.semantic import SemanticMemoryManager
@@ -540,6 +540,7 @@ class Agent:
                 character_name=self.character_name,
                 working_memory=self.working_memory,
                 debug_silent_output=self.config.debug_silent_output,
+                trigger_handler=self._handle_initiative_timer_trigger,
             )
         return self._initiative_timer
 
@@ -547,6 +548,111 @@ class Agent:
         if not self.config.initiative_timer.enabled:
             return None
         return await self._ensure_initiative_timer().schedule_after_response(assistant_response)
+
+    async def _handle_initiative_timer_trigger(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        """定时器到点后：基于摘要先思考，再生成真正主动消息。"""
+        pending_summary = str(payload.get("pending_summary") or "").strip()
+        timer_id = str(payload.get("timer_id") or "").strip()
+        if not pending_summary:
+            return None
+
+        await self._ensure_background_manager()
+        tool_build_result = await self._build_tools()
+        self.message_builder.update_tool_build_result(tool_build_result)
+
+        recent_messages = self.working_memory.get_recent(8)
+        recent_context = "\n".join(
+            f"{item.get('role', 'unknown')}: {item.get('content', '')}"
+            for item in recent_messages
+            if isinstance(item.get("content"), str)
+        )
+        thought_prompt = f"""你是 {self.character_name}。
+
+主动定时器到点了，这表示你已经决定稍后要主动开口。
+
+【待表达意图摘要】
+{pending_summary}
+
+【最近对话】
+{recent_context or "无"}
+
+请先进行说话前的内部思考：
+- 根据当前上下文重新组织这次主动发言的重点。
+- 不要判断要不要说；到点即代表要说。
+- 不要写最终要发送给用户的完整话术。
+- 只输出简短内部思考。"""
+        thought = ""
+        try:
+            thought_response = await self._model_client.chat(
+                messages=[{"role": "system", "content": thought_prompt}],
+                options={
+                    "temperature": self.config.think_engine.think_temperature,
+                    "num_predict": self.config.think_engine.think_max_tokens,
+                    "max_tokens": self.config.think_engine.think_max_tokens,
+                },
+            )
+            content = thought_response.message.content
+            thought = content.strip() if isinstance(content, str) else ""
+        except Exception as error:
+            logger.error(f"主动定时器说话前思考失败: {error}")
+
+        system_contexts = [
+            "【主动定时器触发】\n"
+            f"你现在要主动对用户说一句话。\n"
+            f"待表达意图摘要：{pending_summary}\n"
+            f"说话前内部思考：{thought or '无'}\n"
+            "要求：不要解释定时器，不要提到摘要或内部思考；直接以角色口吻自然开口。"
+        ]
+        messages = self.message_builder.build("", system_contexts)
+        try:
+            response = await self._model_client.chat(
+                messages=messages,
+                options={
+                    "temperature": self.config.think_engine.initiative_temperature,
+                    "num_predict": self.config.think_engine.initiative_max_tokens,
+                    "max_tokens": self.config.think_engine.initiative_max_tokens,
+                },
+            )
+            content = response.message.content
+            message = content.strip() if isinstance(content, str) else ""
+        except Exception as error:
+            logger.error(f"主动定时器主动消息生成失败: {error}")
+            message = ""
+
+        if not message:
+            return {"sent": False, "timer_id": timer_id, "pending_summary": pending_summary, "thought": thought}
+
+        self.event_bus.publish(
+            Event(
+                type=SystemEvent.THINK_ENGINE_INITIATIVE,
+                source="initiative_timer",
+                data={
+                    "message": message,
+                    "timer_id": timer_id,
+                    "pending_summary": pending_summary,
+                    "thought": thought,
+                },
+            )
+        )
+        self.event_bus.publish(
+            Event(
+                type=SystemEvent.MESSAGE_SENT,
+                source="initiative_timer",
+                data={
+                    "content": message,
+                    "initiative": True,
+                    "timer_id": timer_id,
+                    "pending_summary": pending_summary,
+                },
+            )
+        )
+        return {
+            "sent": True,
+            "timer_id": timer_id,
+            "pending_summary": pending_summary,
+            "message": message,
+            "thought": thought,
+        }
 
     async def discard_initiative_timer(
         self, *, reason: str = "discarded", source: str = "system"
@@ -567,13 +673,13 @@ class Agent:
         timer_id: str | None = None,
         delay_seconds: int | float | None = None,
         due_at: str | None = None,
-        pending_message: str | None = None,
+        pending_summary: str | None = None,
     ) -> dict:
         payload = await self._ensure_initiative_timer().update(
             timer_id=timer_id,
             delay_seconds=delay_seconds,
             due_at=due_at,
-            pending_message=pending_message,
+            pending_summary=pending_summary,
         )
         self._last_initiative_timer_payload = payload
         return payload
