@@ -64,7 +64,7 @@ class ConfigLoader(ConfigMerger):
 
     def validate_dict(self, data: dict[str, Any]) -> list[ConfigDiagnostic]:
         """返回配置字典的结构化诊断列表。"""
-        return self._validator.validate_config_dict(data)
+        return self._validator.validate_config_dict(self._normalize_config_aliases(data))
 
     def validate_character_dict(self, data: Any) -> list[ConfigDiagnostic]:
         """返回角色字典的结构化诊断列表。"""
@@ -76,6 +76,7 @@ class ConfigLoader(ConfigMerger):
 
     def _dict_to_config(self, data: dict[str, Any]) -> AppConfig:
         """字典转配置对象，并记录用户显式提供的字段。"""
+        data = self._normalize_config_aliases(data)
         diagnostics = self._validator.validate_config_dict(data)
         self._validator.raise_for_errors(diagnostics)
 
@@ -148,6 +149,25 @@ class ConfigLoader(ConfigMerger):
             self._provided_fields[id(config.resource_control)] = set(resource_control_data.keys())
 
         return config
+
+    @staticmethod
+    def _normalize_config_aliases(data: dict[str, Any]) -> dict[str, Any]:
+        """规范化兼容配置字段别名。"""
+        if not isinstance(data, dict):
+            return data
+
+        normalized = dict(data)
+        initiative_timer_data = normalized.get("initiative_timer")
+        if isinstance(initiative_timer_data, dict):
+            normalized_timer_data = dict(initiative_timer_data)
+            legacy_field = "allow_frontend_edit_message"
+            current_field = "allow_frontend_edit_summary"
+            if legacy_field in normalized_timer_data and current_field not in normalized_timer_data:
+                normalized_timer_data[current_field] = normalized_timer_data[legacy_field]
+            normalized_timer_data.pop(legacy_field, None)
+            normalized["initiative_timer"] = normalized_timer_data
+
+        return normalized
 
     def load_character(self, path: Path) -> CharacterConfig:
         """加载角色配置"""

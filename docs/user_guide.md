@@ -446,6 +446,8 @@ gensokyoai --list-sessions
 <timer>trigger</timer>
 ```
 
+配置中推荐使用 `initiative_timer.allow_frontend_edit_summary` 控制前端是否可编辑 `pending_summary`；旧字段 `initiative_timer.allow_frontend_edit_message` 仍作为兼容别名读取，但新配置建议迁移到 `allow_frontend_edit_summary`。
+
 常见用途：
 
 - `/timer`：查看当前主动定时器状态、触发时间、剩余秒数和摘要。

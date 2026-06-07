@@ -9,11 +9,18 @@ from GensokyoAI.memory.working import WorkingMemoryManager
 
 
 class _FakeModelClient:
+    def __init__(self, content: str | None = None):
+        self.content = (
+            content
+            if content is not None
+            else '{"should_schedule": true, "delay_seconds": 60, "summary": "稍后补充刚才话题的一个想法", "reason": "想补充"}'
+        )
+
     async def chat(self, messages, options=None):
         return UnifiedResponse(
             message=UnifiedMessage(
                 role="assistant",
-                content='{"should_schedule": true, "delay_seconds": 60, "summary": "稍后补充刚才话题的一个想法", "reason": "想补充"}',
+                content=self.content,
             )
         )
 
@@ -97,6 +104,56 @@ class InitiativeTimerManagerTests(unittest.TestCase):
                 assert discarded is not None
                 self.assertEqual(discarded["status"], "discarded")
                 self.assertIsNone(manager.current_payload())
+            finally:
+                await event_bus.stop()
+
+        asyncio.run(run())
+
+
+    def test_invalid_decision_json_is_treated_as_no_timer(self):
+        async def run():
+            event_bus = EventBus(enable_trace=False)
+            await event_bus.start()
+            try:
+                manager = InitiativeTimerManager(
+                    config=InitiativeTimerConfig(),
+                    model_client=_FakeModelClient(
+                        '{"should_schedule": true, "delay_seconds": 60, "summary": "截断的摘要'
+                    ),
+                    event_bus=event_bus,
+                    character_name="测试角色",
+                    working_memory=WorkingMemoryManager(max_turns=10),
+                )
+
+                payload = await manager.schedule_after_response("刚才的回复")
+                self.assertIsNone(payload)
+                self.assertIsNone(manager.current_payload())
+            finally:
+                await event_bus.stop()
+
+        asyncio.run(run())
+
+    def test_markdown_wrapped_decision_json_still_schedules_timer(self):
+        async def run():
+            event_bus = EventBus(enable_trace=False)
+            await event_bus.start()
+            try:
+                manager = InitiativeTimerManager(
+                    config=InitiativeTimerConfig(),
+                    model_client=_FakeModelClient(
+                        '```json\n'
+                        '{"should_schedule": true, "delay_seconds": 60, "summary": "Markdown 里的摘要", "reason": "想补充"}'
+                        '\n```'
+                    ),
+                    event_bus=event_bus,
+                    character_name="测试角色",
+                    working_memory=WorkingMemoryManager(max_turns=10),
+                )
+
+                payload = await manager.schedule_after_response("刚才的回复")
+                self.assertIsNotNone(payload)
+                assert payload is not None
+                self.assertEqual(payload["pending_summary"], "Markdown 里的摘要")
             finally:
                 await event_bus.stop()
 

@@ -1478,6 +1478,31 @@ class ConfigValidationAndRuntimePathTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "tool.web_search.max_results"):
             ConfigLoader()._dict_to_config({"tool": {"web_search": {"max_results": 0}}})
 
+    def test_config_loader_accepts_legacy_initiative_timer_edit_message_alias(self):
+        loader = ConfigLoader()
+
+        diagnostics = loader.validate_dict(
+            {"initiative_timer": {"allow_frontend_edit_message": False}}
+        )
+        config = loader._dict_to_config(
+            {"initiative_timer": {"allow_frontend_edit_message": False}}
+        )
+
+        self.assertFalse(config.initiative_timer.allow_frontend_edit_summary)
+        self.assertFalse(any(item.severity == "error" for item in diagnostics))
+
+    def test_config_loader_prefers_current_initiative_timer_edit_summary_field(self):
+        config = ConfigLoader()._dict_to_config(
+            {
+                "initiative_timer": {
+                    "allow_frontend_edit_message": False,
+                    "allow_frontend_edit_summary": True,
+                }
+            }
+        )
+
+        self.assertTrue(config.initiative_timer.allow_frontend_edit_summary)
+
     def test_config_loader_returns_structured_diagnostics(self):
         diagnostics = ConfigLoader().validate_dict(
             {

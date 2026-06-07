@@ -348,6 +348,8 @@ initiative_timer:
   expose_pending_summary: true
 ```
 
+`allow_frontend_edit_summary` 是当前推荐字段名；旧配置中的 `allow_frontend_edit_message` 会作为兼容别名映射到它，建议客户端和配置文件逐步迁移到新字段名。
+
 自带控制台 CLI 也提供对应交互入口：
 
 ```text

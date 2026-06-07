@@ -237,7 +237,12 @@ JSON 格式：
     def _parse_decision_json(text: str) -> dict[str, Any] | None:
         match = _JSON_OBJECT_PATTERN.search(text)
         raw = match.group(0) if match else text
-        data = json.loads(raw)
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as error:
+            preview = raw.replace("\r", "\\r").replace("\n", "\\n")[:300]
+            logger.error(f"主动定时器决策 JSON 解析失败: {error}; raw={preview!r}")
+            return None
         return data if isinstance(data, dict) else None
 
     def _create_state(
