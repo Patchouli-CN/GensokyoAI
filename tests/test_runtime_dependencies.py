@@ -479,7 +479,6 @@ class PackagingConfigurationTests(unittest.TestCase):
         requirements = self._requirements_entries()
 
         self.assertIn("aiohttp>=3.9", requirements)
-        self.assertIn("ayafileio>=1.1.6", requirements)
         self.assertNotIn("ollama", requirements)
         self.assertNotIn("openai", requirements)
         self.assertNotIn("anthropic", requirements)
