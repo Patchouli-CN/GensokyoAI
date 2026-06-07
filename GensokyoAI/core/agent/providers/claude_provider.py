@@ -51,6 +51,7 @@ class ClaudeProvider(BaseProvider):
                 ProviderCapability.TOOLS,
                 ProviderCapability.VISION,
                 ProviderCapability.REASONING,
+                ProviderCapability.STRUCTURED_OUTPUT,
             }
         )
 
@@ -72,6 +73,19 @@ class ClaudeProvider(BaseProvider):
             kwargs["default_headers"] = merge_headers(self.config.extra_headers)
 
         return AsyncAnthropic(**kwargs)
+
+    @staticmethod
+    def _response_format_to_output_config(response_format: dict) -> dict:
+        """将统一 response_format 转换为 Anthropic output_config。"""
+        if response_format.get("type") != "json_schema":
+            return {"format": response_format}
+        json_schema = response_format.get("json_schema")
+        if not isinstance(json_schema, dict):
+            return {"format": response_format}
+        schema = json_schema.get("schema")
+        if not isinstance(schema, dict):
+            return {"format": response_format}
+        return {"format": {"type": "json_schema", "schema": schema}}
 
     async def chat(
         self,
@@ -96,6 +110,9 @@ class ClaudeProvider(BaseProvider):
 
         if system_prompt:
             call_kwargs["system"] = system_prompt
+
+        if response_format := options.get("response_format"):
+            call_kwargs["output_config"] = self._response_format_to_output_config(response_format)
 
         if tools:
             call_kwargs["tools"] = self._convert_tools_to_claude(tools)
@@ -138,6 +155,9 @@ class ClaudeProvider(BaseProvider):
 
         if system_prompt:
             call_kwargs["system"] = system_prompt
+
+        if response_format := options.get("response_format"):
+            call_kwargs["output_config"] = self._response_format_to_output_config(response_format)
 
         if tools:
             call_kwargs["tools"] = self._convert_tools_to_claude(tools)

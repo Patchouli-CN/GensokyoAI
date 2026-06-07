@@ -48,6 +48,7 @@ class DeepSeekProvider(OpenAIProvider):
                 ProviderCapability.TOOLS,
                 ProviderCapability.CUSTOM_ENDPOINT,
                 ProviderCapability.REASONING,
+                ProviderCapability.STRUCTURED_OUTPUT,
             }
         )
 
@@ -92,6 +93,13 @@ class DeepSeekProvider(OpenAIProvider):
             call_kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
         else:
             call_kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+
+    @staticmethod
+    def _apply_deepseek_response_format(call_kwargs: dict, options: dict) -> None:
+        """将统一结构化输出请求降级为 DeepSeek JSON Output 参数。"""
+        if not options.get("response_format"):
+            return
+        call_kwargs["response_format"] = {"type": "json_object"}
 
     def _prepare_messages(self, messages: list[dict]) -> list[dict]:
         """复制消息并保留 DeepSeek 支持的 reasoning_content 字段。"""
@@ -160,6 +168,7 @@ class DeepSeekProvider(OpenAIProvider):
             call_kwargs["top_p"] = options.get("top_p", 0.9)
 
         self._apply_deepseek_options(call_kwargs)
+        self._apply_deepseek_response_format(call_kwargs, options)
 
         if tools:
             call_kwargs["tools"] = self._convert_tools_to_openai(tools)
@@ -198,6 +207,7 @@ class DeepSeekProvider(OpenAIProvider):
             call_kwargs["top_p"] = options.get("top_p", 0.9)
 
         self._apply_deepseek_options(call_kwargs)
+        self._apply_deepseek_response_format(call_kwargs, options)
 
         if tools:
             call_kwargs["tools"] = self._convert_tools_to_openai(tools)

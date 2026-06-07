@@ -76,7 +76,13 @@ class OpenAIProvider(BaseProvider):
             ProviderCapability.CUSTOM_ENDPOINT,
         }
         if self._is_official_openai_endpoint():
-            capabilities.update({ProviderCapability.IMAGE, ProviderCapability.IMAGE_GENERATION})
+            capabilities.update(
+                {
+                    ProviderCapability.IMAGE,
+                    ProviderCapability.IMAGE_GENERATION,
+                    ProviderCapability.STRUCTURED_OUTPUT,
+                }
+            )
         return self.apply_model_capability_overrides(capabilities)
 
     def _is_official_openai_endpoint(self) -> bool:
@@ -234,6 +240,9 @@ class OpenAIProvider(BaseProvider):
         )
         if max_tokens:
             call_kwargs["max_completion_tokens"] = max_tokens
+
+        if response_format := options.get("response_format"):
+            call_kwargs["response_format"] = response_format
 
         # 工具支持
         if tools:

@@ -214,5 +214,77 @@ class DeepSeekProviderTests(unittest.TestCase):
         self.assertEqual(kwargs["top_p"], 0.8)
 
 
+    def test_chat_converts_structured_output_to_json_object(self):
+        with patch.dict(
+            sys.modules,
+            {"openai": SimpleNamespace(AsyncOpenAI=lambda **kwargs: SimpleNamespace())},
+        ):
+            provider = DeepSeekProvider(
+                ModelConfig(
+                    provider="deepseek",
+                    name="deepseek-v4-pro",
+                    api_key="test-key",
+                )
+            )
+        provider._client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock()))
+        )
+        provider._client.chat.completions.create = AsyncMock(
+            return_value=SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            role="assistant",
+                            content='{"ok": true}',
+                            reasoning_content=None,
+                            tool_calls=None,
+                        )
+                    )
+                ],
+                model="deepseek-v4-pro",
+            )
+        )
+
+        asyncio.run(
+            provider.chat(
+                model="deepseek-v4-pro",
+                messages=[{"role": "user", "content": "请输出 JSON"}],
+                options={
+                    "response_format": {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "test_schema",
+                            "strict": True,
+                            "schema": {
+                                "type": "object",
+                                "properties": {"ok": {"type": "boolean"}},
+                                "required": ["ok"],
+                                "additionalProperties": False,
+                            },
+                        },
+                    }
+                },
+            )
+        )
+
+        kwargs = provider._client.chat.completions.create.call_args.kwargs
+        self.assertEqual(kwargs["response_format"], {"type": "json_object"})
+
+    def test_provider_declares_structured_output_capability(self):
+        with patch.dict(
+            sys.modules,
+            {"openai": SimpleNamespace(AsyncOpenAI=lambda **kwargs: SimpleNamespace())},
+        ):
+            provider = DeepSeekProvider(
+                ModelConfig(
+                    provider="deepseek",
+                    name="deepseek-v4-pro",
+                    api_key="test-key",
+                )
+            )
+
+        self.assertTrue(provider.supports("structured_output"))
+
+
 if __name__ == "__main__":
     unittest.main()

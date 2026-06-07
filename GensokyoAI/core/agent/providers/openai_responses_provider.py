@@ -78,6 +78,7 @@ class OpenAIResponsesProvider(BaseProvider):
                 ProviderCapability.RESPONSES_API,
                 ProviderCapability.CUSTOM_ENDPOINT,
                 ProviderCapability.WEB_SEARCH,
+                ProviderCapability.STRUCTURED_OUTPUT,
             }
         )
 
@@ -125,6 +126,23 @@ class OpenAIResponsesProvider(BaseProvider):
 
     # ==================== 核心 API ====================
 
+    @staticmethod
+    def _response_format_to_text_format(response_format: dict) -> dict:
+        """将 Chat Completions 风格 response_format 转换为 Responses text.format。"""
+        if response_format.get("type") != "json_schema":
+            return response_format
+        json_schema = response_format.get("json_schema")
+        if not isinstance(json_schema, dict):
+            return response_format
+        text_format: dict[str, Any] = {"type": "json_schema"}
+        if name := json_schema.get("name"):
+            text_format["name"] = name
+        if "strict" in json_schema:
+            text_format["strict"] = json_schema["strict"]
+        if schema := json_schema.get("schema"):
+            text_format["schema"] = schema
+        return text_format
+
     async def chat(
         self,
         model: str,
@@ -162,6 +180,11 @@ class OpenAIResponsesProvider(BaseProvider):
         )
         if max_tokens:
             call_kwargs["max_output_tokens"] = max_tokens
+
+        if response_format := options.get("response_format"):
+            call_kwargs["text"] = {
+                "format": self._response_format_to_text_format(response_format)
+            }
 
         # 工具支持
         converted_tools = self._convert_tools_to_responses(tools) if tools else []

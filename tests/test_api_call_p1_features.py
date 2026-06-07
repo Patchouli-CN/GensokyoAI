@@ -810,6 +810,50 @@ class P1ApiCallFeatureTests(unittest.TestCase):
         self.assertEqual(data["provider"], "test")
         self.assertEqual(data["model"], "test")
 
+    def test_claude_chat_converts_response_format_to_output_config(self):
+        captured = {}
+
+        class _FakeMessages:
+            async def create(self, **kwargs):
+                captured.update(kwargs)
+                return SimpleNamespace(
+                    content=[SimpleNamespace(type="text", text='{"ok": true}')],
+                    model="test",
+                )
+
+        provider = ClaudeProvider.__new__(ClaudeProvider)
+        BaseProvider.__init__(provider, ModelConfig(provider="claude", name="test"))
+        provider._client = SimpleNamespace(messages=_FakeMessages())
+        schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}}
+
+        asyncio.run(
+            provider.chat(
+                "test",
+                [{"role": "user", "content": "hi"}],
+                options={
+                    "response_format": {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "test_schema",
+                            "strict": True,
+                            "schema": schema,
+                        },
+                    }
+                },
+            )
+        )
+
+        self.assertEqual(
+            captured["output_config"],
+            {"format": {"type": "json_schema", "schema": schema}},
+        )
+
+    def test_claude_declares_structured_output_capability(self):
+        provider = ClaudeProvider.__new__(ClaudeProvider)
+        BaseProvider.__init__(provider, ModelConfig(provider="claude", name="claude-test"))
+
+        self.assertTrue(provider.supports(ProviderCapability.STRUCTURED_OUTPUT))
+
     def test_claude_list_models_returns_configured_fallback(self):
         provider = ClaudeProvider.__new__(ClaudeProvider)
         BaseProvider.__init__(provider, ModelConfig(provider="claude", name="claude-test"))
@@ -1104,6 +1148,117 @@ class P1ApiCallFeatureTests(unittest.TestCase):
         self.assertEqual(config.model.web_search_strategy, "explicit")
         self.assertEqual(config.model.web_search_context_size, "high")
         self.assertFalse(config.model.web_search_allow_fallback)
+
+    def test_openai_chat_forwards_response_format(self):
+        captured = {}
+
+        class _FakeChatCompletions:
+            async def create(self, **kwargs):
+                captured.update(kwargs)
+                return SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            message=SimpleNamespace(
+                                role="assistant",
+                                content='{"ok": true}',
+                                tool_calls=None,
+                                reasoning_content=None,
+                            )
+                        )
+                    ],
+                    model="test",
+                )
+
+        provider = OpenAIProvider.__new__(OpenAIProvider)
+        BaseProvider.__init__(provider, ModelConfig(provider="openai", name="test"))
+        provider._endpoint = SimpleNamespace(
+            api_host="https://api.openai.com/v1", api_path="/chat/completions"
+        )
+        provider._client = SimpleNamespace(chat=SimpleNamespace(completions=_FakeChatCompletions()))
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "test_schema",
+                "strict": True,
+                "schema": {"type": "object", "properties": {"ok": {"type": "boolean"}}},
+            },
+        }
+
+        asyncio.run(
+            provider.chat(
+                "test",
+                [{"role": "user", "content": "hi"}],
+                options={"response_format": response_format},
+            )
+        )
+
+        self.assertEqual(captured["response_format"], response_format)
+
+    def test_openai_official_endpoint_declares_structured_output_capability(self):
+        provider = OpenAIProvider.__new__(OpenAIProvider)
+        BaseProvider.__init__(provider, ModelConfig(provider="openai", name="gpt-4o"))
+        provider._endpoint = SimpleNamespace(
+            api_host="https://api.openai.com/v1", api_path="/chat/completions"
+        )
+
+        self.assertTrue(provider.supports(ProviderCapability.STRUCTURED_OUTPUT))
+
+    def test_responses_converts_response_format_to_text_format(self):
+        captured = {}
+
+        class _FakeResponses:
+            async def create(self, **kwargs):
+                captured.update(kwargs)
+                return SimpleNamespace(
+                    output=[
+                        SimpleNamespace(
+                            type="message",
+                            content=[SimpleNamespace(type="output_text", text='{"ok": true}')],
+                        )
+                    ],
+                    model="test",
+                )
+
+        provider = OpenAIResponsesProvider.__new__(OpenAIResponsesProvider)
+        BaseProvider.__init__(provider, ModelConfig(provider="openai_responses", name="test"))
+        provider._endpoint = SimpleNamespace(api_host="https://api.openai.com/v1", api_path="/responses")
+        provider._client = SimpleNamespace(responses=_FakeResponses())
+        schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}}
+
+        asyncio.run(
+            provider.chat(
+                "test",
+                [{"role": "user", "content": "hi"}],
+                options={
+                    "response_format": {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "test_schema",
+                            "strict": True,
+                            "schema": schema,
+                        },
+                    }
+                },
+            )
+        )
+
+        self.assertEqual(
+            captured["text"],
+            {
+                "format": {
+                    "type": "json_schema",
+                    "name": "test_schema",
+                    "strict": True,
+                    "schema": schema,
+                }
+            },
+        )
+
+    def test_responses_declares_structured_output_capability(self):
+        provider = OpenAIResponsesProvider.__new__(OpenAIResponsesProvider)
+        BaseProvider.__init__(provider, ModelConfig(provider="openai_responses", name="gpt-4o"))
+
+        self.assertTrue(provider.supports(ProviderCapability.STRUCTURED_OUTPUT))
 
     def test_openai_custom_api_path_uses_http_post_json(self):
         async def fake_post_json(url, payload, headers, timeout=None):
