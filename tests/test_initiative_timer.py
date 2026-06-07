@@ -9,14 +9,20 @@ from GensokyoAI.memory.working import WorkingMemoryManager
 
 
 class _FakeModelClient:
-    def __init__(self, content: str | None = None):
+    def __init__(self, content: str | None = None, *, structured_output: bool = False):
         self.content = (
             content
             if content is not None
             else '{"should_schedule": true, "delay_seconds": 60, "summary": "稍后补充刚才话题的一个想法", "reason": "想补充"}'
         )
+        self.structured_output = structured_output
+        self.last_options = None
+
+    def supports(self, capability: str) -> bool:
+        return self.structured_output and capability == "structured_output"
 
     async def chat(self, messages, options=None):
+        self.last_options = options
         return UnifiedResponse(
             message=UnifiedMessage(
                 role="assistant",
@@ -154,6 +160,58 @@ class InitiativeTimerManagerTests(unittest.TestCase):
                 self.assertIsNotNone(payload)
                 assert payload is not None
                 self.assertEqual(payload["pending_summary"], "Markdown 里的摘要")
+            finally:
+                await event_bus.stop()
+
+        asyncio.run(run())
+
+
+    def test_structured_output_options_are_sent_when_supported(self):
+        async def run():
+            event_bus = EventBus(enable_trace=False)
+            await event_bus.start()
+            try:
+                model_client = _FakeModelClient(structured_output=True)
+                manager = InitiativeTimerManager(
+                    config=InitiativeTimerConfig(),
+                    model_client=model_client,
+                    event_bus=event_bus,
+                    character_name="测试角色",
+                    working_memory=WorkingMemoryManager(max_turns=10),
+                )
+
+                payload = await manager.schedule_after_response("刚才的回复")
+                self.assertIsNotNone(payload)
+                self.assertIsNotNone(model_client.last_options)
+                assert model_client.last_options is not None
+                response_format = model_client.last_options.get("response_format")
+                self.assertEqual(response_format["type"], "json_schema")
+                self.assertEqual(response_format["json_schema"]["name"], "initiative_timer_decision")
+                self.assertTrue(response_format["json_schema"]["strict"])
+            finally:
+                await event_bus.stop()
+
+        asyncio.run(run())
+
+    def test_structured_output_options_are_not_sent_when_unsupported(self):
+        async def run():
+            event_bus = EventBus(enable_trace=False)
+            await event_bus.start()
+            try:
+                model_client = _FakeModelClient(structured_output=False)
+                manager = InitiativeTimerManager(
+                    config=InitiativeTimerConfig(),
+                    model_client=model_client,
+                    event_bus=event_bus,
+                    character_name="测试角色",
+                    working_memory=WorkingMemoryManager(max_turns=10),
+                )
+
+                payload = await manager.schedule_after_response("刚才的回复")
+                self.assertIsNotNone(payload)
+                self.assertIsNotNone(model_client.last_options)
+                assert model_client.last_options is not None
+                self.assertNotIn("response_format", model_client.last_options)
             finally:
                 await event_bus.stop()
 

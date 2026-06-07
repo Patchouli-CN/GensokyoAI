@@ -14,11 +14,31 @@ from uuid import uuid4
 from ...utils.logger import logger
 from ..config import InitiativeTimerConfig
 from ..events import Event, EventBus, SystemEvent
+from .types import ProviderCapability
 
 if TYPE_CHECKING:
     from ...memory.working import WorkingMemoryManager
 
 _JSON_OBJECT_PATTERN = re.compile(r"\{.*\}", re.DOTALL)
+_INITIATIVE_TIMER_DECISION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "should_schedule": {"type": "boolean"},
+        "delay_seconds": {"type": "integer"},
+        "summary": {"type": "string"},
+        "reason": {"type": "string"},
+    },
+    "required": ["should_schedule", "delay_seconds", "summary", "reason"],
+    "additionalProperties": False,
+}
+_INITIATIVE_TIMER_RESPONSE_FORMAT: dict[str, Any] = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "initiative_timer_decision",
+        "strict": True,
+        "schema": _INITIATIVE_TIMER_DECISION_SCHEMA,
+    },
+}
 
 
 @dataclass
@@ -215,13 +235,17 @@ JSON 格式：
             if isinstance(role, str) and isinstance(content, str) and role in {"user", "assistant"}:
                 messages.append({"role": role, "content": content})
         try:
+            options: dict[str, Any] = {
+                "temperature": self.config.decision_temperature,
+                "num_predict": self.config.decision_max_tokens,
+                "max_tokens": self.config.decision_max_tokens,
+            }
+            if self._supports_structured_output():
+                options["response_format"] = _INITIATIVE_TIMER_RESPONSE_FORMAT
+
             response = await self.model_client.chat(
                 messages=messages,
-                options={
-                    "temperature": self.config.decision_temperature,
-                    "num_predict": self.config.decision_max_tokens,
-                    "max_tokens": self.config.decision_max_tokens,
-                },
+                options=options,
             )
             content = response.message.content
             text = content.strip() if isinstance(content, str) else ""
@@ -232,6 +256,15 @@ JSON 格式：
         except Exception as error:
             logger.error(f"主动定时器决策失败: {error}")
             return None
+
+    def _supports_structured_output(self) -> bool:
+        supports = getattr(self.model_client, "supports", None)
+        if callable(supports):
+            try:
+                return bool(supports(ProviderCapability.STRUCTURED_OUTPUT))
+            except Exception as error:
+                logger.warning(f"主动定时器结构化输出能力判断失败，将使用普通 JSON 提示: {error}")
+        return False
 
     @staticmethod
     def _parse_decision_json(text: str) -> dict[str, Any] | None:

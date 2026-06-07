@@ -212,6 +212,10 @@ class ModelClient:
 
         self._resource_gates = resource_gates or {}
 
+    def supports(self, capability: str) -> bool:
+        """检查当前 Provider/模型配置是否声明支持指定能力。"""
+        return self._provider.supports(capability)
+
     @staticmethod
     def _resource_limit_model_error(error: ResourceLimitError) -> ModelError:
         payload = resource_limit_payload(error)
