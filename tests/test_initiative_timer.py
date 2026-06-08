@@ -115,13 +115,41 @@ class InitiativeTimerManagerTests(unittest.TestCase):
 
         asyncio.run(run())
 
-    def test_invalid_decision_json_is_treated_as_no_timer(self):
+    def test_invalid_decision_json_triggers_hesitation_by_default(self):
+        """默认启用犹豫时，解析失败的 JSON 不再直接放弃，而是进入犹豫链。"""
         async def run():
             event_bus = EventBus(enable_trace=False)
             await event_bus.start()
             try:
                 manager = InitiativeTimerManager(
                     config=InitiativeTimerConfig(),
+                    model_client=_FakeModelClient(
+                        '{"should_schedule": true, "delay_seconds": 60, "summary": "截断的摘要'
+                    ),
+                    event_bus=event_bus,
+                    character_name="测试角色",
+                    working_memory=WorkingMemoryManager(max_turns=10),
+                )
+
+                payload = await manager.schedule_after_response("刚才的回复")
+                # 无效 JSON → 进入犹豫重试，payload 为 reconsider 定时器
+                self.assertIsNotNone(payload)
+                assert payload is not None
+                self.assertEqual(payload["source"], "reconsider")
+                self.assertEqual(payload["hesitation_round"], 1)
+            finally:
+                await event_bus.stop()
+
+        asyncio.run(run())
+
+    def test_invalid_decision_json_returns_none_when_hesitation_disabled(self):
+        """关闭犹豫时，无效 JSON 直接放弃（无定时器）。"""
+        async def run():
+            event_bus = EventBus(enable_trace=False)
+            await event_bus.start()
+            try:
+                manager = InitiativeTimerManager(
+                    config=InitiativeTimerConfig(hesitation_max_rounds=0),
                     model_client=_FakeModelClient(
                         '{"should_schedule": true, "delay_seconds": 60, "summary": "截断的摘要'
                     ),

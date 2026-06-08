@@ -814,6 +814,16 @@ class ConfigValidator:
             diagnostics,
             minimum=1,
         )
+        self._validate_numeric_range(
+            "initiative_timer.hesitation_max_rounds",
+            data.get("hesitation_max_rounds"),
+            diagnostics,
+            minimum=0,
+            maximum=10,
+        )
+        self._validate_hesitation_delay_seconds(
+            data.get("hesitation_delay_seconds"), diagnostics
+        )
         min_delay = data.get("min_delay_seconds")
         max_delay = data.get("max_delay_seconds")
         if (
@@ -841,6 +851,26 @@ class ConfigValidator:
                     code="config.initiative_timer.edit_without_expose",
                 )
             )
+
+    @staticmethod
+    def _validate_hesitation_delay_seconds(
+        value: Any, diagnostics: list[ConfigDiagnostic]
+    ) -> None:
+        if value is None:
+            return
+        if isinstance(value, str) and value.strip().lower() == "auto":
+            return
+        if isinstance(value, (int, float)) and value >= 1:
+            return
+        diagnostics.append(
+            ConfigDiagnostic(
+                level="error",
+                path="initiative_timer.hesitation_delay_seconds",
+                message="hesitation_delay_seconds must be 'auto' or an integer >= 1",
+                user_message="犹豫延迟须为 'auto' 或不小于 1 的整数秒数",
+                code="config.hesitation_delay_seconds.invalid",
+            )
+        )
 
     def _validate_resource_control_data(
         self, data: Any, diagnostics: list[ConfigDiagnostic]
