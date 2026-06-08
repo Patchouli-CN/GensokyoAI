@@ -860,11 +860,11 @@ class ConfigValidator:
             return
         diagnostics.append(
             ConfigDiagnostic(
-                level="error",
-                path="initiative_timer.hesitation_delay_seconds",
-                message="hesitation_delay_seconds must be 'auto' or an integer >= 1",
-                user_message="犹豫延迟须为 'auto' 或不小于 1 的整数秒数",
                 code="config.hesitation_delay_seconds.invalid",
+                path="initiative_timer.hesitation_delay_seconds",
+                severity="error",
+                message="hesitation_delay_seconds must be 'auto' or an integer >= 1",
+                suggestion="犹豫延迟须为 'auto' 或不小于 1 的整数秒数",
             )
         )
 
