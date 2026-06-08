@@ -428,7 +428,9 @@ gensokyoai --list-sessions
 
 主动定时器启用后，AI 每次正常回答完成时可以只保存稍后主动发言意图摘要 `pending_summary` 和触发时间。用户在触发前发送新消息会让旧定时器失效；到点或手动触发时，系统会基于摘要、当前上下文和说话前思考重新生成真正发给用户的主动消息。
 
-主动定时器的犹豫机制默认关闭。开启后，当 AI 判断“暂时不主动回复”时，会按配置延迟后重新判断，最多重试若干轮；关闭时，AI 决定不回复就直接放弃，不会安排犹豫复判。
+主动定时器的犹豫机制默认关闭。开启后，当 AI 判断“暂时不主动回复”时，会按配置延迟后重新判断，最多重试若干轮；关闭时不会安排犹豫复判。
+
+“AI 不设定定时器”只表示模型本轮没有主动保存后续意图；如果系统也不做处理，它在用户再次输入前就不会主动开口。为避免这种不拟真的长期沉默，`initiative_timer.fallback_on_no_schedule` 默认开启：当模型返回“不设定”、摘要为空或决策 JSON 解析失败，并且没有进入犹豫复判时，系统会自动创建一条 `source: fallback` 的自然再考虑定时器。到点后仍会基于 `fallback_summary`、当前上下文和说话前思考重新生成真正主动消息，而不是直接发送固定模板。
 
 控制台中可以使用斜杠命令：
 
@@ -451,7 +453,7 @@ gensokyoai --list-sessions
 <timer>trigger</timer>
 ```
 
-配置中推荐使用 `initiative_timer.allow_frontend_edit_summary` 控制前端是否可编辑 `pending_summary`；旧字段 `initiative_timer.allow_frontend_edit_message` 仍作为兼容别名读取，但新配置建议迁移到 `allow_frontend_edit_summary`。`initiative_timer.hesitation_enabled` 控制犹豫机制开关，默认 `false`；`initiative_timer.hesitation_max_rounds` 与 `initiative_timer.hesitation_delay_seconds` 只在开启后生效。
+配置中推荐使用 `initiative_timer.allow_frontend_edit_summary` 控制前端是否可编辑 `pending_summary`；旧字段 `initiative_timer.allow_frontend_edit_message` 仍作为兼容别名读取，但新配置建议迁移到 `allow_frontend_edit_summary`。`initiative_timer.hesitation_enabled` 控制犹豫机制开关，默认 `false`；`initiative_timer.hesitation_max_rounds` 与 `initiative_timer.hesitation_delay_seconds` 只在开启后生效。`initiative_timer.fallback_on_no_schedule` 控制默认兜底策略，默认 `true`；可通过 `fallback_delay_seconds`、`fallback_summary` 和 `fallback_reason` 调整兜底触发延迟、待表达意图摘要和状态理由。
 
 常见用途：
 

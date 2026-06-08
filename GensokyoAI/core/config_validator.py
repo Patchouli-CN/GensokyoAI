@@ -822,6 +822,23 @@ class ConfigValidator:
             maximum=10,
         )
         self._validate_hesitation_delay_seconds(data.get("hesitation_delay_seconds"), diagnostics)
+        self._validate_numeric_range(
+            "initiative_timer.fallback_delay_seconds",
+            data.get("fallback_delay_seconds"),
+            diagnostics,
+            minimum=1,
+        )
+        for field_name in ("fallback_summary", "fallback_reason"):
+            value = data.get(field_name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                diagnostics.append(
+                    self._error(
+                        f"initiative_timer.{field_name}",
+                        f"{field_name} must be a non-empty string",
+                        "主动定时器兜底摘要与理由必须是非空字符串。",
+                        code="config.initiative_timer.fallback_text_invalid",
+                    )
+                )
         min_delay = data.get("min_delay_seconds")
         max_delay = data.get("max_delay_seconds")
         if (

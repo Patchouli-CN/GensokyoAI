@@ -94,8 +94,8 @@ class InitiativeTimerManager:
     async def schedule_after_response(self, assistant_response: str) -> dict[str, Any] | None:
         """AI 回复完成后生成并设置下一条积存主动发言摘要。
 
-        决策为"不发言"时不会直接放弃，而是进入犹豫链：
-        静默等待一段时间后重新让 AI 判断，最多犹豫 N 轮才真正放弃。
+        决策为"不发言"时优先进入犹豫链；若未开启犹豫或犹豫耗尽，
+        默认会创建一条兜底自然再考虑定时器，避免角色长期失去主动能力。
         """
         if not self.config.enabled or not assistant_response.strip():
             return None
@@ -106,12 +106,13 @@ class InitiativeTimerManager:
             self._pace_stamps = self._pace_stamps[-5:]
         decision = await self._decide(assistant_response, hesitation_round=0)
         if not decision:
-            return await self._try_hesitate(round_num=1)
+            return await self._handle_no_schedule(reason="decision_parse_failed")
 
         should_schedule = bool(decision.get("should_schedule"))
         summary = str(decision.get("summary") or "").strip()
         if not should_schedule or not summary:
-            return await self._try_hesitate(round_num=1)
+            reason = str(decision.get("reason") or "no_schedule_or_empty_summary").strip()
+            return await self._handle_no_schedule(reason=reason)
 
         summary = self._trim_summary(summary)
         delay_seconds = self._clamp_delay(decision.get("delay_seconds"))
@@ -136,6 +137,13 @@ class InitiativeTimerManager:
     # 犹豫重试
     # ------------------------------------------------------------------
 
+    async def _handle_no_schedule(self, *, reason: str, round_num: int = 1) -> dict[str, Any] | None:
+        """AI 未设置定时器时，先尝试犹豫链，失败后进入兜底定时器。"""
+        payload = await self._try_hesitate(round_num)
+        if payload is not None:
+            return payload
+        return await self._try_schedule_fallback(reason=reason)
+
     async def _try_hesitate(self, round_num: int) -> dict[str, Any] | None:
         """AI 决定不发言时，按开关决定是否进入犹豫重试链。"""
         if not self.config.hesitation_enabled:
@@ -146,6 +154,29 @@ class InitiativeTimerManager:
         async with self._lock:
             return self._schedule_reconsider_timer(round_num)
 
+    async def _try_schedule_fallback(self, *, reason: str) -> dict[str, Any] | None:
+        """创建默认兜底自然再考虑定时器，避免不设定定时器导致长期沉默。"""
+        if not self.config.fallback_on_no_schedule:
+            return None
+        summary = self._trim_summary(str(self.config.fallback_summary or "").strip())
+        if not summary:
+            return None
+        fallback_reason = str(self.config.fallback_reason or "").strip() or reason
+        async with self._lock:
+            await self._discard_locked(reason="replaced_by_fallback", source="fallback")
+            state = self._create_state(
+                delay_seconds=self._clamp_delay(self.config.fallback_delay_seconds),
+                pending_summary=summary,
+                reason=fallback_reason,
+                source="fallback",
+                user_modified=False,
+                hesitation_round=0,
+            )
+            self._state = state
+            self._task = asyncio.create_task(self._run_timer(state.timer_id, state.generation))
+            self._publish(SystemEvent.INITIATIVE_TIMER_CREATED, state)
+            return self._payload(state)
+
     def _resolve_hesitation_delay(self) -> int:
         """解析犹豫延迟：若为 'auto' 则根据对话节奏动态计算，否则用配置值。"""
         raw = self.config.hesitation_delay_seconds
@@ -153,7 +184,7 @@ class InitiativeTimerManager:
             return self._compute_auto_delay()
         try:
             seconds = int(raw)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             return 180
         return max(1, seconds)
 
@@ -199,13 +230,14 @@ class InitiativeTimerManager:
 
         decision = await self._decide(assistant_response, hesitation_round=round_num)
         if not decision:
-            await self._try_hesitate(round_num + 1)
+            await self._handle_no_schedule(reason="reconsider_parse_failed", round_num=round_num + 1)
             return
 
         should_schedule = bool(decision.get("should_schedule"))
         summary = str(decision.get("summary") or "").strip()
         if not should_schedule or not summary:
-            await self._try_hesitate(round_num + 1)
+            reason = str(decision.get("reason") or "reconsider_no_schedule").strip()
+            await self._handle_no_schedule(reason=reason, round_num=round_num + 1)
             return
 
         # AI 终于决定发言了！
@@ -346,7 +378,8 @@ class InitiativeTimerManager:
 
 请判断你是否想在稍后主动补充一句话。要求：
 - 这是内部决策提交，不是用户可见台词；不要把结果写成角色发言、对白、旁白或解释。
-- 如果没有自然、必要、符合角色的补充，就不要设置定时器。
+- 这里的“不设置定时器”表示你本轮明确放弃稍后主动补充；如果系统没有其他兜底，这会让你在用户再次输入前不再主动开口。
+- 为了更拟真地保留角色的主动性，除非当前上下文确实没有任何自然、必要、符合角色的补充，否则优先设置一个短到中等延迟的定时器。
 - 如果设置，只写"稍后主动发言意图的一句话摘要"，不要写完整可发送话术。
 - 摘要只描述到点后要围绕什么思考和表达，真正说出口的话会在触发时重新生成。
 - 延迟秒数必须在 {self.config.min_delay_seconds} 到 {self.config.max_delay_seconds} 之间。
@@ -569,6 +602,8 @@ JSON 格式：
             "hesitation_enabled": self.config.hesitation_enabled,
             "hesitation_round": state.hesitation_round,
             "hesitation_max": self.config.hesitation_max_rounds,
+            "fallback_on_no_schedule": self.config.fallback_on_no_schedule,
+            "is_fallback": state.source == "fallback",
             "editable_fields": ["due_at", "delay_seconds", "pending_summary"]
             if self.config.allow_frontend_edit_summary
             else ["due_at", "delay_seconds"],
@@ -592,7 +627,7 @@ JSON 格式：
     def _clamp_delay(self, value: Any) -> int:
         try:
             seconds = int(value)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             seconds = self.config.min_delay_seconds
         return max(self.config.min_delay_seconds, min(self.config.max_delay_seconds, seconds))
 

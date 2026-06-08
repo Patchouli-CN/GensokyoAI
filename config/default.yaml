@@ -186,6 +186,10 @@ initiative_timer:
   hesitation_enabled: false
   hesitation_max_rounds: 2
   hesitation_delay_seconds: auto
+  fallback_on_no_schedule: true
+  fallback_delay_seconds: 300
+  fallback_summary: "稍后自然地重新考虑刚才的对话，若仍有余韵或新想法就主动补充一句。"
+  fallback_reason: "AI 未主动设定定时器，系统安排一次自然再考虑以保持角色主动性"
 
 # 工具配置
 tool:

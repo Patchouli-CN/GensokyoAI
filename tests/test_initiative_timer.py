@@ -12,14 +12,15 @@ from GensokyoAI.memory.working import WorkingMemoryManager
 
 class _FakeModelClient:
     def __init__(self, content: str | None = None, *, structured_output: bool = False):
-        self.content = (
+        self.contents = [
             content
             if content is not None
             else '{"should_schedule": true, "delay_seconds": 60, "summary": "稍后补充刚才话题的一个想法", "reason": "想补充"}'
-        )
+        ]
         self.structured_output = structured_output
         self.last_options = None
         self.last_messages = None
+        self.call_count = 0
 
     def supports(self, capability: str) -> bool:
         return self.structured_output and capability == "structured_output"
@@ -27,10 +28,12 @@ class _FakeModelClient:
     async def chat(self, messages, options=None):
         self.last_messages = messages
         self.last_options = options
+        index = min(self.call_count, len(self.contents) - 1)
+        self.call_count += 1
         return UnifiedResponse(
             message=UnifiedMessage(
                 role="assistant",
-                content=self.content,
+                content=self.contents[index],
             )
         )
 
@@ -119,15 +122,15 @@ class InitiativeTimerManagerTests(unittest.TestCase):
 
         asyncio.run(run())
 
-    def test_invalid_decision_json_returns_none_by_default(self):
-        """默认关闭犹豫时，解析失败的 JSON 直接放弃。"""
+    def test_invalid_decision_json_schedules_fallback_by_default(self):
+        """默认开启兜底时，解析失败的 JSON 会创建兜底主动定时器。"""
 
         async def run():
             event_bus = EventBus(enable_trace=False)
             await event_bus.start()
             try:
                 manager = InitiativeTimerManager(
-                    config=InitiativeTimerConfig(),
+                    config=InitiativeTimerConfig(fallback_delay_seconds=90),
                     model_client=_FakeModelClient(
                         '{"should_schedule": true, "delay_seconds": 60, "summary": "截断的摘要'
                     ),
@@ -137,8 +140,12 @@ class InitiativeTimerManagerTests(unittest.TestCase):
                 )
 
                 payload = await manager.schedule_after_response("刚才的回复")
-                self.assertIsNone(payload)
-                self.assertIsNone(manager.current_payload())
+                self.assertIsNotNone(payload)
+                assert payload is not None
+                self.assertEqual(payload["source"], "fallback")
+                self.assertTrue(payload["is_fallback"])
+                self.assertEqual(payload["delay_seconds"], 90)
+                self.assertIsNotNone(manager.current_payload())
             finally:
                 await event_bus.stop()
 
@@ -167,6 +174,116 @@ class InitiativeTimerManagerTests(unittest.TestCase):
                 self.assertEqual(payload["source"], "reconsider")
                 self.assertTrue(payload["hesitation_enabled"])
                 self.assertEqual(payload["hesitation_round"], 1)
+            finally:
+                await event_bus.stop()
+
+        asyncio.run(run())
+
+    def test_no_schedule_decision_schedules_fallback_by_default(self):
+        async def run():
+            event_bus = EventBus(enable_trace=False)
+            await event_bus.start()
+            try:
+                manager = InitiativeTimerManager(
+                    config=InitiativeTimerConfig(fallback_delay_seconds=120),
+                    model_client=_FakeModelClient(
+                        '{"should_schedule": false, "delay_seconds": 60, "summary": "", "reason": "暂时没话说"}'
+                    ),
+                    event_bus=event_bus,
+                    character_name="测试角色",
+                    working_memory=WorkingMemoryManager(max_turns=10),
+                )
+
+                payload = await manager.schedule_after_response("刚才的回复")
+                self.assertIsNotNone(payload)
+                assert payload is not None
+                self.assertEqual(payload["source"], "fallback")
+                self.assertEqual(payload["reason"], manager.config.fallback_reason)
+                self.assertEqual(payload["pending_summary"], manager.config.fallback_summary)
+            finally:
+                await event_bus.stop()
+
+        asyncio.run(run())
+
+    def test_empty_summary_decision_schedules_fallback_by_default(self):
+        async def run():
+            event_bus = EventBus(enable_trace=False)
+            await event_bus.start()
+            try:
+                manager = InitiativeTimerManager(
+                    config=InitiativeTimerConfig(),
+                    model_client=_FakeModelClient(
+                        '{"should_schedule": true, "delay_seconds": 60, "summary": "", "reason": "漏写摘要"}'
+                    ),
+                    event_bus=event_bus,
+                    character_name="测试角色",
+                    working_memory=WorkingMemoryManager(max_turns=10),
+                )
+
+                payload = await manager.schedule_after_response("刚才的回复")
+                self.assertIsNotNone(payload)
+                assert payload is not None
+                self.assertEqual(payload["source"], "fallback")
+                self.assertTrue(payload["fallback_on_no_schedule"])
+            finally:
+                await event_bus.stop()
+
+        asyncio.run(run())
+
+    def test_fallback_can_be_disabled_to_keep_old_no_timer_behavior(self):
+        async def run():
+            event_bus = EventBus(enable_trace=False)
+            await event_bus.start()
+            try:
+                manager = InitiativeTimerManager(
+                    config=InitiativeTimerConfig(fallback_on_no_schedule=False),
+                    model_client=_FakeModelClient(
+                        '{"should_schedule": false, "delay_seconds": 60, "summary": "", "reason": "暂时没话说"}'
+                    ),
+                    event_bus=event_bus,
+                    character_name="测试角色",
+                    working_memory=WorkingMemoryManager(max_turns=10),
+                )
+
+                payload = await manager.schedule_after_response("刚才的回复")
+                self.assertIsNone(payload)
+                self.assertIsNone(manager.current_payload())
+            finally:
+                await event_bus.stop()
+
+        asyncio.run(run())
+
+    def test_hesitation_exhaustion_schedules_fallback(self):
+        async def run():
+            event_bus = EventBus(enable_trace=False)
+            await event_bus.start()
+            try:
+                manager = InitiativeTimerManager(
+                    config=InitiativeTimerConfig(
+                        hesitation_enabled=True,
+                        hesitation_max_rounds=1,
+                        hesitation_delay_seconds=1,
+                        fallback_delay_seconds=120,
+                    ),
+                    model_client=_FakeModelClient(
+                        '{"should_schedule": false, "delay_seconds": 60, "summary": "", "reason": "暂时没话说"}'
+                    ),
+                    event_bus=event_bus,
+                    character_name="测试角色",
+                    working_memory=WorkingMemoryManager(max_turns=10),
+                )
+
+                payload = await manager.schedule_after_response("刚才的回复")
+                self.assertIsNotNone(payload)
+                assert payload is not None
+                self.assertEqual(payload["source"], "reconsider")
+
+                await asyncio.sleep(1.2)
+                current = manager.current_payload()
+                self.assertIsNotNone(current)
+                assert current is not None
+                self.assertEqual(current["source"], "fallback")
+                self.assertEqual(current["delay_seconds"], 120)
             finally:
                 await event_bus.stop()
 
@@ -221,6 +338,9 @@ class InitiativeTimerManagerTests(unittest.TestCase):
                 self.assertIn("内部主动发言决定", prompt)
                 self.assertIn("这个决定仍然必须由你以 博丽灵梦 的身份、性格、动机和当前上下文来完成", prompt)
                 self.assertIn("不是用户可见台词", prompt)
+                self.assertIn("不设置定时器", prompt)
+                self.assertIn("用户再次输入前不再主动开口", prompt)
+                self.assertIn("优先设置一个短到中等延迟的定时器", prompt)
                 self.assertIn("只输出一个原始 JSON 对象", prompt)
                 self.assertIn("不要输出 Markdown 代码块、角色引号、解释文本或任何前后缀", prompt)
             finally:

@@ -699,6 +699,28 @@ class ConfigMerger:
                 if override.hesitation_delay_seconds != defaults.hesitation_delay_seconds
                 else base.hesitation_delay_seconds,
             ),
+            fallback_on_no_schedule=choose(
+                "fallback_on_no_schedule",
+                override.fallback_on_no_schedule,
+            ),
+            fallback_delay_seconds=choose(
+                "fallback_delay_seconds",
+                override.fallback_delay_seconds
+                if override.fallback_delay_seconds != defaults.fallback_delay_seconds
+                else base.fallback_delay_seconds,
+            ),
+            fallback_summary=choose(
+                "fallback_summary",
+                override.fallback_summary
+                if override.fallback_summary != defaults.fallback_summary
+                else base.fallback_summary,
+            ),
+            fallback_reason=choose(
+                "fallback_reason",
+                override.fallback_reason
+                if override.fallback_reason != defaults.fallback_reason
+                else base.fallback_reason,
+            ),
         )
 
     def _merge_think_engine(
