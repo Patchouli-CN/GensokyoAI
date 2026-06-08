@@ -69,6 +69,7 @@ class Agent:
 
     def _init_config(self, config, config_file, character_file) -> None:
         loader = ConfigLoader()
+        self.config_file = config_file
         self.config = config or loader.load(config_file)
 
         if character_file:
@@ -673,6 +674,26 @@ class Agent:
         if self._initiative_timer is None:
             return None
         return self._initiative_timer.current_payload()
+
+    def initiative_hesitation_status(self) -> dict:
+        return {
+            "enabled": self.config.initiative_timer.hesitation_enabled,
+            "max_rounds": self.config.initiative_timer.hesitation_max_rounds,
+            "delay_seconds": self.config.initiative_timer.hesitation_delay_seconds,
+        }
+
+    def set_initiative_hesitation_enabled(self, enabled: bool, *, persist: bool = True) -> dict:
+        self.config.initiative_timer.hesitation_enabled = bool(enabled)
+        config_path: str | None = None
+        if persist:
+            path = ConfigLoader.set_initiative_hesitation_enabled(
+                getattr(self, "config_file", None),
+                bool(enabled),
+            )
+            config_path = str(path)
+        payload = self.initiative_hesitation_status()
+        payload["config_path"] = config_path
+        return payload
 
     async def update_initiative_timer(
         self,

@@ -883,6 +883,26 @@ class RuntimeService:
         agent = self._require_agent()
         return await agent.trigger_initiative_timer(timer_id=timer_id)
 
+    async def initiative_timer_hesitation(self) -> dict[str, Any]:
+        agent = self._require_agent()
+        status = getattr(agent, "initiative_hesitation_status", None)
+        if not callable(status):
+            raise RuntimeError("Current agent does not support initiative hesitation status")
+        payload = status()
+        return payload if isinstance(payload, dict) else {}
+
+    async def initiative_timer_hesitation_set(
+        self,
+        enabled: bool,
+        persist: bool = True,
+    ) -> dict[str, Any]:
+        agent = self._require_agent()
+        setter = getattr(agent, "set_initiative_hesitation_enabled", None)
+        if not callable(setter):
+            raise RuntimeError("Current agent does not support initiative hesitation control")
+        payload = setter(bool(enabled), persist=persist)
+        return payload if isinstance(payload, dict) else {}
+
     async def dependency_status(self, providers: list[str] | None = None) -> dict[str, Any]:
         """Return optional Provider dependency status for generic clients."""
 
@@ -1343,10 +1363,17 @@ class RuntimeService:
     @staticmethod
     def _agent_initiative_timer_payload(agent: Any) -> dict[str, Any] | None:
         current = getattr(agent, "current_initiative_timer", None)
+        status_getter = getattr(agent, "initiative_hesitation_status", None)
+        status = status_getter() if callable(status_getter) else None
+        status = status if isinstance(status, dict) else None
         if not callable(current):
-            return None
+            return {"timer": None, "hesitation": status} if status is not None else None
         payload = current()
-        return payload if isinstance(payload, dict) else None
+        if isinstance(payload, dict):
+            if status is not None and "hesitation_enabled" not in payload:
+                return {**payload, "hesitation_enabled": status.get("enabled")}
+            return payload
+        return {"timer": None, "hesitation": status} if status is not None else None
 
     @staticmethod
     def _runtime_backpressure_payload(

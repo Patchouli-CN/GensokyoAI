@@ -137,7 +137,9 @@ class InitiativeTimerManager:
     # ------------------------------------------------------------------
 
     async def _try_hesitate(self, round_num: int) -> dict[str, Any] | None:
-        """AI 决定不发言时，进入犹豫重试链。返回定时器 payload 或 None。"""
+        """AI 决定不发言时，按开关决定是否进入犹豫重试链。"""
+        if not self.config.hesitation_enabled:
+            return None
         max_rounds = self.config.hesitation_max_rounds
         if max_rounds <= 0 or round_num > max_rounds:
             return None
@@ -564,6 +566,7 @@ JSON 格式：
             "remaining_seconds": remaining,
             "reason": state.reason,
             "user_modified": state.user_modified,
+            "hesitation_enabled": self.config.hesitation_enabled,
             "hesitation_round": state.hesitation_round,
             "hesitation_max": self.config.hesitation_max_rounds,
             "editable_fields": ["due_at", "delay_seconds", "pending_summary"]

@@ -70,6 +70,8 @@ class _FakeAgent:
         self.updated = None
         self.cancelled_reason = None
         self.sent_messages = []
+        self.hesitation_enabled = False
+        self.hesitation_config_path = "config/default.yaml"
 
     def current_initiative_timer(self):
         return self.timer
@@ -90,6 +92,17 @@ class _FakeAgent:
             "sent": True,
             "pending_summary": "稍后补充一句",
             "message": "主动消息",
+        }
+
+    def initiative_hesitation_status(self):
+        return {"enabled": self.hesitation_enabled, "config_path": self.hesitation_config_path}
+
+    def set_initiative_hesitation_enabled(self, enabled, *, persist=True):
+        self.hesitation_enabled = bool(enabled)
+        return {
+            "enabled": self.hesitation_enabled,
+            "persist": persist,
+            "config_path": self.hesitation_config_path,
         }
 
     async def send(self, content, system_contexts=None):
@@ -133,6 +146,14 @@ def test_timer_command_supports_prefix_and_tag_forms():
 
     asyncio.run(_execute("/timer trigger", agent, backend))
     assert backend.panels[-1][0] == "trigger"
+
+    results, _ = asyncio.run(_execute("/timer hesitation on", agent, backend))
+    assert results[0].status.name == "SUCCESS"
+    assert agent.hesitation_enabled is True
+
+    results, _ = asyncio.run(_execute("/timer hesitation off", agent, backend))
+    assert results[0].status.name == "SUCCESS"
+    assert agent.hesitation_enabled is False
 
 
 def test_history_command_can_show_edit_import_and_regenerate(tmp_path):

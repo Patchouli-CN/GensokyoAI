@@ -428,6 +428,8 @@ gensokyoai --list-sessions
 
 主动定时器启用后，AI 每次正常回答完成时可以只保存稍后主动发言意图摘要 `pending_summary` 和触发时间。用户在触发前发送新消息会让旧定时器失效；到点或手动触发时，系统会基于摘要、当前上下文和说话前思考重新生成真正发给用户的主动消息。
 
+主动定时器的犹豫机制默认关闭。开启后，当 AI 判断“暂时不主动回复”时，会按配置延迟后重新判断，最多重试若干轮；关闭时，AI 决定不回复就直接放弃，不会安排犹豫复判。
+
 控制台中可以使用斜杠命令：
 
 ```text
@@ -437,6 +439,9 @@ gensokyoai --list-sessions
 /timer summary 稍后提醒用户继续刚才的话题
 /timer cancel
 /timer trigger
+/timer hesitation status
+/timer hesitation on
+/timer hesitation off
 ```
 
 也可以使用等价标签命令：
@@ -446,7 +451,7 @@ gensokyoai --list-sessions
 <timer>trigger</timer>
 ```
 
-配置中推荐使用 `initiative_timer.allow_frontend_edit_summary` 控制前端是否可编辑 `pending_summary`；旧字段 `initiative_timer.allow_frontend_edit_message` 仍作为兼容别名读取，但新配置建议迁移到 `allow_frontend_edit_summary`。
+配置中推荐使用 `initiative_timer.allow_frontend_edit_summary` 控制前端是否可编辑 `pending_summary`；旧字段 `initiative_timer.allow_frontend_edit_message` 仍作为兼容别名读取，但新配置建议迁移到 `allow_frontend_edit_summary`。`initiative_timer.hesitation_enabled` 控制犹豫机制开关，默认 `false`；`initiative_timer.hesitation_max_rounds` 与 `initiative_timer.hesitation_delay_seconds` 只在开启后生效。
 
 常见用途：
 
@@ -456,6 +461,9 @@ gensokyoai --list-sessions
 - `/timer summary <摘要>`：编辑 `pending_summary`。
 - `/timer cancel [原因]`：取消当前主动定时器。
 - `/timer trigger`：立即触发当前主动定时器，并生成真正的主动消息。
+- `/timer hesitation status`：查看犹豫机制是否开启。
+- `/timer hesitation on`：开启犹豫机制，并写回当前配置文件。
+- `/timer hesitation off`：关闭犹豫机制，并写回当前配置文件。
 
 ### 11.4 历史消息编辑命令
 
@@ -515,7 +523,7 @@ python runtime_http.py --host 127.0.0.1 --port 8765
 - `POST /rpc`：JSON RPC 请求。
 - `WebSocket /ws`：WebSocket RPC；`agent.send_message_stream` 可逐事件推送 stream 结果。
 
-当前非 legacy Runtime RPC 方法包括 `runtime.info`、`runtime.health`、`runtime.shutdown`、`config.validate`、`character.validate`、`character.list`、`character_package.validate`、`character_package.preview`、`character_package.import`、`character_package.export`、`agent.init`、`agent.send_message`、`agent.send_message_stream`、`model.list`、`model.info`、`session.*`、`dependency.*`、`external_tool.status` 和 `memory.*`。旧的非命名空间方法仍兼容但已废弃，新客户端应以 `method_specs[].replacement` 迁移到命名空间方法。
+当前非 legacy Runtime RPC 方法包括 `runtime.info`、`runtime.health`、`runtime.shutdown`、`config.validate`、`character.validate`、`character.list`、`character_package.validate`、`character_package.preview`、`character_package.import`、`character_package.export`、`agent.init`、`agent.send_message`、`agent.send_message_stream`、`model.list`、`model.info`、`session.*`、`dependency.*`、`external_tool.status`、`initiative_timer.*` 和 `memory.*`。旧的非命名空间方法仍兼容但已废弃，新客户端应以 `method_specs[].replacement` 迁移到命名空间方法。
 
 ## 13. 升级流程
 

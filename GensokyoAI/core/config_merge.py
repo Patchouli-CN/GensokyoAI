@@ -683,6 +683,22 @@ class ConfigMerger:
                 "expose_pending_summary",
                 override.expose_pending_summary,
             ),
+            hesitation_enabled=choose(
+                "hesitation_enabled",
+                override.hesitation_enabled,
+            ),
+            hesitation_max_rounds=choose(
+                "hesitation_max_rounds",
+                override.hesitation_max_rounds
+                if override.hesitation_max_rounds != defaults.hesitation_max_rounds
+                else base.hesitation_max_rounds,
+            ),
+            hesitation_delay_seconds=choose(
+                "hesitation_delay_seconds",
+                override.hesitation_delay_seconds
+                if override.hesitation_delay_seconds != defaults.hesitation_delay_seconds
+                else base.hesitation_delay_seconds,
+            ),
         )
 
     def _merge_think_engine(

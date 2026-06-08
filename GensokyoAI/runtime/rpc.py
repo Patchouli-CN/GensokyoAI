@@ -89,6 +89,8 @@ RPC_METHOD_SPECS: tuple[RpcMethodSpec, ...] = (
     RpcMethodSpec("initiative_timer.update", "initiative_timer_update"),
     RpcMethodSpec("initiative_timer.cancel", "initiative_timer_cancel"),
     RpcMethodSpec("initiative_timer.trigger", "initiative_timer_trigger"),
+    RpcMethodSpec("initiative_timer.hesitation", "initiative_timer_hesitation"),
+    RpcMethodSpec("initiative_timer.hesitation.set", "initiative_timer_hesitation_set"),
     RpcMethodSpec("memory.list", "memory_list"),
     RpcMethodSpec("memory.search", "memory_search"),
     RpcMethodSpec("memory.get", "memory_get"),

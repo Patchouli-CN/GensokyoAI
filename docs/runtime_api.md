@@ -291,7 +291,9 @@ WebSocket 客户端发送：
 
 主动定时器让 AI 在每次回答完成后决定是否积存一条稍后主动发言意图摘要，并设置触发时间。若用户在触发前发送新消息，或前端取消定时器，Runtime 会直接丢弃旧积存摘要；到点时不再二次判断是否要说话，而是基于仍有效的 `pending_summary`、当前上下文和说话前内部思考重新生成真正发给用户的主动消息。
 
-`agent.send_message` 的返回结果和 `agent.send_message_stream` 的 `finish` 事件都会新增 `initiative_timer` 字段；无当前定时器时为 `null`。
+犹豫机制用于“AI 决定不发言”后的延迟复判链：开启后，AI 首次判断不需要主动说话时会等待一段时间再重新判断，最多重试 `initiative_timer.hesitation_max_rounds` 轮。该机制默认关闭，避免用户预期外的静默重试；前端和 CLI 可以手动开启/关闭，并默认写回配置文件。
+
+`agent.send_message` 的返回结果和 `agent.send_message_stream` 的 `finish` 事件都会新增 `initiative_timer` 字段；无当前定时器时会返回包含犹豫状态的对象，例如 `{ "timer": null, "hesitation": { "enabled": false } }`。
 
 `initiative_timer.current` 获取当前定时器：
 
@@ -331,7 +333,26 @@ WebSocket 客户端发送：
 {"method": "initiative_timer.trigger", "params": {"timer_id": "abcd1234"}}
 ```
 
-可订阅的事件包括：`initiative_timer.created`、`initiative_timer.updated`、`initiative_timer.cancelled`、`initiative_timer.triggered`、`initiative_timer.discarded`。事件 payload 包含 `timer_id`、`generation`、`status`、`due_at`、`delay_seconds`、`reason` 和可选 `pending_summary`。`initiative_timer.triggered` 只表示定时器有效触发，真正发出的主动消息仍通过 `message.sent` / 主动消息事件暴露 `content`。
+`initiative_timer.hesitation` 获取当前犹豫机制状态：
+
+```json
+{"method": "initiative_timer.hesitation", "params": {}}
+```
+
+`initiative_timer.hesitation.set` 开启或关闭犹豫机制；`persist` 默认 `true`，会写回当前 Agent 使用的配置文件，下次启动继续生效：
+
+```json
+{"method": "initiative_timer.hesitation.set", "params": {"enabled": true, "persist": true}}
+```
+
+返回字段包括：
+
+- `enabled`：当前是否开启犹豫机制。
+- `max_rounds`：最多犹豫复判轮数。
+- `delay_seconds`：犹豫复判延迟，可能是整数秒或 `auto`。
+- `config_path`：写回配置文件路径；仅设置接口持久化时返回。
+
+可订阅的事件包括：`initiative_timer.created`、`initiative_timer.updated`、`initiative_timer.cancelled`、`initiative_timer.triggered`、`initiative_timer.discarded`。事件 payload 包含 `timer_id`、`generation`、`status`、`due_at`、`delay_seconds`、`reason`、`hesitation_enabled`、`hesitation_round`、`hesitation_max` 和可选 `pending_summary`。`initiative_timer.triggered` 只表示定时器有效触发，真正发出的主动消息仍通过 `message.sent` / 主动消息事件暴露 `content`。
 
 相关配置段：
 
@@ -346,6 +367,9 @@ initiative_timer:
   allow_frontend_edit_summary: true
   replace_user_modified_timer: true
   expose_pending_summary: true
+  hesitation_enabled: false
+  hesitation_max_rounds: 2
+  hesitation_delay_seconds: auto
 ```
 
 `allow_frontend_edit_summary` 是当前推荐字段名；旧配置中的 `allow_frontend_edit_message` 会作为兼容别名映射到它，建议客户端和配置文件逐步迁移到新字段名。
@@ -359,6 +383,9 @@ initiative_timer:
 /timer summary 稍后提醒用户继续刚才的话题
 /timer cancel
 /timer trigger
+/timer hesitation status
+/timer hesitation on
+/timer hesitation off
 ```
 
 标签命令形式等价：
@@ -368,7 +395,7 @@ initiative_timer:
 <timer>trigger</timer>
 ```
 
-CLI 命令复用同一套 Agent 定时器能力，不绕过 Runtime / Agent 的状态、失效和触发语义。
+CLI 命令复用同一套 Agent 定时器能力，不绕过 Runtime / Agent 的状态、失效和触发语义。`/timer hesitation on|off` 会立即更新当前 Agent 状态，并写回配置文件。
 
 ## 配置校验 API
 

@@ -1,5 +1,7 @@
 import asyncio
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from GensokyoAI.core.agent.initiative_timer import InitiativeTimerManager
 from GensokyoAI.core.agent.types import UnifiedMessage, UnifiedResponse
@@ -117,8 +119,8 @@ class InitiativeTimerManagerTests(unittest.TestCase):
 
         asyncio.run(run())
 
-    def test_invalid_decision_json_triggers_hesitation_by_default(self):
-        """默认启用犹豫时，解析失败的 JSON 不再直接放弃，而是进入犹豫链。"""
+    def test_invalid_decision_json_returns_none_by_default(self):
+        """默认关闭犹豫时，解析失败的 JSON 直接放弃。"""
 
         async def run():
             event_bus = EventBus(enable_trace=False)
@@ -135,25 +137,22 @@ class InitiativeTimerManagerTests(unittest.TestCase):
                 )
 
                 payload = await manager.schedule_after_response("刚才的回复")
-                # 无效 JSON → 进入犹豫重试，payload 为 reconsider 定时器
-                self.assertIsNotNone(payload)
-                assert payload is not None
-                self.assertEqual(payload["source"], "reconsider")
-                self.assertEqual(payload["hesitation_round"], 1)
+                self.assertIsNone(payload)
+                self.assertIsNone(manager.current_payload())
             finally:
                 await event_bus.stop()
 
         asyncio.run(run())
 
-    def test_invalid_decision_json_returns_none_when_hesitation_disabled(self):
-        """关闭犹豫时，无效 JSON 直接放弃（无定时器）。"""
+    def test_invalid_decision_json_triggers_hesitation_when_enabled(self):
+        """显式开启犹豫时，解析失败的 JSON 进入犹豫链。"""
 
         async def run():
             event_bus = EventBus(enable_trace=False)
             await event_bus.start()
             try:
                 manager = InitiativeTimerManager(
-                    config=InitiativeTimerConfig(hesitation_max_rounds=0),
+                    config=InitiativeTimerConfig(hesitation_enabled=True),
                     model_client=_FakeModelClient(
                         '{"should_schedule": true, "delay_seconds": 60, "summary": "截断的摘要'
                     ),
@@ -163,8 +162,11 @@ class InitiativeTimerManagerTests(unittest.TestCase):
                 )
 
                 payload = await manager.schedule_after_response("刚才的回复")
-                self.assertIsNone(payload)
-                self.assertIsNone(manager.current_payload())
+                self.assertIsNotNone(payload)
+                assert payload is not None
+                self.assertEqual(payload["source"], "reconsider")
+                self.assertTrue(payload["hesitation_enabled"])
+                self.assertEqual(payload["hesitation_round"], 1)
             finally:
                 await event_bus.stop()
 
@@ -278,6 +280,29 @@ class InitiativeTimerManagerTests(unittest.TestCase):
                 await event_bus.stop()
 
         asyncio.run(run())
+
+
+    def test_config_loader_persists_hesitation_enabled_in_yaml(self):
+        from GensokyoAI.core.config import ConfigLoader
+
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.yaml"
+            path.write_text(
+                "initiative_timer:\n"
+                "  enabled: true\n"
+                "  hesitation_max_rounds: 2\n",
+                encoding="utf-8",
+            )
+
+            ConfigLoader.set_initiative_hesitation_enabled(path, True)
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("  hesitation_enabled: true\n", text)
+            self.assertLess(text.index("hesitation_enabled"), text.index("hesitation_max_rounds"))
+
+            ConfigLoader.set_initiative_hesitation_enabled(path, False)
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("  hesitation_enabled: false\n", text)
+            self.assertEqual(text.count("hesitation_enabled"), 1)
 
 
 if __name__ == "__main__":

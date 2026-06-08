@@ -183,6 +183,7 @@ initiative_timer:
   allow_frontend_edit_summary: true
   replace_user_modified_timer: true
   expose_pending_summary: true
+  hesitation_enabled: false
   hesitation_max_rounds: 2
   hesitation_delay_seconds: auto
 

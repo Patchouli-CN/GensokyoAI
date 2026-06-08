@@ -133,6 +133,7 @@ class InitiativeTimerConfig(Struct):
     allow_frontend_edit_summary: bool = True
     replace_user_modified_timer: bool = True
     expose_pending_summary: bool = True
+    hesitation_enabled: bool = False
     hesitation_max_rounds: int = 2
     hesitation_delay_seconds: int | str = "auto"  # "auto" 或具体秒数
 
