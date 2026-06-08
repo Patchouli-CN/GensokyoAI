@@ -54,6 +54,7 @@ class InitiativeTimerState:
     pending_summary: str
     reason: str = ""
     user_modified: bool = False
+    hesitation_round: int = 0  # 0=正常定时器, >0=第N轮犹豫重试
 
 
 class InitiativeTimerManager:
@@ -81,6 +82,8 @@ class InitiativeTimerManager:
         self._generation = 0
         self._task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
+        self._last_assistant_response: str | None = None  # 犹豫重试时复用
+        self._pace_stamps: list[datetime] = []  # 最近几次回复完成时间，用于 auto 延迟
 
     def current_payload(self) -> dict[str, Any] | None:
         """返回当前定时器对前端可见的 payload。"""
@@ -89,18 +92,26 @@ class InitiativeTimerManager:
         return self._payload(self._state)
 
     async def schedule_after_response(self, assistant_response: str) -> dict[str, Any] | None:
-        """AI 回复完成后生成并设置下一条积存主动发言摘要。"""
+        """AI 回复完成后生成并设置下一条积存主动发言摘要。
+
+        决策为"不发言"时不会直接放弃，而是进入犹豫链：
+        静默等待一段时间后重新让 AI 判断，最多犹豫 N 轮才真正放弃。
+        """
         if not self.config.enabled or not assistant_response.strip():
             return None
 
-        decision = await self._decide(assistant_response)
+        self._last_assistant_response = assistant_response
+        self._pace_stamps.append(datetime.now(UTC))
+        if len(self._pace_stamps) > 5:
+            self._pace_stamps = self._pace_stamps[-5:]
+        decision = await self._decide(assistant_response, hesitation_round=0)
         if not decision:
-            return None
+            return await self._try_hesitate(round_num=1)
 
         should_schedule = bool(decision.get("should_schedule"))
         summary = str(decision.get("summary") or "").strip()
         if not should_schedule or not summary:
-            return None
+            return await self._try_hesitate(round_num=1)
 
         summary = self._trim_summary(summary)
         delay_seconds = self._clamp_delay(decision.get("delay_seconds"))
@@ -114,11 +125,109 @@ class InitiativeTimerManager:
                 reason=reason,
                 source="ai",
                 user_modified=False,
+                hesitation_round=0,
             )
             self._state = state
             self._task = asyncio.create_task(self._run_timer(state.timer_id, state.generation))
             self._publish(SystemEvent.INITIATIVE_TIMER_CREATED, state)
             return self._payload(state)
+
+    # ------------------------------------------------------------------
+    # 犹豫重试
+    # ------------------------------------------------------------------
+
+    async def _try_hesitate(self, round_num: int) -> dict[str, Any] | None:
+        """AI 决定不发言时，进入犹豫重试链。返回定时器 payload 或 None。"""
+        max_rounds = self.config.hesitation_max_rounds
+        if max_rounds <= 0 or round_num > max_rounds:
+            return None
+        async with self._lock:
+            return self._schedule_reconsider_timer(round_num)
+
+    def _resolve_hesitation_delay(self) -> int:
+        """解析犹豫延迟：若为 'auto' 则根据对话节奏动态计算，否则用配置值。"""
+        raw = self.config.hesitation_delay_seconds
+        if isinstance(raw, str) and raw.strip().lower() == "auto":
+            return self._compute_auto_delay()
+        try:
+            seconds = int(raw)
+        except TypeError, ValueError:
+            return 180
+        return max(1, seconds)
+
+    def _compute_auto_delay(self) -> int:
+        """根据最近几次回复间隔动态计算犹豫等待时间。
+
+        节奏快 → 等待短；节奏慢 → 等待长。夹在 30~600 秒之间。
+        """
+        stamps = self._pace_stamps
+        if len(stamps) < 2:
+            return 180
+        intervals: list[float] = []
+        for i in range(1, len(stamps)):
+            delta = (stamps[i] - stamps[i - 1]).total_seconds()
+            if delta > 0:
+                intervals.append(delta)
+        if not intervals:
+            return 180
+        avg_interval = sum(intervals) / len(intervals)
+        # 弹性系数：节奏快等短一点，节奏慢等比放大
+        delay = int(avg_interval * 0.8)
+        return max(30, min(600, delay))
+
+    def _schedule_reconsider_timer(self, round_num: int) -> dict[str, Any] | None:
+        """调度一轮犹豫重试定时器（调用方必须持锁）。"""
+        state = self._create_state(
+            delay_seconds=self._resolve_hesitation_delay(),
+            pending_summary="",
+            reason=f"hesitation_round_{round_num}",
+            source="reconsider",
+            user_modified=False,
+            hesitation_round=round_num,
+        )
+        self._state = state
+        self._task = asyncio.create_task(self._run_timer(state.timer_id, state.generation))
+        return self._payload(state)
+
+    async def _handle_reconsider(self, round_num: int) -> None:
+        """犹豫定时器到期：重新让 AI 判断是否发言。"""
+        assistant_response = self._last_assistant_response or ""
+        if not assistant_response:
+            return
+
+        decision = await self._decide(assistant_response, hesitation_round=round_num)
+        if not decision:
+            await self._try_hesitate(round_num + 1)
+            return
+
+        should_schedule = bool(decision.get("should_schedule"))
+        summary = str(decision.get("summary") or "").strip()
+        if not should_schedule or not summary:
+            await self._try_hesitate(round_num + 1)
+            return
+
+        # AI 终于决定发言了！
+        summary = self._trim_summary(summary)
+        delay_seconds = self._clamp_delay(decision.get("delay_seconds"))
+        reason = str(decision.get("reason") or "").strip()
+
+        async with self._lock:
+            await self._discard_locked(reason="replaced_by_reconsider", source="ai")
+            state = self._create_state(
+                delay_seconds=delay_seconds,
+                pending_summary=summary,
+                reason=reason,
+                source="ai",
+                user_modified=False,
+                hesitation_round=0,
+            )
+            self._state = state
+            self._task = asyncio.create_task(self._run_timer(state.timer_id, state.generation))
+            self._publish(SystemEvent.INITIATIVE_TIMER_CREATED, state)
+
+    # ------------------------------------------------------------------
+    # 公共操作
+    # ------------------------------------------------------------------
 
     async def discard(
         self, *, reason: str = "discarded", source: str = "system"
@@ -208,8 +317,23 @@ class InitiativeTimerManager:
         async with self._lock:
             await self._discard_locked(reason="shutdown", source="system")
 
-    async def _decide(self, assistant_response: str) -> dict[str, Any] | None:
+    # ------------------------------------------------------------------
+    # 决策
+    # ------------------------------------------------------------------
+
+    async def _decide(
+        self, assistant_response: str, *, hesitation_round: int = 0
+    ) -> dict[str, Any] | None:
         recent_messages = self.working_memory.get_recent(6)
+        hesitation_note = ""
+        if hesitation_round > 0:
+            remaining = self.config.hesitation_max_rounds - hesitation_round
+            hesitation_note = f"（注意：这已是第 {hesitation_round} 次请你重新考虑是否主动发言"
+            if remaining > 0:
+                hesitation_note += f"，你还有 {remaining} 次犹豫机会"
+            else:
+                hesitation_note += "，这是最后一次机会，若仍不需要则放弃"
+            hesitation_note += "。）\n"
         prompt = f"""你是 {self.character_name}。
 
 你刚刚回复了用户：
@@ -217,11 +341,11 @@ class InitiativeTimerManager:
 
 请判断你是否想在稍后主动补充一句话。要求：
 - 如果没有自然、必要、符合角色的补充，就不要设置定时器。
-- 如果设置，只写“稍后主动发言意图的一句话摘要”，不要写完整可发送话术。
+- 如果设置，只写"稍后主动发言意图的一句话摘要"，不要写完整可发送话术。
 - 摘要只描述到点后要围绕什么思考和表达，真正说出口的话会在触发时重新生成。
 - 延迟秒数必须在 {self.config.min_delay_seconds} 到 {self.config.max_delay_seconds} 之间。
 - 只输出 JSON，不要输出解释。
-
+{hesitation_note}
 JSON 格式：
 {{
   "should_schedule": true/false,
@@ -284,6 +408,10 @@ JSON 格式：
             return None
         return data if isinstance(data, dict) else None
 
+    # ------------------------------------------------------------------
+    # 状态管理
+    # ------------------------------------------------------------------
+
     def _create_state(
         self,
         *,
@@ -292,6 +420,7 @@ JSON 格式：
         reason: str,
         source: str,
         user_modified: bool,
+        hesitation_round: int = 0,
     ) -> InitiativeTimerState:
         now = datetime.now(UTC)
         self._generation += 1
@@ -307,21 +436,33 @@ JSON 格式：
             pending_summary=pending_summary,
             reason=reason,
             user_modified=user_modified,
+            hesitation_round=hesitation_round,
         )
 
     async def _run_timer(self, timer_id: str, generation: int) -> None:
         try:
             while True:
                 trigger_args: dict[str, Any] | None = None
+                should_reconsider = False
+                reconsider_round = 0
                 async with self._lock:
                     state = self._state
                     if not state or state.timer_id != timer_id or state.generation != generation:
                         return
                     remaining = (state.due_at - datetime.now(UTC)).total_seconds()
                     if remaining <= 0:
-                        trigger_args = self._prepare_trigger_locked(state, source="timer")
+                        if state.source == "reconsider":
+                            should_reconsider = True
+                            reconsider_round = state.hesitation_round
+                            self._state = None
+                            self._cancel_task()
+                        else:
+                            trigger_args = self._prepare_trigger_locked(state, source="timer")
                     else:
                         trigger_args = None
+                if should_reconsider:
+                    await self._handle_reconsider(reconsider_round)
+                    return
                 if trigger_args is not None:
                     await self._execute_trigger_handler(trigger_args)
                     return
@@ -419,6 +560,8 @@ JSON 格式：
             "remaining_seconds": remaining,
             "reason": state.reason,
             "user_modified": state.user_modified,
+            "hesitation_round": state.hesitation_round,
+            "hesitation_max": self.config.hesitation_max_rounds,
             "editable_fields": ["due_at", "delay_seconds", "pending_summary"]
             if self.config.allow_frontend_edit_summary
             else ["due_at", "delay_seconds"],
