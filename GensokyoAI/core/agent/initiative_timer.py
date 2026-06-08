@@ -151,7 +151,7 @@ class InitiativeTimerManager:
             return self._compute_auto_delay()
         try:
             seconds = int(raw)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return 180
         return max(1, seconds)
 
@@ -328,9 +328,7 @@ class InitiativeTimerManager:
         hesitation_note = ""
         if hesitation_round > 0:
             remaining = self.config.hesitation_max_rounds - hesitation_round
-            hesitation_note = (
-                f"（注意：这已是第 {hesitation_round} 次请你重新考虑是否主动发言"
-            )
+            hesitation_note = f"（注意：这已是第 {hesitation_round} 次请你重新考虑是否主动发言"
             if remaining > 0:
                 hesitation_note += f"，你还有 {remaining} 次犹豫机会"
             else:

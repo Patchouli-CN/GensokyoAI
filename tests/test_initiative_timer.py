@@ -117,6 +117,7 @@ class InitiativeTimerManagerTests(unittest.TestCase):
 
     def test_invalid_decision_json_triggers_hesitation_by_default(self):
         """默认启用犹豫时，解析失败的 JSON 不再直接放弃，而是进入犹豫链。"""
+
         async def run():
             event_bus = EventBus(enable_trace=False)
             await event_bus.start()
@@ -144,6 +145,7 @@ class InitiativeTimerManagerTests(unittest.TestCase):
 
     def test_invalid_decision_json_returns_none_when_hesitation_disabled(self):
         """关闭犹豫时，无效 JSON 直接放弃（无定时器）。"""
+
         async def run():
             event_bus = EventBus(enable_trace=False)
             await event_bus.start()

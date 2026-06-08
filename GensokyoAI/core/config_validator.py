@@ -821,9 +821,7 @@ class ConfigValidator:
             minimum=0,
             maximum=10,
         )
-        self._validate_hesitation_delay_seconds(
-            data.get("hesitation_delay_seconds"), diagnostics
-        )
+        self._validate_hesitation_delay_seconds(data.get("hesitation_delay_seconds"), diagnostics)
         min_delay = data.get("min_delay_seconds")
         max_delay = data.get("max_delay_seconds")
         if (
@@ -853,9 +851,7 @@ class ConfigValidator:
             )
 
     @staticmethod
-    def _validate_hesitation_delay_seconds(
-        value: Any, diagnostics: list[ConfigDiagnostic]
-    ) -> None:
+    def _validate_hesitation_delay_seconds(value: Any, diagnostics: list[ConfigDiagnostic]) -> None:
         if value is None:
             return
         if isinstance(value, str) and value.strip().lower() == "auto":

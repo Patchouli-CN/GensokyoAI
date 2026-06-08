@@ -195,7 +195,9 @@ def sync_config(
         if prune:
             print(f"\n废弃键 ({len(obsolete)}) — 将被移除:")
         else:
-            print(f"\n[!] 废弃键 ({len(obsolete)}) — 在 default 中已不存在，建议确认是否需要 --rename 或 --prune:")
+            print(
+                f"\n[!] 废弃键 ({len(obsolete)}) — 在 default 中已不存在，建议确认是否需要 --rename 或 --prune:"
+            )
         for path in obsolete:
             print(f"  - {path}")
 
@@ -243,9 +245,7 @@ def sync_config(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="将 default.yaml 的格式变更同步到本地配置文件"
-    )
+    parser = argparse.ArgumentParser(description="将 default.yaml 的格式变更同步到本地配置文件")
     parser.add_argument(
         "source",
         nargs="?",
