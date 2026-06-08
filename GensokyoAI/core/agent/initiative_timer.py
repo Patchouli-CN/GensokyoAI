@@ -252,6 +252,9 @@ JSON 格式：
             )
             content = response.message.content
             text = content.strip() if isinstance(content, str) else ""
+            if not text:
+                logger.warning("主动定时器决策模型返回空内容，跳过")
+                return None
             data = self._parse_decision_json(text)
             if self.debug_silent_output:
                 logger.info(f"⏲️ [InitiativeTimer] 决策: {data}")
