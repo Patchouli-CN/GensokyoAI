@@ -17,11 +17,13 @@ class _FakeModelClient:
         )
         self.structured_output = structured_output
         self.last_options = None
+        self.last_messages = None
 
     def supports(self, capability: str) -> bool:
         return self.structured_output and capability == "structured_output"
 
     async def chat(self, messages, options=None):
+        self.last_messages = messages
         self.last_options = options
         return UnifiedResponse(
             message=UnifiedMessage(
@@ -189,6 +191,36 @@ class InitiativeTimerManagerTests(unittest.TestCase):
                 self.assertIsNotNone(payload)
                 assert payload is not None
                 self.assertEqual(payload["pending_summary"], "Markdown 里的摘要")
+            finally:
+                await event_bus.stop()
+
+        asyncio.run(run())
+
+    def test_decision_prompt_keeps_character_as_decision_owner_with_internal_json(self):
+        async def run():
+            event_bus = EventBus(enable_trace=False)
+            await event_bus.start()
+            try:
+                model_client = _FakeModelClient()
+                manager = InitiativeTimerManager(
+                    config=InitiativeTimerConfig(),
+                    model_client=model_client,
+                    event_bus=event_bus,
+                    character_name="博丽灵梦",
+                    working_memory=WorkingMemoryManager(max_turns=10),
+                )
+
+                payload = await manager.schedule_after_response("「赛钱箱在那边，随意投一点吧。」")
+                self.assertIsNotNone(payload)
+                self.assertIsNotNone(model_client.last_messages)
+                assert model_client.last_messages is not None
+                prompt = model_client.last_messages[0]["content"]
+                self.assertIn("你是 博丽灵梦", prompt)
+                self.assertIn("内部主动发言决定", prompt)
+                self.assertIn("这个决定仍然必须由你以 博丽灵梦 的身份、性格、动机和当前上下文来完成", prompt)
+                self.assertIn("不是用户可见台词", prompt)
+                self.assertIn("只输出一个原始 JSON 对象", prompt)
+                self.assertIn("不要输出 Markdown 代码块、角色引号、解释文本或任何前后缀", prompt)
             finally:
                 await event_bus.stop()
 

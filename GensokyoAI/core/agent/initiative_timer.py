@@ -336,15 +336,19 @@ class InitiativeTimerManager:
             hesitation_note += "。）\n"
         prompt = f"""你是 {self.character_name}。
 
+现在不是对用户说话，而是在向 GensokyoAI 系统提交你的内部主动发言决定。
+这个决定仍然必须由你以 {self.character_name} 的身份、性格、动机和当前上下文来完成；系统只负责读取你提交的机器可解析状态。
+
 你刚刚回复了用户：
 {assistant_response}
 
 请判断你是否想在稍后主动补充一句话。要求：
+- 这是内部决策提交，不是用户可见台词；不要把结果写成角色发言、对白、旁白或解释。
 - 如果没有自然、必要、符合角色的补充，就不要设置定时器。
 - 如果设置，只写"稍后主动发言意图的一句话摘要"，不要写完整可发送话术。
 - 摘要只描述到点后要围绕什么思考和表达，真正说出口的话会在触发时重新生成。
 - 延迟秒数必须在 {self.config.min_delay_seconds} 到 {self.config.max_delay_seconds} 之间。
-- 只输出 JSON，不要输出解释。
+- 只输出一个原始 JSON 对象；不要输出 Markdown 代码块、角色引号、解释文本或任何前后缀。
 {hesitation_note}
 JSON 格式：
 {{
