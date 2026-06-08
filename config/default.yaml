@@ -178,7 +178,7 @@ initiative_timer:
   min_delay_seconds: 30
   max_delay_seconds: 1800
   decision_temperature: 0.4
-  decision_max_tokens: 180
+  decision_max_tokens: 300
   max_pending_summary_chars: 240
   allow_frontend_edit_summary: true
   replace_user_modified_timer: true

@@ -237,10 +237,11 @@ JSON 格式：
             if isinstance(role, str) and isinstance(content, str) and role in {"user", "assistant"}:
                 messages.append({"role": role, "content": content})
         try:
+            decision_max_tokens = max(self.config.decision_max_tokens, 200)
             options: dict[str, Any] = {
                 "temperature": self.config.decision_temperature,
-                "num_predict": self.config.decision_max_tokens,
-                "max_tokens": self.config.decision_max_tokens,
+                "num_predict": decision_max_tokens,
+                "max_tokens": decision_max_tokens,
             }
             if self._supports_structured_output():
                 options["response_format"] = _INITIATIVE_TIMER_RESPONSE_FORMAT
@@ -308,21 +309,29 @@ JSON 格式：
     async def _run_timer(self, timer_id: str, generation: int) -> None:
         try:
             while True:
+                trigger_args: dict[str, Any] | None = None
                 async with self._lock:
                     state = self._state
                     if not state or state.timer_id != timer_id or state.generation != generation:
                         return
                     remaining = (state.due_at - datetime.now(UTC)).total_seconds()
                     if remaining <= 0:
-                        await self._trigger_locked(state, source="timer")
-                        return
+                        trigger_args = self._prepare_trigger_locked(state, source="timer")
+                    else:
+                        trigger_args = None
+                if trigger_args is not None:
+                    await self._execute_trigger_handler(trigger_args)
+                    return
                 await asyncio.sleep(min(remaining, 1.0))
         except asyncio.CancelledError:
             raise
         except Exception as error:
             logger.error(f"主动定时器任务异常: {error}")
 
-    async def _trigger_locked(self, state: InitiativeTimerState, *, source: str) -> dict[str, Any]:
+    def _prepare_trigger_locked(
+        self, state: InitiativeTimerState, *, source: str
+    ) -> dict[str, Any]:
+        """在锁内完成状态变更，返回触发参数供锁外回调使用。"""
         self._generation += 1
         state.status = "triggered"
         state.updated_at = datetime.now(UTC)
@@ -335,26 +344,31 @@ JSON 格式：
             state,
             extra={"pending_summary": pending_summary, "source": source},
         )
-
-        result: dict[str, Any] | None = None
-        if self.trigger_handler is not None:
-            result = await self.trigger_handler(
-                {
-                    "timer_id": state.timer_id,
-                    "pending_summary": pending_summary,
-                    "reason": state.reason,
-                    "source": source,
-                    "timer": payload,
-                }
-            )
-
         return {
-            "triggered": True,
             "timer_id": state.timer_id,
             "pending_summary": pending_summary,
+            "reason": state.reason,
+            "source": source,
             "timer": payload,
+        }
+
+    async def _execute_trigger_handler(self, trigger_args: dict[str, Any]) -> dict[str, Any]:
+        """在锁外执行 trigger_handler（可能调用 LLM，耗时较长）。"""
+        result: dict[str, Any] | None = None
+        if self.trigger_handler is not None:
+            result = await self.trigger_handler(trigger_args)
+        return {
+            "triggered": True,
+            "timer_id": trigger_args.get("timer_id", ""),
+            "pending_summary": trigger_args.get("pending_summary", ""),
+            "timer": trigger_args.get("timer", {}),
             "result": result,
         }
+
+    async def _trigger_locked(self, state: InitiativeTimerState, *, source: str) -> dict[str, Any]:
+        """立即触发（由 trigger() 调用，已在锁内）。状态变更在锁内，回调在锁外。"""
+        trigger_args = self._prepare_trigger_locked(state, source=source)
+        return await self._execute_trigger_handler(trigger_args)
 
     async def _discard_locked(self, *, reason: str, source: str) -> dict[str, Any] | None:
         state = self._state

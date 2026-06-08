@@ -806,7 +806,7 @@ class ConfigValidator:
             "initiative_timer.decision_max_tokens",
             data.get("decision_max_tokens"),
             diagnostics,
-            minimum=1,
+            minimum=200,
         )
         self._validate_numeric_range(
             "initiative_timer.max_pending_summary_chars",

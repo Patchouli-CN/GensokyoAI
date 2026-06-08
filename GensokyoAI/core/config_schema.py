@@ -128,7 +128,7 @@ class InitiativeTimerConfig(Struct):
     min_delay_seconds: int = 30
     max_delay_seconds: int = 1800
     decision_temperature: float = 0.4
-    decision_max_tokens: int = 180
+    decision_max_tokens: int = 300
     max_pending_summary_chars: int = 240
     allow_frontend_edit_summary: bool = True
     replace_user_modified_timer: bool = True
