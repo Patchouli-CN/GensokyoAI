@@ -1504,9 +1504,7 @@ class ConfigValidationAndRuntimePathTests(unittest.TestCase):
         self.assertTrue(config.initiative_timer.allow_frontend_edit_summary)
 
     def test_config_loader_accepts_hesitation_enabled_field(self):
-        config = ConfigLoader()._dict_to_config(
-            {"initiative_timer": {"hesitation_enabled": True}}
-        )
+        config = ConfigLoader()._dict_to_config({"initiative_timer": {"hesitation_enabled": True}})
         diagnostics = ConfigLoader().validate_dict(
             {"initiative_timer": {"hesitation_enabled": True}}
         )
@@ -1528,7 +1526,11 @@ class ConfigValidationAndRuntimePathTests(unittest.TestCase):
 
             def set_initiative_hesitation_enabled(self, enabled, *, persist=True):
                 self.enabled = bool(enabled)
-                return {"enabled": self.enabled, "persist": persist, "config_path": "config/default.yaml"}
+                return {
+                    "enabled": self.enabled,
+                    "persist": persist,
+                    "config_path": "config/default.yaml",
+                }
 
         service = RuntimeService()
         service.state.agent = cast(Any, FakeAgent())
@@ -1536,9 +1538,7 @@ class ConfigValidationAndRuntimePathTests(unittest.TestCase):
         status = asyncio.run(service.handle("initiative_timer.hesitation"))
         self.assertFalse(status["enabled"])
 
-        updated = asyncio.run(
-            service.handle("initiative_timer.hesitation.set", {"enabled": True})
-        )
+        updated = asyncio.run(service.handle("initiative_timer.hesitation.set", {"enabled": True}))
         self.assertTrue(updated["enabled"])
         self.assertTrue(updated["persist"])
 

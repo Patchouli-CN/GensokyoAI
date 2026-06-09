@@ -336,7 +336,9 @@ class InitiativeTimerManagerTests(unittest.TestCase):
                 prompt = model_client.last_messages[0]["content"]
                 self.assertIn("你是 博丽灵梦", prompt)
                 self.assertIn("内部主动发言决定", prompt)
-                self.assertIn("这个决定仍然必须由你以 博丽灵梦 的身份、性格、动机和当前上下文来完成", prompt)
+                self.assertIn(
+                    "这个决定仍然必须由你以 博丽灵梦 的身份、性格、动机和当前上下文来完成", prompt
+                )
                 self.assertIn("不是用户可见台词", prompt)
                 self.assertIn("不设置定时器", prompt)
                 self.assertIn("用户再次输入前不再主动开口", prompt)
@@ -401,16 +403,13 @@ class InitiativeTimerManagerTests(unittest.TestCase):
 
         asyncio.run(run())
 
-
     def test_config_loader_persists_hesitation_enabled_in_yaml(self):
         from GensokyoAI.core.config import ConfigLoader
 
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.yaml"
             path.write_text(
-                "initiative_timer:\n"
-                "  enabled: true\n"
-                "  hesitation_max_rounds: 2\n",
+                "initiative_timer:\n  enabled: true\n  hesitation_max_rounds: 2\n",
                 encoding="utf-8",
             )
 

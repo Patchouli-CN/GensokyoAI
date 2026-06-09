@@ -137,7 +137,9 @@ class InitiativeTimerManager:
     # 犹豫重试
     # ------------------------------------------------------------------
 
-    async def _handle_no_schedule(self, *, reason: str, round_num: int = 1) -> dict[str, Any] | None:
+    async def _handle_no_schedule(
+        self, *, reason: str, round_num: int = 1
+    ) -> dict[str, Any] | None:
         """AI 未设置定时器时，先尝试犹豫链，失败后进入兜底定时器。"""
         payload = await self._try_hesitate(round_num)
         if payload is not None:
@@ -184,7 +186,7 @@ class InitiativeTimerManager:
             return self._compute_auto_delay()
         try:
             seconds = int(raw)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return 180
         return max(1, seconds)
 
@@ -230,7 +232,9 @@ class InitiativeTimerManager:
 
         decision = await self._decide(assistant_response, hesitation_round=round_num)
         if not decision:
-            await self._handle_no_schedule(reason="reconsider_parse_failed", round_num=round_num + 1)
+            await self._handle_no_schedule(
+                reason="reconsider_parse_failed", round_num=round_num + 1
+            )
             return
 
         should_schedule = bool(decision.get("should_schedule"))
@@ -627,7 +631,7 @@ JSON 格式：
     def _clamp_delay(self, value: Any) -> int:
         try:
             seconds = int(value)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             seconds = self.config.min_delay_seconds
         return max(self.config.min_delay_seconds, min(self.config.max_delay_seconds, seconds))
 
