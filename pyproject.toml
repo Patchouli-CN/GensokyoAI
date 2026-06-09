@@ -25,7 +25,7 @@ dependencies = [
     "rich",
     "pyyaml",
     "aioconsole",
-    "ayafileio>=1.4.4",
+    "ayafileio>=1.4.5",
 ]
 
 [project.optional-dependencies]

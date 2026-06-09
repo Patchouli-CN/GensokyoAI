@@ -15,7 +15,7 @@ pyyaml           # YAML 解析
 aioconsole       # 异步控制台输入
 
 # ===== 自研高性能库 =====
-ayafileio>=1.3.1 # 真异步文件 I/O
+ayafileio>=1.4.5 # 真异步文件 I/O
 
 # ===== LLM Provider（按需安装，不在最小依赖中启用）=====
 # ollama          # pip install -e .[default] 或 pip install -e .[ollama]
