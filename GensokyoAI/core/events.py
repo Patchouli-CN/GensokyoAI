@@ -101,7 +101,8 @@ class SystemEvent(Enum):
 
     # 思考引擎事件
     THINK_ENGINE_THOUGHT = "think.engine.thought"  # 静默思考完成
-    THINK_ENGINE_INITIATIVE = "think.engine.initiative"  # 产生主动消息
+    THINK_ENGINE_INITIATIVE = "think.engine.initiative"  # 产生主动消息（完整）
+    THINK_ENGINE_INITIATIVE_CHUNK = "think.engine.initiative.chunk"  # 主动消息流式片段
 
     # 主动定时器事件
     INITIATIVE_TIMER_CREATED = "initiative_timer.created"

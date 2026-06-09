@@ -607,17 +607,49 @@ class Agent:
             "要求：不要解释定时器，不要提到摘要或内部思考；直接以角色口吻自然开口。"
         ]
         messages = self.message_builder.build("", system_contexts)
+        initiative_options = {
+            "temperature": self.config.think_engine.initiative_temperature,
+            "num_predict": self.config.think_engine.initiative_max_tokens,
+            "max_tokens": self.config.think_engine.initiative_max_tokens,
+        }
+        use_stream = self.config.model.stream
+
+        message = ""
         try:
-            response = await self._model_client.chat(
-                messages=messages,
-                options={
-                    "temperature": self.config.think_engine.initiative_temperature,
-                    "num_predict": self.config.think_engine.initiative_max_tokens,
-                    "max_tokens": self.config.think_engine.initiative_max_tokens,
-                },
-            )
-            content = response.message.content
-            message = content.strip() if isinstance(content, str) else ""
+            if use_stream:
+                chunks: list[str] = []
+                async for chunk in self._model_client.chat_stream(
+                    messages=messages,
+                    options=initiative_options,
+                ):
+                    if self.is_shutting_down:
+                        break
+                    chunk_text = chunk.content if hasattr(chunk, "content") else ""
+                    if chunk_text:
+                        chunks.append(chunk_text)
+                        self.event_bus.publish(
+                            Event(
+                                type=SystemEvent.THINK_ENGINE_INITIATIVE_CHUNK,
+                                source="initiative_timer",
+                                data={"content": chunk_text, "done": False},
+                            )
+                        )
+                message = "".join(chunks).strip()
+                # 发送流式结束标记
+                self.event_bus.publish(
+                    Event(
+                        type=SystemEvent.THINK_ENGINE_INITIATIVE_CHUNK,
+                        source="initiative_timer",
+                        data={"content": "", "done": True},
+                    )
+                )
+            else:
+                response = await self._model_client.chat(
+                    messages=messages,
+                    options=initiative_options,
+                )
+                content = response.message.content
+                message = content.strip() if isinstance(content, str) else ""
         except Exception as error:
             logger.error(f"主动定时器主动消息生成失败: {error}")
             message = ""
@@ -630,6 +662,7 @@ class Agent:
                 "thought": thought,
             }
 
+        # 发布完整消息事件（供持久化/记忆记录等下游消费）
         self.event_bus.publish(
             Event(
                 type=SystemEvent.THINK_ENGINE_INITIATIVE,
