@@ -5,7 +5,7 @@
 import asyncio
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import cast
+from typing import TypeVar, cast
 
 from ...runtime.event_contract import sanitize_event_payload
 from ...runtime.resource_control import (
@@ -30,6 +30,8 @@ from .types import (
     UnifiedEmbeddingResponse,
     UnifiedResponse,
 )
+
+_T = TypeVar("_T")
 
 
 class ModelClient:
@@ -331,7 +333,7 @@ class ModelClient:
 
     async def _call_with_retry(
         self,
-        call_factory,
+        call_factory: Callable[[], Awaitable[_T]],
         *,
         context: str,
         model: str,
@@ -339,7 +341,7 @@ class ModelClient:
         provider_name: str | None = None,
         timeout: float | None = None,
         endpoint: str | None = None,
-    ) -> UnifiedResponse | ImageGenerationResult | UnifiedEmbeddingResponse:
+    ) -> _T:
         """按配置对可重试 API 错误进行指数退避重试。"""
         max_attempts = max(1, self.config.retry_max_attempts)
         delay = max(0.0, self.config.retry_initial_delay)
@@ -356,22 +358,13 @@ class ModelClient:
 
         for attempt in range(1, max_attempts + 1):
             try:
-                call = cast(
-                    Callable[
-                        [],
-                        Awaitable[
-                            UnifiedResponse | ImageGenerationResult | UnifiedEmbeddingResponse
-                        ],
-                    ],
-                    call_factory,
-                )
                 await self._prepare_provider_auth(
                     call_provider,
                     context=context,
                     model=model,
                 )
                 return await self._call_with_resource_gates(
-                    lambda call=call: asyncio.wait_for(call(), timeout=call_timeout),
+                    lambda: asyncio.wait_for(call_factory(), timeout=call_timeout),
                     action=context,
                 )
             except TimeoutError:
@@ -406,7 +399,7 @@ class ModelClient:
                         force_refresh=True,
                     )
                     return await self._call_with_resource_gates(
-                        lambda call=call: asyncio.wait_for(call(), timeout=call_timeout),
+                        lambda: asyncio.wait_for(call_factory(), timeout=call_timeout),
                         action=context,
                     )
 

@@ -13,7 +13,7 @@
 # GensokyoAI/core/agent/providers/openai_provider.py
 
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ....utils.logger import logger
 from ....utils.request_utils import (
@@ -205,7 +205,7 @@ class OpenAIProvider(BaseProvider):
                 return [_clean(sub) for sub in item]
             return item
 
-        return _clean(messages)
+        return cast(list[dict], _clean(messages))
 
     # ==================== 核心 API ====================
 

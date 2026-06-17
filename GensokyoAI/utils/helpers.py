@@ -14,10 +14,8 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-def ensure_utc(dt: datetime | None) -> datetime | None:
+def ensure_utc(dt: datetime) -> datetime:
     """如果 datetime 是 naive 的，则假设其为 UTC 并附加时区信息。"""
-    if dt is None:
-        return None
     if dt.tzinfo is None:
         return dt.replace(tzinfo=UTC)
     return dt
