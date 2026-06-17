@@ -1053,7 +1053,10 @@ class ModelClient:
         **kwargs,
     ) -> list[list[float]]:
         """
-        批量获取文本向量（并行）
+        批量获取文本向量。
+
+        优先使用 Provider 原生批量 API；若 Provider 未实现，则回退到
+        asyncio.gather 并发单条调用。
 
         Args:
             prompts: 要向量化的文本列表
@@ -1062,20 +1065,130 @@ class ModelClient:
             **kwargs: 其他参数
 
         Returns:
-            向量列表
+            向量列表；失败的条目对应空列表。
         """
-        tasks = [self.embeddings(prompt, model, timeout, **kwargs) for prompt in prompts]
-        responses = await asyncio.gather(*tasks, return_exceptions=True)
+        if not prompts:
+            return []
 
-        embeddings = []
-        for resp in responses:
-            if isinstance(resp, BaseException):
-                logger.warning(f"批量 embeddings 中有异常: {resp}")
-                embeddings.append([])
-            else:
-                embeddings.append(resp.embedding)
+        embedding_provider_name = self._embedding_config.provider or self.config.provider
+        call_model = model or self._embedding_config.name or ""
+        embedding_provider: BaseProvider | None = None
+        embedding_model_config: ModelConfig | None = None
 
-        return embeddings
+        try:
+            embedding_provider, embedding_model_config = self._get_embedding_provider()
+            call_model = model or embedding_model_config.name
+            call_timeout = timeout or embedding_model_config.timeout
+            embedding_kwargs = self._build_embedding_kwargs(kwargs)
+
+            logger.debug(
+                f"批量调用 embeddings，Provider: {embedding_model_config.provider}, "
+                f"模型: {call_model}, 文本数: {len(prompts)}"
+            )
+
+            timing = ModelCallTiming(
+                context="embeddings_batch",
+                provider=embedding_model_config.provider,
+                model=call_model,
+                start_time=self._now(),
+                prompt_length=sum(len(p) for p in prompts),
+            )
+            self._publish_model_started(
+                context="embeddings_batch",
+                provider=embedding_model_config.provider,
+                model=call_model,
+                prompt_length=sum(len(p) for p in prompts),
+            )
+
+            try:
+                response = await self._call_with_retry(
+                    lambda: embedding_provider.embeddings_batch(
+                        model=call_model,
+                        prompts=prompts,
+                        **embedding_kwargs,
+                    ),
+                    context="embeddings_batch",
+                    model=call_model,
+                    provider=embedding_provider,
+                    provider_name=embedding_model_config.provider,
+                    timeout=call_timeout,
+                    endpoint=getattr(embedding_provider, "endpoint", None),
+                )
+                embeddings = [list(r.embedding) for r in response]
+            except NotImplementedError:
+                # Provider 未实现原生批量 API，回退到并发单条调用
+                tasks = [self.embeddings(prompt, model, timeout, **kwargs) for prompt in prompts]
+                responses = await asyncio.gather(*tasks, return_exceptions=True)
+                embeddings = []
+                for resp in responses:
+                    if isinstance(resp, BaseException):
+                        logger.warning(f"批量 embeddings 中有异常: {resp}")
+                        embeddings.append([])
+                    else:
+                        embeddings.append(list(resp.embedding))
+
+            timing.embedding_dimension = len(embeddings[0]) if embeddings else 0
+            self._finish_timing(timing)
+            self._publish_timing(timing)
+            self._publish_model_completed(timing)
+            logger.debug(
+                f"embeddings_batch 完成，向量数: {len(embeddings)}，耗时: {timing.duration_ms}ms"
+            )
+            return embeddings
+
+        except TimeoutError as error:
+            effective_timeout = timeout or self._embedding_config.timeout or self.config.timeout
+            error_msg = f"embeddings_batch 调用超时 ({effective_timeout}秒)"
+            logger.error(error_msg)
+            self._publish_error(
+                ModelError(error_msg),
+                {
+                    "context": "embeddings_batch",
+                    "timeout": effective_timeout,
+                    "prompt_count": len(prompts),
+                    "provider": embedding_provider_name,
+                    "model": call_model,
+                },
+            )
+            raise ModelError(error_msg) from error
+
+        except NotImplementedError as e:
+            logger.warning(f"当前 Provider 不支持 embeddings: {e}")
+            self._publish_error(
+                e,
+                {
+                    "context": "embeddings_batch",
+                    "prompt_count": len(prompts),
+                    "provider": embedding_provider_name,
+                    "model": call_model,
+                },
+            )
+            raise ModelError(
+                f"当前 embedding Provider ({embedding_provider_name}) 不支持 embeddings"
+            ) from e
+
+        except Exception as e:
+            normalized = (
+                e
+                if isinstance(e, ModelAPIError)
+                else normalize_model_error(
+                    e,
+                    provider=embedding_provider_name,
+                    model=call_model,
+                    retry_status_codes=self._retry_status_codes(),
+                )
+            )
+            logger.error(f"embeddings_batch 调用失败: {normalized}")
+            self._publish_error(
+                normalized,
+                {
+                    "context": "embeddings_batch",
+                    "prompt_count": len(prompts),
+                    "provider": embedding_provider_name,
+                    "model": call_model,
+                },
+            )
+            raise ModelError(f"embeddings_batch 调用失败: {normalized}") from e
 
     @property
     def model_name(self) -> str:

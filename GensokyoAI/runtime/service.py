@@ -9,10 +9,8 @@ transport such as ``bridge_main.py`` or a future HTTP/WebSocket adapter.
 from __future__ import annotations
 
 import asyncio
-import copy
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +54,7 @@ from GensokyoAI.runtime.rpc import (
 )
 from GensokyoAI.session.context import SessionContext
 from GensokyoAI.tools.external_manager import ExternalToolManager
+from GensokyoAI.utils.helpers import utc_now
 
 RUNTIME_EVENT_BACKPRESSURE_DROPPED = "runtime.backpressure.dropped"
 RUNTIME_DEPRECATED_FIELDS: tuple[dict[str, str | None], ...] = ()
@@ -578,7 +577,7 @@ class RuntimeService:
             "schema_version": SESSION_EXPORT_SCHEMA_VERSION,
             "session_schema_version": SESSION_SCHEMA_VERSION,
             "memory_schema_version": MEMORY_SCHEMA_VERSION,
-            "exported_at": datetime.now(UTC).isoformat(),
+            "exported_at": utc_now().isoformat(),
             "is_current": is_current,
             "character": self._character_payload(self.state.character_path, character_name),
             "session": self._session_payload(session),
@@ -1392,7 +1391,7 @@ class RuntimeService:
                 "dropped_event_type": dropped_event.get("type"),
                 "dropped_event_id": dropped_event.get("id"),
             },
-            "timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": utc_now().isoformat(),
             "metadata": {},
         }
 
@@ -1532,7 +1531,7 @@ class RuntimeService:
                 raise ValueError(f"Message at index {index} has invalid role")
             if not isinstance(content, str):
                 raise ValueError(f"Message at index {index} content must be a string")
-            normalized.append(copy.deepcopy(message))
+            normalized.append(dict(message))
         return normalized
 
     @staticmethod
@@ -1565,7 +1564,7 @@ class RuntimeService:
             "session": self._session_payload(session),
             "session_id": session.session_id,
             "is_current": is_current,
-            "messages": copy.deepcopy(messages),
+            "messages": [dict(m) for m in messages],
             "message_count": len(messages),
         }
 

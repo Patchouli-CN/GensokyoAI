@@ -15,6 +15,8 @@ if TYPE_CHECKING:
 
 
 class MessageOperation:
+    """消息流式操作器；每个操作方法返回新的实例，不修改原对象。"""
+
     def __init__(self, messages: list[dict]):
         self._messages = messages
 
@@ -34,24 +36,19 @@ class MessageOperation:
                         return False
             return True
 
-        self._messages = [m for m in self._messages if not matches(m)]
-        return self
+        return MessageOperation([m for m in self._messages if not matches(m)])
 
     def filter(self, predicate) -> MessageOperation:
-        self._messages = [m for m in self._messages if predicate(m)]
-        return self
+        return MessageOperation([m for m in self._messages if predicate(m)])
 
     def filter_role(self, *roles: str) -> MessageOperation:
-        self._messages = [m for m in self._messages if m.get("role") in roles]
-        return self
+        return MessageOperation([m for m in self._messages if m.get("role") in roles])
 
     def exclude_role(self, *roles: str) -> MessageOperation:
-        self._messages = [m for m in self._messages if m.get("role") not in roles]
-        return self
+        return MessageOperation([m for m in self._messages if m.get("role") not in roles])
 
     def take(self, n: int) -> MessageOperation:
-        self._messages = self._messages[-n:]
-        return self
+        return MessageOperation(self._messages[-n:])
 
     def get(self) -> list[dict]:
         return self._messages

@@ -9,6 +9,8 @@ from uuid import uuid4
 
 from msgspec import Struct, field
 
+from ...utils.helpers import utc_now
+
 
 class ActionType(Enum):
     """行动类型"""
@@ -40,7 +42,7 @@ class Action(Struct):
     params: dict[str, Any] = field(default_factory=dict)
     reason: str = ""
     confidence: float = 1.0
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=utc_now)
 
     def to_dict(self) -> dict:
         return {

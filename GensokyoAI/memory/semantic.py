@@ -119,9 +119,18 @@ class SemanticMemoryManager:
             try:
                 query_response = await self._model_client.embeddings(query)
                 query_embedding = list(query_response.embedding)
-                for memory in self._store._memories.values():
-                    response = await self._model_client.embeddings(memory.content)
-                    memory_embeddings[memory.id] = list(response.embedding)
+
+                memories = list(self._store._memories.values())
+                if memories:
+                    memory_contents = [memory.content for memory in memories]
+                    memory_ids = [memory.id for memory in memories]
+                    batch_embeddings = await self._model_client.embeddings_batch(memory_contents)
+                    memory_embeddings = {
+                        memory_id: list(embedding)
+                        for memory_id, embedding in zip(memory_ids, batch_embeddings, strict=True)
+                        if embedding
+                    }
+
                 diagnostics.update(
                     {
                         "retrieval_mode": "hybrid",

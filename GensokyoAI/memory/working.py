@@ -43,26 +43,23 @@ class WorkingMemoryManager:
 
     @staticmethod
     def _clean_reasoning(obj):
-        """递归删除 reasoning_content（迭代栈实现）。
+        """递归删除 reasoning_content，避免使用 copy.deepcopy。
 
         注意：该方法只能用于不支持 reasoning_content 的 Provider 出站清洗，
         不能用于 DeepSeek thinking mode 的工作记忆/上下文构建，否则会破坏
         DeepSeek 多轮对话必须回传 reasoning_content 的协议要求。
         """
-        import copy
 
-        cleaned = copy.deepcopy(obj)
-        stack = [cleaned]
-
-        while stack:
-            item = stack.pop()
+        def _clean(item):
             if isinstance(item, dict):
-                item.pop("reasoning_content", None)
-                stack.extend(item.values())
-            elif isinstance(item, list):
-                stack.extend(item)
+                return {
+                    key: _clean(value) for key, value in item.items() if key != "reasoning_content"
+                }
+            if isinstance(item, list):
+                return [_clean(sub) for sub in item]
+            return item
 
-        return cleaned
+        return _clean(obj)
 
     def rollback_messages(self, count: int) -> int:
         """回滚最近 count 条消息，返回实际移除数量。"""

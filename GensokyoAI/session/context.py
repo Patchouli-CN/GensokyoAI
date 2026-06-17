@@ -8,21 +8,23 @@ from uuid import uuid4
 
 from msgspec import Struct, field
 
+from ..utils.helpers import ensure_utc, utc_now
+
 
 class SessionContext(Struct):
     """会话上下文"""
 
     session_id: str = field(default_factory=lambda: str(uuid4()))
     character_id: str = "default"
-    created_at: datetime = field(default_factory=datetime.now)
-    last_active: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=utc_now)
+    last_active: datetime = field(default_factory=utc_now)
     total_turns: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
     is_active: bool = True
 
     def touch(self) -> None:
         """更新最后活跃时间"""
-        self.last_active = datetime.now()
+        self.last_active = utc_now()
 
     def increment_turns(self) -> None:
         """增加对话轮数"""
@@ -46,8 +48,8 @@ class SessionContext(Struct):
         return cls(
             session_id=data["session_id"],
             character_id=data["character_id"],
-            created_at=datetime.fromisoformat(data["created_at"]),
-            last_active=datetime.fromisoformat(data["last_active"]),
+            created_at=ensure_utc(datetime.fromisoformat(data["created_at"])),
+            last_active=ensure_utc(datetime.fromisoformat(data["last_active"])),
             total_turns=data["total_turns"],
             metadata=data.get("metadata", {}),
             is_active=data.get("is_active", True),

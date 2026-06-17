@@ -1,9 +1,10 @@
 """事件监听器 - 响应系统事件"""
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from ..utils.helpers import utc_now
 from ..utils.logger import logger
 from .events import Event, EventBus, SystemEvent
 
@@ -456,7 +457,7 @@ class ErrorListeners:
         }
 
     def has_recent_502(self, within_seconds: int = 60) -> bool:
-        cutoff = datetime.now() - timedelta(seconds=within_seconds)
+        cutoff = utc_now() - timedelta(seconds=within_seconds)
         for err in self._last_errors:
             if err.get("status_code") == "502" and err["timestamp"] > cutoff:
                 return True

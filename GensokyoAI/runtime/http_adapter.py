@@ -11,7 +11,6 @@ import contextlib
 import hmac
 import json
 import os
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -21,6 +20,7 @@ from msgspec import Struct
 
 from GensokyoAI.runtime.rpc import runtime_error_to_dict
 from GensokyoAI.runtime.service import RuntimeService
+from GensokyoAI.utils.helpers import utc_now
 
 RUNTIME_SERVICE_APP_KEY: web.AppKey[RuntimeService] = web.AppKey(
     "runtime_service",
@@ -439,7 +439,7 @@ async def _pump_ws_heartbeat(
             {
                 "ok": True,
                 "type": "heartbeat",
-                "ts": datetime.now(UTC).isoformat(),
+                "ts": utc_now().isoformat(),
             },
         )
 

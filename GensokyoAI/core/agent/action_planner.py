@@ -3,6 +3,7 @@
 # GensokyoAI/core/agent/action_planner.py
 import json
 import re
+from collections import deque
 from typing import TYPE_CHECKING
 
 from ...utils.logger import logger
@@ -47,7 +48,7 @@ class ActionPlanner:
         self.conflict_detector = ConflictDetector()
 
         self._last_action: Action | None = None
-        self._action_history: list[Action] = []
+        self._action_history: deque[Action] = deque(maxlen=50)
 
         self._subscribe_events()
         logger.debug(f"🧠 [ActionPlanner] 初始化完成，角色: {character_name}")
@@ -251,8 +252,6 @@ class ActionPlanner:
     def _record_action(self, action: Action) -> None:
         self._last_action = action
         self._action_history.append(action)
-        if len(self._action_history) > 50:
-            self._action_history = self._action_history[-50:]
 
     @property
     def last_action(self) -> Action | None:

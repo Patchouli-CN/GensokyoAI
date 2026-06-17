@@ -168,6 +168,33 @@ class BaseProvider(ABC):
         """
         raise NotImplementedError(f"{self.__class__.__name__} 不支持 embeddings")
 
+    async def embeddings_batch(
+        self,
+        model: str,
+        prompts: list[str],
+        **kwargs,
+    ) -> list[UnifiedEmbeddingResponse]:
+        """
+        批量文本向量化。
+
+        默认实现为串行/并行单条调用；支持原生批量 API 的 Provider 可覆写此方法
+        以获得更高吞吐。
+
+        Args:
+            model: 模型名称
+            prompts: 要向量化的文本列表
+            **kwargs: 额外参数
+
+        Returns:
+            list[UnifiedEmbeddingResponse]: 统一 embedding 响应列表
+
+        Raises:
+            NotImplementedError: 如果 Provider 不支持 embeddings
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} 未实现 embeddings_batch，请使用 embeddings 单条调用"
+        )
+
     def update_config(self, config: ModelConfig) -> None:
         """更新配置"""
         self.config = config

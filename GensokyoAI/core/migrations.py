@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from collections import deque
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from msgspec import Struct, field
 
+from ..utils.helpers import utc_now
 from .schema_versions import (
     GENSOKYOAI_CREATED_BY,
     MEMORY_SCHEMA_VERSION,
@@ -32,7 +32,7 @@ class MigrationDiagnostic(Struct):
     backup_path: str | None = None
     message: str = ""
     diagnostics: list[dict[str, Any]] = field(default_factory=list)
-    migrated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    migrated_at: str = field(default_factory=lambda: utc_now().isoformat())
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -116,7 +116,7 @@ def make_migration_diagnostic(
 
 
 def _now_iso() -> str:
-    return datetime.now(UTC).isoformat()
+    return utc_now().isoformat()
 
 
 def _migration_entry(*, from_version: int | None, to_version: int, reason: str) -> dict[str, Any]:

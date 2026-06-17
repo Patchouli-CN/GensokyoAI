@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from msgspec import Struct, field
 
+from ..utils.helpers import utc_now
 from ..utils.logger import logger
 
 
@@ -123,7 +124,7 @@ class Event(Struct):
     id: str = field(default_factory=lambda: str(uuid4())[:8])
     source: str = "unknown"
     data: Any = None
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=utc_now)
     metadata: dict = field(default_factory=dict)
 
     @property
@@ -420,13 +421,13 @@ class EventBus:
                 if self.enable_trace:
                     logger.info(f"   📨 [EventBus] 推送给处理器: {sub.handler_name} 执行")
 
-                start_time = datetime.now()
+                start_time = utc_now()
                 if inspect.iscoroutinefunction(sub.handler):
                     result = await sub.handler(event)
                 else:
                     result = await asyncio.to_thread(sub.handler, event)
 
-                elapsed = (datetime.now() - start_time).total_seconds() * 1000
+                elapsed = (utc_now() - start_time).total_seconds() * 1000
 
                 if self.enable_trace:
                     logger.info(f"   ✅ [EventBus] {sub.handler_name} 执行完成 ({elapsed:.1f}ms)")

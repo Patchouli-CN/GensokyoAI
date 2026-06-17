@@ -5,7 +5,6 @@
 import asyncio
 import json
 import shutil
-from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -16,6 +15,7 @@ from ..core.migrations import (
     record_migration_diagnostic,
 )
 from ..core.schema_versions import SESSION_FILE_FORMAT, SESSION_SCHEMA_VERSION
+from ..utils.helpers import utc_now
 from ..utils.logger import logger
 from .context import SessionContext
 
@@ -69,7 +69,7 @@ class SessionPersistence:
 
     def _quarantine_path(self, path: Path) -> Path:
         """生成不会覆盖现有文件的隔离文件路径。"""
-        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+        timestamp = utc_now().strftime("%Y%m%dT%H%M%S%fZ")
         return self._quarantine_dir(path) / f"{path.name}.{timestamp}.{uuid4().hex}.bad"
 
     def _read_json_file(self, path: Path) -> dict:

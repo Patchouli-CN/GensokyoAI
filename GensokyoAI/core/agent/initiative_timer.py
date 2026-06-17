@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from ...utils.helpers import utc_now
 from ...utils.logger import logger
 from ..config import InitiativeTimerConfig
 from ..events import Event, EventBus, SystemEvent
@@ -101,7 +102,7 @@ class InitiativeTimerManager:
             return None
 
         self._last_assistant_response = assistant_response
-        self._pace_stamps.append(datetime.now(UTC))
+        self._pace_stamps.append(utc_now())
         if len(self._pace_stamps) > 5:
             self._pace_stamps = self._pace_stamps[-5:]
         decision = await self._decide(assistant_response, hesitation_round=0)
@@ -282,7 +283,7 @@ class InitiativeTimerManager:
             state = self._require_current(timer_id)
             self._generation += 1
             state.status = "cancelled"
-            state.updated_at = datetime.now(UTC)
+            state.updated_at = utc_now()
             payload = self._payload(state)
             self._state = None
             self._cancel_task()
@@ -312,7 +313,7 @@ class InitiativeTimerManager:
 
         async with self._lock:
             state = self._require_current(timer_id)
-            now = datetime.now(UTC)
+            now = utc_now()
             changed = False
             if due_at is not None:
                 parsed_due_at = self._parse_due_at(due_at)
@@ -465,7 +466,7 @@ JSON 格式：
         user_modified: bool,
         hesitation_round: int = 0,
     ) -> InitiativeTimerState:
-        now = datetime.now(UTC)
+        now = utc_now()
         self._generation += 1
         return InitiativeTimerState(
             timer_id=str(uuid4())[:8],
@@ -492,7 +493,7 @@ JSON 格式：
                     state = self._state
                     if not state or state.timer_id != timer_id or state.generation != generation:
                         return
-                    remaining = (state.due_at - datetime.now(UTC)).total_seconds()
+                    remaining = (state.due_at - utc_now()).total_seconds()
                     if remaining <= 0:
                         if state.source == "reconsider":
                             should_reconsider = True
@@ -521,7 +522,7 @@ JSON 格式：
         """在锁内完成状态变更，返回触发参数供锁外回调使用。"""
         self._generation += 1
         state.status = "triggered"
-        state.updated_at = datetime.now(UTC)
+        state.updated_at = utc_now()
         pending_summary = state.pending_summary
         payload = self._payload(state)
         self._state = None
@@ -563,7 +564,7 @@ JSON 格式：
             return None
         self._generation += 1
         state.status = "discarded"
-        state.updated_at = datetime.now(UTC)
+        state.updated_at = utc_now()
         payload = self._payload(state)
         self._state = None
         self._cancel_task()
@@ -589,7 +590,7 @@ JSON 格式：
         self._task = None
 
     def _payload(self, state: InitiativeTimerState) -> dict[str, Any]:
-        now = datetime.now(UTC)
+        now = utc_now()
         remaining = max(0, int((state.due_at - now).total_seconds()))
         payload: dict[str, Any] = {
             "timer_id": state.timer_id,

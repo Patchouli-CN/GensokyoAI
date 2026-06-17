@@ -9,6 +9,8 @@ from uuid import uuid4
 
 from msgspec import Struct, field
 
+from ..utils.helpers import utc_now
+
 
 class TaskPriority(Enum):
     """任务优先级"""
@@ -35,7 +37,7 @@ class BackgroundTask(Struct, frozen=False):
     priority: TaskPriority = TaskPriority.NORMAL
     name: str = ""
     data: Any = None
-    created_at: datetime = field(default_factory=datetime.now)
+    created_at: datetime = field(default_factory=utc_now)
     timeout: float = 30.0  # 超时时间（秒）
     retry_count: int = 0
     max_retries: int = 1

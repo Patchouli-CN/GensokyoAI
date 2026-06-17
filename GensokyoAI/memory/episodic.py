@@ -3,11 +3,11 @@
 # GensokyoAI\memory\episodic.py
 
 import asyncio
-from datetime import datetime
 
 from ..core.agent.model_client import ModelClient
 from ..core.config import MemoryConfig
 from ..core.exceptions import MemorySystemError
+from ..utils.helpers import utc_now
 from ..utils.logger import logger
 from .types import EpisodicMemory, MemoryRecord
 
@@ -65,8 +65,8 @@ class EpisodicMemoryManager:
 
             episode = EpisodicMemory(
                 summary=summary,
-                start_time=to_compress[0].timestamp if to_compress else datetime.now(),
-                end_time=to_compress[-1].timestamp if to_compress else datetime.now(),
+                start_time=to_compress[0].timestamp if to_compress else utc_now(),
+                end_time=to_compress[-1].timestamp if to_compress else utc_now(),
                 message_count=len(to_compress),
                 key_events=self._extract_key_events(to_compress),
             )

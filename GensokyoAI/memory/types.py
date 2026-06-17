@@ -8,6 +8,8 @@ from uuid import uuid4
 
 from msgspec import Struct, field
 
+from ..utils.helpers import utc_now
+
 
 class TopicMemoryType(Enum):
     FACT = auto()
@@ -22,7 +24,7 @@ class MemoryRecord(Struct):
     id: str = field(default_factory=lambda: str(uuid4()))
     content: str = ""
     role: str = "user"  # user/assistant/system/tool
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=utc_now)
     character_id: str = "default"
     importance: float = 0.0  # 0-1 重要程度
     emotional_valence: float = 0.0  # 🆕 情感效价 -1.0 到 1.0
@@ -58,7 +60,7 @@ class EpisodicMemory(Struct):
     """情景记忆 - 历史摘要"""
 
     summary: str = ""
-    start_time: datetime = field(default_factory=datetime.now)
+    start_time: datetime = field(default_factory=utc_now)
     end_time: datetime | None = None
     message_count: int = 0
     key_events: list[str] = field(default_factory=list)
@@ -72,9 +74,9 @@ class Topic(Struct):
     name: str  # 无默认值，放最前
     id: str = field(default_factory=lambda: str(uuid4())[:8])
     summary: str = ""
-    created_at: datetime = field(default_factory=datetime.now)
-    last_updated: datetime = field(default_factory=datetime.now)
-    last_accessed: datetime = field(default_factory=datetime.now)  # 🆕 最后访问时间
+    created_at: datetime = field(default_factory=utc_now)
+    last_updated: datetime = field(default_factory=utc_now)
+    last_accessed: datetime = field(default_factory=utc_now)  # 🆕 最后访问时间
     access_count: int = 0  # 🆕 访问次数
     message_count: int = 0
     importance: float = 0.0
@@ -92,6 +94,6 @@ class TopicMemory(Struct):
     importance: float = 0.0
     emotional_impact: float = 0.0  # 🆕 情感冲击力
     tags: list[str] = field(default_factory=list)
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=utc_now)
     memory_type: TopicMemoryType = TopicMemoryType.FACT
     supersedes: str | None = None

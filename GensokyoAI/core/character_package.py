@@ -6,7 +6,6 @@ import hashlib
 import re
 import shutil
 import zipfile
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -14,6 +13,7 @@ from urllib.parse import urlparse
 import yaml
 from msgspec import Struct
 
+from ..utils.helpers import utc_now
 from .character_validator import CharacterValidator
 from .config_validator import ConfigDiagnostic
 from .schema_versions import CHARACTER_PACKAGE_FORMAT, CHARACTER_PACKAGE_SCHEMA_VERSION
@@ -152,7 +152,7 @@ class CharacterPackageService:
             "character": DEFAULT_CHARACTER_ENTRY,
             "assets": [],
             "metadata": {},
-            "created_at": datetime.now(UTC).isoformat(),
+            "created_at": utc_now().isoformat(),
         }
         optional_fields = {
             "source": source,

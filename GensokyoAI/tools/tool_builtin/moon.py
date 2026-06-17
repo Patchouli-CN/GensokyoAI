@@ -2,8 +2,9 @@
 
 # GensokyoAI\tools\tool_builtin\moon.py
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
+from ...utils.helpers import utc_now
 from ..base import tool
 
 
@@ -15,7 +16,7 @@ def get_moon_phase(days_delta: int = 0) -> str:
     Args:
         days_delta: 相对于今天的偏移天数，0表示今天
     """
-    base = datetime.now() + timedelta(days=days_delta)
+    base = utc_now() + timedelta(days=days_delta)
     # 简化的月相计算（基于日期）
     # 更精确的实现可以使用天文算法
     day = base.day % 8

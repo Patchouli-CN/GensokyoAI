@@ -32,3 +32,4 @@ GENSOKYOAI2.log
 # 备份
 
 *.bak
+.mypy_cache/

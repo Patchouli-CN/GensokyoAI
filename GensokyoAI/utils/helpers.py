@@ -4,8 +4,23 @@
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from functools import wraps
 from typing import Any
+
+
+def utc_now() -> datetime:
+    """返回带 UTC 时区的当前时间。项目统一使用时区感知时间。"""
+    return datetime.now(UTC)
+
+
+def ensure_utc(dt: datetime | None) -> datetime | None:
+    """如果 datetime 是 naive 的，则假设其为 UTC 并附加时区信息。"""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt
 
 
 def async_to_sync(func: Callable[..., Awaitable[Any]]):

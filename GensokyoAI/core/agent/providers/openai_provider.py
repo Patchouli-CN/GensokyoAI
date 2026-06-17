@@ -189,28 +189,23 @@ class OpenAIProvider(BaseProvider):
     @staticmethod
     def _clean_messages(messages: list[dict]) -> list[dict]:
         """
-        迭代清洗消息列表，移除所有 V4/V3 特有的 reasoning_content 字段，
+        递归清洗消息列表，移除所有 V4/V3 特有的 reasoning_content 字段，
         并将统一多模态 content parts 转换为 OpenAI Chat Completions 格式。
         """
-        import copy
 
-        cleaned: list[dict[str, Any]] = copy.deepcopy(messages)
-        for msg in cleaned:
-            if isinstance(msg, dict):
-                msg["content"] = OpenAIProvider._convert_content_parts(msg.get("content", ""))
+        def _clean(item):
+            if isinstance(item, dict):
+                cleaned = {
+                    key: _clean(value) for key, value in item.items() if key != "reasoning_content"
+                }
+                if "content" in cleaned:
+                    cleaned["content"] = OpenAIProvider._convert_content_parts(cleaned["content"])
+                return cleaned
+            if isinstance(item, list):
+                return [_clean(sub) for sub in item]
+            return item
 
-        stack: list[Any] = [cleaned]
-
-        while stack:
-            obj = stack.pop()
-
-            if isinstance(obj, dict):
-                obj.pop("reasoning_content", None)
-                stack.extend(obj.values())
-            elif isinstance(obj, list):
-                stack.extend(obj)
-
-        return cleaned
+        return _clean(messages)
 
     # ==================== 核心 API ====================
 
@@ -461,6 +456,35 @@ class OpenAIProvider(BaseProvider):
             model=request.model or self.config.name,
             metadata=response.model_dump() if hasattr(response, "model_dump") else {},
         )
+
+    async def embeddings_batch(
+        self,
+        model: str,
+        prompts: list[str],
+        **kwargs,
+    ) -> list[UnifiedEmbeddingResponse]:
+        """批量获取文本向量，使用 OpenAI 原生批量 API。"""
+        if not prompts:
+            return []
+
+        embed_kwargs: dict = {
+            "model": model,
+            "input": prompts,
+        }
+
+        if dimensions := kwargs.get("dimensions"):
+            embed_kwargs["dimensions"] = dimensions
+
+        if encoding_format := kwargs.get("encoding_format"):
+            embed_kwargs["encoding_format"] = encoding_format
+
+        response = await self._client.embeddings.create(**embed_kwargs)
+
+        # OpenAI 返回顺序与 input 顺序一致
+        return [
+            UnifiedEmbeddingResponse(embedding=item.embedding, model=model)
+            for item in response.data
+        ]
 
     async def embeddings(
         self,

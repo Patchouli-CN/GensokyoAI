@@ -73,17 +73,12 @@ class ToolExecutor:
         arguments = tool_call.get("arguments", {})
 
         if not name or not isinstance(name, str):
-            error = ToolError(
-                error_code="tool.invalid_name",
-                technical_message=f"无效的工具名称: {name}",
-                user_message="工具调用名称无效。",
-                recoverable=True,
-                action_hint="请检查模型输出的 tool call name 字段。",
-                details={"name": name},
-            )
-            logger.error(error.technical_message)
-            return self._error_result(
-                tool_call, str(name) if name else "unknown", error, legacy_prefix="错误"
+            return self._fail(
+                tool_call,
+                str(name) if name else "unknown",
+                self._invalid_name_error(name),
+                arguments,
+                log_level="error",
             )
 
         self._publish_tool_event("started", name, arguments)
@@ -93,19 +88,13 @@ class ToolExecutor:
 
         tool_def = self._registry.get(name)
         if not tool_def:
-            error = ToolError(
-                error_code="tool.not_found",
-                technical_message=f"工具 '{name}' 未找到",
-                user_message=f"工具“{name}”不可用。",
-                recoverable=True,
-                action_hint="请确认工具已注册，或从模型可用工具 schema 中移除该工具。",
-                details={"name": name},
+            return self._fail(
+                tool_call,
+                name,
+                self._tool_not_found_error(name),
+                arguments,
+                legacy_prefix="调用出错啦",
             )
-            logger.warning(error.technical_message)
-            self._publish_tool_event(
-                "failed", name, arguments, error.technical_message, tool_error=error
-            )
-            return self._error_result(tool_call, name, error, legacy_prefix="调用出错啦")
 
         try:
             logger.debug(f"执行工具: {name}({arguments})")
@@ -134,33 +123,17 @@ class ToolExecutor:
                 "content": result,
             }
         except ResourceLimitError as e:
-            error = self._resource_limit_tool_error(e)
-            logger.warning(error.technical_message)
-            self._publish_tool_event(
-                "failed", name, arguments, error.technical_message, tool_error=error
-            )
-            return self._error_result(tool_call, name, error, legacy_prefix="错误")
+            return self._fail(tool_call, name, self._resource_limit_tool_error(e), arguments)
         except ToolExecutionError as e:
-            error = e.error
-            logger.error(f"工具 {name} 执行错误: {error.technical_message}")
-            self._publish_tool_event(
-                "failed", name, arguments, error.technical_message, tool_error=error
-            )
-            return self._error_result(tool_call, name, error, legacy_prefix="错误")
+            return self._fail(tool_call, name, e.error, arguments, log_level="error")
         except Exception as e:
-            error = ToolError(
-                error_code="tool.execution_failed",
-                technical_message=f"工具执行失败: {e}",
-                user_message="工具执行失败。",
-                recoverable=True,
-                action_hint="请稍后重试；若持续失败，请检查工具配置和运行环境。",
-                details={"name": name, "exception_type": type(e).__name__},
+            return self._fail(
+                tool_call,
+                name,
+                self._execution_failed_error(name, e, scope="tool"),
+                arguments,
+                log_level="error",
             )
-            logger.error(f"工具 {name} 执行错误: {e}")
-            self._publish_tool_event(
-                "failed", name, arguments, error.technical_message, tool_error=error
-            )
-            return self._error_result(tool_call, name, error, legacy_prefix="错误")
 
     async def _execute_external(
         self,
@@ -169,19 +142,20 @@ class ToolExecutor:
         arguments: dict[str, Any],
     ) -> dict[str, Any]:
         if self._external_tool_manager is None:
-            error = ToolError(
-                error_code="external_tool.manager_unavailable",
-                technical_message="External tool manager is not configured for ToolExecutor.",
-                user_message="外部工具管理器不可用。",
-                recoverable=True,
-                action_hint="请确认 Runtime 或 Agent 已注入 ExternalToolManager。",
-                details={"name": name},
+            return self._fail(
+                tool_call,
+                name,
+                ToolError(
+                    error_code="external_tool.manager_unavailable",
+                    technical_message="External tool manager is not configured for ToolExecutor.",
+                    user_message="外部工具管理器不可用。",
+                    recoverable=True,
+                    action_hint="请确认 Runtime 或 Agent 已注入 ExternalToolManager。",
+                    details={"name": name},
+                ),
+                arguments,
+                legacy_prefix="调用出错啦",
             )
-            logger.warning(error.technical_message)
-            self._publish_tool_event(
-                "failed", name, arguments, error.technical_message, tool_error=error
-            )
-            return self._error_result(tool_call, name, error, legacy_prefix="调用出错啦")
 
         try:
             async with resource_scope(self._resource_gates.get("tool"), f"external_tool:{name}"):
@@ -196,33 +170,17 @@ class ToolExecutor:
                 "content": result_content,
             }
         except ResourceLimitError as e:
-            error = self._resource_limit_tool_error(e)
-            logger.warning(error.technical_message)
-            self._publish_tool_event(
-                "failed", name, arguments, error.technical_message, tool_error=error
-            )
-            return self._error_result(tool_call, name, error, legacy_prefix="错误")
+            return self._fail(tool_call, name, self._resource_limit_tool_error(e), arguments)
         except ToolExecutionError as e:
-            error = e.error
-            logger.error(f"外部工具 {name} 执行错误: {error.technical_message}")
-            self._publish_tool_event(
-                "failed", name, arguments, error.technical_message, tool_error=error
-            )
-            return self._error_result(tool_call, name, error, legacy_prefix="错误")
+            return self._fail(tool_call, name, e.error, arguments, log_level="error")
         except Exception as e:
-            error = ToolError(
-                error_code="external_tool.execution_failed",
-                technical_message=f"外部工具执行失败: {e}",
-                user_message="外部工具执行失败。",
-                recoverable=True,
-                action_hint="请检查外部工具源状态后重试。",
-                details={"name": name, "exception_type": type(e).__name__},
+            return self._fail(
+                tool_call,
+                name,
+                self._execution_failed_error(name, e, scope="external_tool"),
+                arguments,
+                log_level="error",
             )
-            logger.error(f"外部工具 {name} 执行错误: {e}")
-            self._publish_tool_event(
-                "failed", name, arguments, error.technical_message, tool_error=error
-            )
-            return self._error_result(tool_call, name, error, legacy_prefix="错误")
 
     @staticmethod
     def _resource_limit_tool_error(error: ResourceLimitError) -> ToolError:
@@ -235,6 +193,61 @@ class ToolExecutor:
             action_hint=payload["action_hint"],
             details=payload["details"],
         )
+
+    @staticmethod
+    def _invalid_name_error(name: Any) -> ToolError:
+        return ToolError(
+            error_code="tool.invalid_name",
+            technical_message=f"无效的工具名称: {name}",
+            user_message="工具调用名称无效。",
+            recoverable=True,
+            action_hint="请检查模型输出的 tool call name 字段。",
+            details={"name": name},
+        )
+
+    @staticmethod
+    def _tool_not_found_error(name: str) -> ToolError:
+        return ToolError(
+            error_code="tool.not_found",
+            technical_message=f"工具 '{name}' 未找到",
+            user_message=f"工具“{name}”不可用。",
+            recoverable=True,
+            action_hint="请确认工具已注册，或从模型可用工具 schema 中移除该工具。",
+            details={"name": name},
+        )
+
+    @staticmethod
+    def _execution_failed_error(name: str, exc: Exception, *, scope: str = "tool") -> ToolError:
+        is_external = scope == "external_tool"
+        prefix = "外部工具" if is_external else "工具"
+        return ToolError(
+            error_code=f"{scope}.execution_failed",
+            technical_message=f"{prefix}执行失败: {exc}",
+            user_message=f"{prefix}执行失败。",
+            recoverable=True,
+            action_hint="请检查外部工具源状态后重试。"
+            if is_external
+            else "请稍后重试；若持续失败，请检查工具配置和运行环境。",
+            details={"name": name, "exception_type": type(exc).__name__},
+        )
+
+    def _fail(
+        self,
+        tool_call: dict[str, Any],
+        name: str,
+        error: ToolError,
+        arguments: dict[str, Any],
+        *,
+        legacy_prefix: str = "错误",
+        log_level: str = "warning",
+    ) -> dict[str, Any]:
+        """统一发布工具失败事件并返回结构化错误结果。"""
+        log_func = getattr(logger, log_level, logger.warning)
+        log_func(error.technical_message)
+        self._publish_tool_event(
+            "failed", name, arguments, error.technical_message, tool_error=error
+        )
+        return self._error_result(tool_call, name, error, legacy_prefix=legacy_prefix)
 
     @staticmethod
     def _serialize_tool_result(result: Any) -> str:
@@ -341,14 +354,7 @@ class ToolExecutor:
         arguments = tool_call.get("arguments", {})
 
         if not name or not isinstance(name, str):
-            error = ToolError(
-                error_code="tool.invalid_name",
-                technical_message=f"无效的工具名称: {name}",
-                user_message="工具调用名称无效。",
-                recoverable=True,
-                action_hint="请检查模型输出的 tool call name 字段。",
-                details={"name": name},
-            )
+            error = self._invalid_name_error(name)
             logger.error(error.technical_message)
             return self._error_result(
                 tool_call, str(name) if name else "unknown", error, legacy_prefix="错误"
@@ -371,15 +377,9 @@ class ToolExecutor:
 
         tool_def = self._registry.get(name)
         if not tool_def:
-            error = ToolError(
-                error_code="tool.not_found",
-                technical_message=f"工具 '{name}' 未找到",
-                user_message=f"工具“{name}”不可用。",
-                recoverable=True,
-                action_hint="请确认工具已注册，或从模型可用工具 schema 中移除该工具。",
-                details={"name": name},
+            return self._error_result(
+                tool_call, name, self._tool_not_found_error(name), legacy_prefix="错误"
             )
-            return self._error_result(tool_call, name, error, legacy_prefix="错误")
 
         try:
             result = tool_def.func(**arguments)
@@ -393,12 +393,6 @@ class ToolExecutor:
         except ToolExecutionError as e:
             return self._error_result(tool_call, name, e.error, legacy_prefix="错误")
         except Exception as e:
-            error = ToolError(
-                error_code="tool.execution_failed",
-                technical_message=f"工具执行失败: {e}",
-                user_message="工具执行失败。",
-                recoverable=True,
-                action_hint="请稍后重试；若持续失败，请检查工具配置和运行环境。",
-                details={"name": name, "exception_type": type(e).__name__},
+            return self._error_result(
+                tool_call, name, self._execution_failed_error(name, e), legacy_prefix="错误"
             )
-            return self._error_result(tool_call, name, error, legacy_prefix="错误")

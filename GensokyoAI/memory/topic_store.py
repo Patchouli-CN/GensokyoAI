@@ -33,6 +33,7 @@ from ..core.migrations import (
     record_migration_diagnostic,
 )
 from ..core.schema_versions import MEMORY_SCHEMA_VERSION, MEMORY_STORE_FORMAT
+from ..utils.helpers import ensure_utc, utc_now
 from ..utils.logger import logger
 from .types import Topic, TopicMemory, TopicMemoryType
 
@@ -43,10 +44,11 @@ def _json_encoder(obj):
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 
+_TOKEN_PATTERN = re.compile(r"[\s,，。、；;！!？?·]+")
+
+
 def _tokenize(text: str) -> set[str]:
-    return {
-        word for word in re.split(r"[\s,，。、；;！!？?·]+", text.lower()) if 2 <= len(word) <= 20
-    }
+    return {word for word in _TOKEN_PATTERN.split(text.lower()) if 2 <= len(word) <= 20}
 
 
 class TopicAwareStore:
@@ -138,11 +140,15 @@ class TopicAwareStore:
 
             for t_data in data.get("topics", []):
                 if "created_at" in t_data and isinstance(t_data["created_at"], str):
-                    t_data["created_at"] = datetime.fromisoformat(t_data["created_at"])
+                    t_data["created_at"] = ensure_utc(datetime.fromisoformat(t_data["created_at"]))
                 if "last_updated" in t_data and isinstance(t_data["last_updated"], str):
-                    t_data["last_updated"] = datetime.fromisoformat(t_data["last_updated"])
+                    t_data["last_updated"] = ensure_utc(
+                        datetime.fromisoformat(t_data["last_updated"])
+                    )
                 if "last_accessed" in t_data and isinstance(t_data["last_accessed"], str):
-                    t_data["last_accessed"] = datetime.fromisoformat(t_data["last_accessed"])
+                    t_data["last_accessed"] = ensure_utc(
+                        datetime.fromisoformat(t_data["last_accessed"])
+                    )
 
                 topic = Topic(name=t_data.pop("name", "未命名"), **t_data)
                 self._topics[topic.id] = topic
@@ -151,7 +157,7 @@ class TopicAwareStore:
 
             for m_data in data.get("memories", []):
                 if "timestamp" in m_data and isinstance(m_data["timestamp"], str):
-                    m_data["timestamp"] = datetime.fromisoformat(m_data["timestamp"])
+                    m_data["timestamp"] = ensure_utc(datetime.fromisoformat(m_data["timestamp"]))
                 memory = TopicMemory(content=m_data.pop("content", ""), **m_data)
                 self._memories[memory.id] = memory
 
@@ -211,7 +217,7 @@ class TopicAwareStore:
     def _index_topic(self, topic: Topic) -> None:
         """构建关键词索引"""
         text = f"{topic.name} {topic.summary}".lower()
-        words = re.split(r"[\s,，。、；;！!？?·]+", text)
+        words = _TOKEN_PATTERN.split(text)
 
         for word in words:
             if 2 <= len(word) <= 20:
@@ -238,7 +244,7 @@ class TopicAwareStore:
         access_factor = 1.0 + min(topic.access_count / 10.0, 1.0)
 
         # 时间衰减
-        days_since_access = (datetime.now() - topic.last_accessed).days
+        days_since_access = (utc_now() - topic.last_accessed).days
         half_life_days = 30 * emotional_factor * access_factor
         decay = 0.5 ** (days_since_access / half_life_days)
 
@@ -246,40 +252,54 @@ class TopicAwareStore:
 
     def _refresh_topic(self, topic: Topic, boost: float = 0.03) -> None:
         """刷新话题：更新时间戳，微量增加重要性"""
-        topic.last_accessed = datetime.now()
+        topic.last_accessed = utc_now()
         topic.access_count = getattr(topic, "access_count", 0) + 1
         topic.importance = min(topic.importance + boost, 10.0)
 
         logger.debug(f"话题 '{topic.name}' 被刷新，重要性: {topic.importance:.2f}")
 
+    def _snapshot_memories(self) -> list[TopicMemory]:
+        """获取当前记忆的浅拷贝快照，避免迭代期间被异步写操作修改。"""
+        return list(self._memories.values())
+
+    def _snapshot_topics(self) -> list[Topic]:
+        """获取当前话题的浅拷贝快照，避免迭代期间被异步写操作修改。"""
+        return list(self._topics.values())
+
     # ==================== 话题候选 ====================
 
     def _get_candidates(self, query: str, max_candidates: int = 5) -> list[Topic]:
         """获取候选话题"""
-        if not self._topics:
+        topics = self._snapshot_topics()
+        if not topics:
             return []
 
         query_lower = query.lower()
-        words = re.split(r"[\s,，。、；;！!？?·]+", query_lower)
+        words = _TOKEN_PATTERN.split(query_lower)
 
         hits: dict[str, int] = defaultdict(int)
+        # 对关键词索引做快照，避免迭代时索引被修改
+        keyword_index = dict(self._keyword_index)
         for word in words:
-            if 2 <= len(word) <= 20 and word in self._keyword_index:
-                for tid in self._keyword_index[word]:
+            if 2 <= len(word) <= 20 and word in keyword_index:
+                for tid in keyword_index[word]:
                     hits[tid] += 1
 
         candidates = []
+        topic_map = {t.id: t for t in topics}
         for tid, _ in sorted(hits.items(), key=lambda x: x[1], reverse=True):
-            if tid in self._topics:
-                candidates.append(self._topics[tid])
+            if tid in topic_map:
+                candidates.append(topic_map[tid])
                 if len(candidates) >= max_candidates:
                     break
 
         if len(candidates) < max_candidates:
-            recent = sorted(self._topics.values(), key=lambda t: t.last_updated, reverse=True)
+            recent = sorted(topics, key=lambda t: t.last_updated, reverse=True)
+            candidate_set = set(candidates)
             for t in recent:
-                if t not in candidates:
+                if t not in candidate_set:
                     candidates.append(t)
+                    candidate_set.add(t)
                     if len(candidates) >= max_candidates:
                         break
 
@@ -344,8 +364,8 @@ class TopicAwareStore:
             if t.name.lower() in content_lower:
                 score += 5.0
 
-            topic_words = set(re.split(r"[\s,，。、；;！!？?·]+", topic_text))
-            content_words = set(re.split(r"[\s,，。、；;！!？?·]+", content_lower))
+            topic_words = set(_TOKEN_PATTERN.split(topic_text))
+            content_words = set(_TOKEN_PATTERN.split(content_lower))
             common = topic_words & content_words
             score += len(common) * 0.5
 
@@ -463,7 +483,7 @@ class TopicAwareStore:
         emotional_valence: float = 0.0,
     ) -> None:
         """更新已有话题"""
-        topic.last_updated = datetime.now()
+        topic.last_updated = utc_now()
         topic.message_count += 1
         topic.importance += importance * (score / 10.0)
 
@@ -618,8 +638,11 @@ class TopicAwareStore:
         keyword_weight = 1.0 - embedding_weight if use_embedding else 1.0
         candidates: list[dict] = []
 
-        for memory in self._memories.values():
-            topic = self._topics.get(memory.topic_id)
+        memories = self._snapshot_memories()
+        topic_map = {topic.id: topic for topic in self._snapshot_topics()}
+
+        for memory in memories:
+            topic = topic_map.get(memory.topic_id)
             keyword_score, matched_by = self._keyword_memory_score(query_text, memory, topic)
             embedding_score = None
             if use_embedding:
@@ -659,7 +682,7 @@ class TopicAwareStore:
 
         for item in candidates[:top_k]:
             item_topic_id = item.get("topic_id")
-            topic = self._topics.get(item_topic_id) if isinstance(item_topic_id, str) else None
+            topic = topic_map.get(item_topic_id) if isinstance(item_topic_id, str) else None
             if topic and refresh:
                 self._refresh_topic(topic, boost=0.01)
 
@@ -667,7 +690,7 @@ class TopicAwareStore:
 
     def get_all(self) -> list[dict]:
         """获取所有记忆"""
-        return [self._memory_payload(m) for m in self._memories.values()]
+        return [self._memory_payload(m) for m in self._snapshot_memories()]
 
     def list_memories(
         self,
@@ -679,7 +702,7 @@ class TopicAwareStore:
     ) -> dict:
         topic = self.find_topic_by_name(topic_name) if topic_name else None
         selected_topic_id = topic_id or (topic.id if topic else None)
-        memories = list(self._memories.values())
+        memories = self._snapshot_memories()
         if selected_topic_id:
             memories = [memory for memory in memories if memory.topic_id == selected_topic_id]
         memories.sort(key=lambda memory: memory.timestamp, reverse=True)
@@ -694,7 +717,7 @@ class TopicAwareStore:
 
     def list_topics(self) -> list[dict]:
         return [
-            payload for topic in self._topics.values() if (payload := self._topic_payload(topic))
+            payload for topic in self._snapshot_topics() if (payload := self._topic_payload(topic))
         ]
 
     def get_memory(self, memory_id: str) -> dict | None:
@@ -729,7 +752,7 @@ class TopicAwareStore:
         if topic and memory_id in topic.message_ids:
             topic.message_ids = [item for item in topic.message_ids if item != memory_id]
             topic.message_count = max(0, topic.message_count - 1)
-            topic.last_updated = datetime.now()
+            topic.last_updated = utc_now()
             if topic.message_count == 0:
                 self._topics.pop(topic.id, None)
         self._rebuild_indexes()
@@ -737,8 +760,8 @@ class TopicAwareStore:
         return True
 
     def get_all_topics(self) -> list[Topic]:
-        """获取所有话题（只读）"""
-        return list(self._topics.values())
+        """获取所有话题（只读快照）"""
+        return self._snapshot_topics()
 
     def find_topic_by_name(self, name: str | None) -> Topic | None:
         """根据话题名查找话题。"""
@@ -783,12 +806,15 @@ class TopicAwareStore:
 
     def get_topic_graph(self) -> dict:
         """获取话题关联图"""
-        nodes = [self._topic_payload(t) for t in self._topics.values()]
+        topics = self._snapshot_topics()
+        topic_map = {topic.id: topic for topic in topics}
+
+        nodes = [self._topic_payload(t) for t in topics]
 
         edges = []
-        for t in self._topics.values():
+        for t in topics:
             for rid, score in t.related_topics.items():
-                if score >= 5.0 and rid in self._topics:
+                if score >= 5.0 and rid in topic_map:
                     edges.append(
                         {
                             "source": t.id,
