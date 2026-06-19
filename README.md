@@ -12,6 +12,8 @@
 >
 > 项目使用 Python 3.14+ 语法与运行时能力，推荐通过 `uv` 启动和管理环境；`uv` 会按 `pyproject.toml` 自动选择或准备满足要求的 Python，不建议为兼容旧 Python 手动降级。
 
+[**English README**](README_en.md) | [**中文 README**](README.md)
+
 [**使用指南**](./docs/user_guide.md)
 [**项目设计**](./docs/project_design.md)
 [**Runtime API 契约**](./docs/runtime_api.md)

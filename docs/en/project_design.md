@@ -1,0 +1,144 @@
+# Project Design
+
+## Functional Design
+
+### Character Configuration & Consistency
+
+- **YAML Character Configuration**: Define character name, persona, greeting, and example dialogues with simple config files.
+- **System Prompt Templates**: Support long prompts and example dialogues to quickly shape character personality.
+- **Character Consistency Maintenance**: Through working memory, episodic memory, and semantic memory, characters maintain context and personality consistency across long conversations.
+
+### Three-Layer Memory System
+
+| Memory Type | Purpose | Implementation |
+|-------------|---------|----------------|
+| **Working Memory** | Full conversation of current session | Sliding window, retains the most recent N turns |
+| **Episodic Memory** | Compressed summaries of historical dialogue | Model-generated summaries, key event extraction |
+| **Semantic Memory** | Long-term knowledge storage and retrieval | Topic-aware storage + forgetting curve; no vector database required by default |
+
+### Memory Management Tools
+
+> **Design Philosophy**: The model entity playing the role should manage its own memory, just like a real social individual.
+
+When tool calling is enabled and the selected model supports and chooses to invoke tools, the character can actively manage its own memory:
+
+- **`remember` tool**: AI autonomously decides when to remember important information.
+- **`recall` tool**: AI actively retrieves relevant memories when needed.
+- **Topic-aware storage**: Automatically categorizes memories into topics and builds association graphs.
+- **Forgetting curve**: Memory weight adjustment mechanism based on importance, emotional valence, and access frequency.
+- **`update_memory` tool**: Updates existing memories when old information becomes outdated or inaccurate.
+
+### Silent Thinking Engine (ThinkEngine)
+
+> **Design Philosophy**: Characters should possess natural thinking ability, not just respond.
+
+Give AI its own "psychological time":
+
+- **Natural thinking**: AI actively reviews past topics when idle and there are reviewable topics.
+- **Random topic paths**: Simulates human associative thinking.
+- **Emotion-driven priority**: Prioritizes thinking about high-emotional-value topics.
+- **Autonomous decision on dialogue timing**: Judges whether to initiate dialogue through action planning; not every thought results in speaking.
+
+### Action Planning System
+
+| Action Type | Description |
+|-------------|-------------|
+| **SPEAK** | Respond to user message |
+| **INITIATIVE_SPEAK** | Proactively initiate dialogue |
+| **THINK** | Silent thinking (internal) |
+| **REMEMBER** | Actively remember something |
+| **RECALL** | Actively recall |
+| **WAIT** | Do nothing |
+
+### Session Management
+
+- Create, save, resume, and list sessions.
+- Supports automatic persistence; background save process uses async I/O.
+- Session rollback: wrong things can be retracted.
+- Sessions are saved per character; selecting different characters at startup maintains their own separate conversation records.
+
+### Tool Calling
+
+Built-in tools give characters "superpowers":
+
+- `get_current_time`: get current time.
+- `get_current_dateinfo`: get date and weekday.
+- `get_moon_phase`: get moon phase.
+- `get_system_info`: get system information.
+- `remember` / `recall`: autonomous memory management.
+- `update_memory`: update existing memory.
+
+Tool calling has been uniformly adapted for multiple providers: OpenAI / DeepSeek / OpenAI Responses / Ollama / Claude / Gemini are converted to their respective official tool-calling formats. DeepSeek uses a separate provider to handle the `reasoning_content` round-trip required for tool calling in thinking mode; Claude uses the official Messages API `tool_use` / `tool_result` content blocks, not the OpenAI-style `role: tool`.
+
+### Special Tags
+
+| Command Type | Example | Description |
+|--------------|---------|-------------|
+| **Prompt tags** | `<know>content</know>` | Dynamically inject reference material |
+| | `<meta>content</meta>` | Set scene / metadata |
+| | `<attention>content</attention>` | Remind or correct AI |
+| **System commands** | `/help`, `/save`, `/new` | Control program behavior |
+| **Chat commands** | `<think>`, `<whisper>` | Local display only, not sent to AI |
+
+### Multi LLM Provider Support
+
+| Provider | Chat | Tool Calling | Embeddings | Notes |
+|----------|------|--------------|------------|-------|
+| **Ollama** | ✅ | ✅ | ✅ | Local model, default provider |
+| **OpenAI** | ✅ | ✅ | ✅ | Chat Completions API, compatible with SiliconFlow / vLLM / Groq and other third-party services |
+| **DeepSeek** | ✅ | ✅ | ❌ | DeepSeek official OpenAI-compatible API, supports thinking mode and `reasoning_content` round-trip |
+| **OpenAI Responses** | ✅ | ✅ | ✅ | Official OpenAI Responses API |
+| **Claude** | ✅ | ✅ | ❌ | Anthropic Claude series; official embedding models not provided |
+| **Gemini** | ✅ | ✅ Basic | ✅ | Google Gemini series; tool results currently returned as text |
+
+> Supports custom provider registration; can be extended to other LLM APIs. See [Advanced Usage](#advanced-usage) for details.
+
+### Event-Driven Architecture
+
+- Fully asynchronous design based on `asyncio`.
+- Event bus decouples Agent, backend, tools, memory, and persistence components.
+- Background task queue handles async persistence.
+- Supports streaming output and typewriter effect.
+- Graceful signal handling and shutdown process; Ctrl+C safe exit, minimizing data loss.
+
+### Extensible Backend
+
+- Abstract backend base class `BaseBackend`.
+- Built-in Rich-beautified console backend.
+- Command system decoupled from backend, easily extended to WebUI, QQ bot, Discord Bot, etc.
+
+## File Structure
+
+```text
+GensokyoAI/
+├── GensokyoAI/                 # Main package directory
+│   ├── backends/               # Backend abstraction and implementation
+│   ├── background/             # Background task system
+│   ├── commands/               # Command system
+│   ├── core/                   # Core modules
+│   │   ├── agent/              # Agent, model client, providers, response handling
+│   │   │   ├── providers/      # Ollama / OpenAI / DeepSeek / OpenAI Responses / Claude / Gemini etc.
+│   │   │   ├── _impl.py        # Agent main class
+│   │   │   ├── model_client.py # LLM client facade
+│   │   │   └── types.py        # Unified response, message, tool call types
+│   │   ├── config.py           # Configuration management (YAML + environment variables)
+│   │   ├── events.py           # Event bus
+│   │   └── exceptions.py       # Custom exceptions
+│   ├── memory/                 # Working memory, episodic memory, semantic memory
+│   ├── session/                # Session management and persistence
+│   ├── tools/                  # Tool registration, execution, built-in tools
+│   └── utils/                  # Utility functions
+├── characters/                 # Character config files
+│   ├── example.yaml            # Character template
+│   └── zh_cn/                  # Built-in Chinese characters
+├── config/
+│   └── default.yaml            # Default configuration
+├── tests/                      # Regression tests
+├── bridge_main.py              # JSON Lines Runtime RPC entry point
+├── runtime_http.py             # HTTP / WebSocket Runtime entry point
+├── pyproject.toml              # Project configuration (UV / packaging scripts)
+├── requirements.txt            # pip dependency list
+├── run_default_uv.cmd          # Windows UV quick start script
+├── run_default_pip.cmd         # Windows pip quick start script
+└── README.md
+```

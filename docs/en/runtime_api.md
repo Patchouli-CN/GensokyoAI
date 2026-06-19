@@ -1,0 +1,688 @@
+# Runtime API Contract
+
+This document describes the stable JSON RPC contract exposed by the GensokyoAI Runtime to frontends, desktop clients, CLIs, and third-party integrations.
+
+## Versioning and Compatibility
+
+- Current protocol version: `1.0.0`
+- Current protocol major version: `1`
+- Compatibility policy: within the same major version, new fields and methods may be added; removing fields, changing semantics, or changing error structures requires a breaking change.
+- Clients should call `runtime.info` first, then decide available features based on `protocol_version`, `capabilities`, `methods`, `legacy_methods`, and `method_specs`.
+- The method list in this document should be taken as a guide; the authoritative source is `runtime.info.methods` and `runtime.info.method_specs`. Examples will list the complete non-legacy methods from the current `GensokyoAI.runtime.rpc.RPC_METHOD_SPECS` as much as possible to avoid clients misunderstanding due to subset display.
+
+## Discovery Interface
+
+`runtime.info` returns runtime metadata:
+
+```json
+{
+  "name": "GensokyoAI Runtime",
+  "package_version": "2026.5.13.0",
+  "protocol": "json-lines-rpc",
+  "protocol_version": "1.0.0",
+  "protocol_major_version": 1,
+  "capabilities": ["agent.lifecycle", "agent.messaging", "agent.streaming", "character.discovery", "character.validation", "character_package.management", "dependency.management", "external_tool.status", "initiative_timer.management", "memory.management", "memory.search", "memory.graph", "model.discovery", "config.validation", "migration.diagnostics", "resource_control.runtime_gates", "runtime.events", "runtime.health", "runtime.versioning", "session.management"],
+  "methods": ["runtime.info", "runtime.health", "runtime.shutdown", "config.validate", "character.validate", "character_package.validate", "character_package.preview", "character_package.import", "character_package.export", "agent.init", "agent.send_message", "agent.send_message_stream", "character.list", "model.list", "model.info", "session.create", "session.list", "session.current", "session.resume", "session.delete", "session.export", "session.rename", "session.rollback", "dependency.status", "dependency.install", "external_tool.status", "initiative_timer.current", "initiative_timer.update", "initiative_timer.cancel", "initiative_timer.trigger", "memory.list", "memory.search", "memory.get", "memory.update", "memory.delete", "memory.graph"],
+  "legacy_methods": ["init", "send_message", "send_message_stream", "list_characters", "create_session", "list_sessions", "current_session", "resume_session", "delete_session", "export_session", "rename_session", "rollback_session", "shutdown", "dependency_status", "install_dependencies", "external_tool_status"],
+  "method_specs": [
+    {"method": "runtime.info", "handler": "info", "legacy": false, "namespace": "runtime", "deprecated": false, "replacement": null, "remove_after": null},
+    {"method": "init", "handler": "init", "legacy": true, "namespace": "legacy", "deprecated": true, "replacement": "agent.init", "remove_after": "2.0.0"}
+  ],
+  "schema_versions": {
+    "config": 1,
+    "session": 1,
+    "memory": 1,
+    "session_export": 1,
+    "character_package": 1
+  },
+  "config_schema_version": 1,
+  "deprecated_methods": [
+    {
+      "method": "init",
+      "replacement": "agent.init",
+      "remove_after": "2.0.0"
+    }
+  ],
+  "breaking_changes": [],
+  "deprecated_fields": [],
+  "compatibility_notes": [
+    {
+      "scope": "runtime.rpc.legacy_methods",
+      "status": "deprecated",
+      "message": "Legacy non-namespaced RPC methods remain available for compatibility; new clients should use namespaced methods from runtime.info.methods.",
+      "replacement": "Use runtime.info.method_specs to map legacy methods to namespaced replacements."
+    }
+  ],
+  "migration_diagnostics": {
+    "recent": [],
+    "counts": {"migrated": 0, "skipped": 0, "failed": 0}
+  },
+  "resource_control": {
+    "enabled": true,
+    "categories": {"model": 2, "tool": 2, "web_search": 1, "image_generation": 1, "dependency_install": 1},
+    "provider_max_concurrent": 2,
+    "default_timeout_seconds": 120.0,
+    "dependency_install_timeout_seconds": 600,
+    "gates": {
+      "runtime": {"max_concurrent": 4, "queue_size": 8, "active": 0, "waiting": 0}
+    }
+  }
+}
+```
+
+Non-legacy methods grouped by current namespace:
+
+- `runtime.info`, `runtime.health`, `runtime.shutdown`
+- `config.validate`
+- `character.validate`, `character.list`
+- `character_package.validate`, `character_package.preview`, `character_package.import`, `character_package.export`
+- `agent.init`, `agent.send_message`, `agent.send_message_stream`
+- `model.list`, `model.info`
+- `session.create`, `session.list`, `session.current`, `session.resume`, `session.delete`, `session.export`, `session.rename`, `session.messages`, `session.replace_messages`, `session.regenerate_from`, `session.rollback`
+- `dependency.status`, `dependency.install`
+- `external_tool.status`
+- `initiative_timer.current`, `initiative_timer.update`, `initiative_timer.cancel`, `initiative_timer.trigger`
+- `memory.list`, `memory.search`, `memory.get`, `memory.update`, `memory.delete`, `memory.graph`
+
+Legacy compatibility methods remain available but are deprecated: `init`, `send_message`, `send_message_stream`, `list_characters`, `create_session`, `list_sessions`, `current_session`, `resume_session`, `delete_session`, `export_session`, `rename_session`, `rollback_session`, `shutdown`, `dependency_status`, `install_dependencies`, `external_tool_status`. New clients should migrate to namespaced methods according to `method_specs[].replacement`.
+
+## Runtime Versioning and Migration Diagnostics
+
+`runtime.info` exposes package version, Runtime version, and schema version summary:
+
+- `package_version`: current GensokyoAI package / project version; read from installed package metadata, falling back to `pyproject.toml` when running from source.
+- `protocol_version` / `protocol_major_version`: Runtime RPC protocol version.
+- `schema_versions.config`: configuration schema version.
+- `schema_versions.session`: session file schema version.
+- `schema_versions.memory`: memory topic store schema version.
+- `schema_versions.session_export`: session export package schema version.
+- `schema_versions.character_package`: character package schema version; current `.gensokyo-character` format is `1`.
+- `deprecated_methods`: deprecated RPC methods and their replacements.
+- `deprecated_fields`: deprecated fields; currently empty array.
+- `compatibility_notes`: compatibility notes; currently includes the note that legacy non-namespaced RPC methods remain compatible but should be migrated to namespaced methods.
+
+`runtime.info.migration_diagnostics` returns recent migration summary:
+
+```json
+{
+  "recent": [
+    {
+      "source": "session",
+      "status": "migrated",
+      "from_schema_version": null,
+      "to_schema_version": 1,
+      "format": "gensokyoai.session.file",
+      "path": "sessions/reimu/example.json",
+      "backup_path": "sessions/reimu/example.json.bak",
+      "message": "Session file migrated to current schema version.",
+      "diagnostics": [],
+      "migrated_at": "2026-05-11T00:00:00+00:00"
+    }
+  ],
+  "counts": {"migrated": 1, "skipped": 0, "failed": 0}
+}
+```
+
+Migration diagnostic field descriptions:
+
+- `source`: migration source, e.g. `session` or `memory.topic_store`.
+- `status`: migration status; currently produces `migrated` and `failed`; `skipped` is a reserved count.
+- `from_schema_version` / `to_schema_version`: schema version before and after migration; old unversioned formats are `null`.
+- `format`: target format name after migration.
+- `path`: path of the migrated file.
+- `backup_path`: pre-migration backup path; `null` for memory topic store when no backup is created.
+- `message`: human-readable summary.
+- `diagnostics`: structured diagnostics list; includes stable `code`, `severity`, `message`, and repair suggestions on failure.
+- `migrated_at`: migration diagnostic record time.
+
+## RPC Request Format
+
+HTTP `/rpc` and WebSocket ordinary RPC use the same request format:
+
+```json
+{
+  "id": "request-1",
+  "method": "runtime.health",
+  "params": {}
+}
+```
+
+- `id`: client-defined request identifier, can be string or number.
+- `method`: method name; use namespaced new method names.
+- `params`: object; pass `{}` or omit when there are no parameters.
+
+## Success Response Format
+
+```json
+{
+  "id": "request-1",
+  "ok": true,
+  "result": {}
+}
+```
+
+## Error Response Format
+
+```json
+{
+  "id": "request-1",
+  "ok": false,
+  "error": {
+    "code": "method_not_found",
+    "error_code": "method_not_found",
+    "message": "Requested Runtime RPC method does not exist.",
+    "technical_message": "Unknown method: bad.method",
+    "user_message": "Requested Runtime RPC method does not exist.",
+    "recoverable": true,
+    "action_hint": "Please use a method listed in runtime.info.methods or legacy_methods.",
+    "details": {}
+  }
+}
+```
+
+Clients should branch on `code` or `error_code`; do not parse natural language `message`.
+
+When resource control is triggered, `resource.limit_exceeded` is returned:
+
+```json
+{
+  "ok": false,
+  "error_code": "resource.limit_exceeded",
+  "error_object": {
+    "code": "resource.limit_exceeded",
+    "message": "Runtime is currently busy, please retry later.",
+    "recoverable": true,
+    "action_hint": "Please retry later, or increase the corresponding concurrency / queue configuration in resource_control.",
+    "details": {
+      "resource": "runtime",
+      "reason": "queue_full",
+      "max_concurrent": 4,
+      "queue_size": 8,
+      "active": 4,
+      "waiting": 8,
+      "action": "agent_message"
+    }
+  }
+}
+```
+
+## WebSocket Streaming Frames
+
+RuntimeService currently provides two streaming consumption forms:
+
+- `iter_message_stream()`: async iterator that produces Runtime events immediately as Agent streaming chunks progress; WebSocket `/ws` `agent.send_message_stream` uses this form to push frame by frame.
+- `send_message_stream()`: aggregated form that collects complete `events` and returns them at once; JSON Lines RPC and HTTP `POST /rpc` use this form to maintain one-request-one-response compatibility.
+
+WebSocket client sends:
+
+```json
+{
+  "id": "stream-1",
+  "method": "agent.send_message_stream",
+  "params": {"message": "Hello"}
+}
+```
+
+The server first returns a start confirmation frame, where `result` is the assigned `stream_id`:
+
+```json
+{
+  "id": "stream-1",
+  "ok": true,
+  "result": {"stream_id": "..."}
+}
+```
+
+Then event frames are returned as generation progresses:
+
+```json
+{
+  "id": "stream-1",
+  "ok": true,
+  "stream_id": "...",
+  "event": {"type": "content", "index": 0, "content": "..."}
+}
+```
+
+End frame:
+
+```json
+{
+  "id": "stream-1",
+  "ok": true,
+  "stream_id": "...",
+  "done": true,
+  "result": {
+    "role": "assistant",
+    "content": "...",
+    "events": [
+      {"type": "content", "index": 0, "content": "..."},
+      {"type": "finish", "index": 1, "content": "..."}
+    ],
+    "session": {},
+    "initiative_timer": {
+      "timer_id": "abcd1234",
+      "status": "scheduled",
+      "generation": 3,
+      "source": "ai",
+      "created_at": "2026-06-07T09:00:00+00:00",
+      "updated_at": "2026-06-07T09:00:00+00:00",
+      "due_at": "2026-06-07T09:05:00+00:00",
+      "delay_seconds": 300,
+      "remaining_seconds": 299,
+      "pending_summary": "I was just thinking about that again...",
+      "reason": "Character wants to add something later",
+      "user_modified": false,
+      "editable_fields": ["due_at", "delay_seconds", "pending_summary"]
+    }
+  }
+}
+```
+
+Cancellation semantics:
+
+- Clients can send `runtime.cancel_stream` via WebSocket with parameter `{"stream_id": "..."}`; the Runtime will cancel the corresponding streaming task and attempt to send a `cancelled` event frame.
+- If the WebSocket connection is directly disconnected, the Runtime will cancel stream tasks still running on that connection and clean up event subscriptions created by that connection.
+- When SSE `/events` clients disconnect or close the response, the Runtime will close the corresponding event subscription; repeatedly closing client connections does not require clients to call additional RPCs.
+- If an HTTP `/rpc` request is cancelled by the client, the underlying request coroutine will converge as the connection is cancelled; methods involving Runtime resource gates should still rely on server-side `finally` paths to release resources.
+- Stream tasks, event subscriptions, event queues, shutdown lifecycle, and resource states are isolated between multiple Runtime HTTP app / service instances.
+
+## Initiative Timer API
+
+The initiative timer allows the AI to decide after each reply whether to store a brief summary of something it wants to say later and set a trigger time. If the user sends a new message before the trigger, or the frontend cancels the timer, the Runtime directly discards the old stored summary; when the time is reached, it does not re-judge whether to speak, but regenerates the actual proactive message to the user based on the still-valid `pending_summary`, current context, and pre-speech internal thinking.
+
+The hesitation mechanism is a delayed re-judgment chain used after the AI decides not to speak: when enabled, if the AI first judges that it does not need to proactively speak, it waits for a while and re-judges, up to `initiative_timer.hesitation_max_rounds` rounds. This mechanism is disabled by default to avoid unexpected silent retries; frontend and CLI can manually turn it on/off, and by default write it back to the config file.
+
+`initiative_timer.fallback_on_no_schedule` is enabled by default to correct the problem of the model being overly inclined to "not set a timer," causing the character to no longer proactively speak for a long time. When the model returns no schedule, the summary is empty, or the decision JSON parsing fails, and no hesitation re-judgment is entered or hesitation rounds are exhausted, the Runtime creates a natural reconsideration timer with `source: "fallback"`. The fallback timer still only saves `pending_summary`; when the time is reached, it regenerates a proactive message rather than directly sending a fixed template.
+
+Both `agent.send_message` return results and `agent.send_message_stream` `finish` events include an `initiative_timer` field; when there is no current timer, they return an object containing hesitation status, e.g. `{ "timer": null, "hesitation": { "enabled": false } }`.
+
+`initiative_timer.current` gets the current timer:
+
+```json
+{"method": "initiative_timer.current", "params": {}}
+```
+
+`initiative_timer.update` modifies the current timer, including trigger time or stored summary:
+
+```json
+{
+  "method": "initiative_timer.update",
+  "params": {
+    "timer_id": "abcd1234",
+    "delay_seconds": 180,
+    "pending_summary": "I changed what I want to say later."
+  }
+}
+```
+
+Field rules:
+
+- `timer_id` is optional; if provided it must match the current timer.
+- `delay_seconds` and `due_at` are mutually exclusive.
+- `pending_summary` is editable only when `initiative_timer.allow_frontend_edit_summary` is `true`.
+- After editing, `user_modified` becomes `true` and `generation` is refreshed; old async tasks automatically become invalid.
+
+`initiative_timer.cancel` cancels and discards the stored summary:
+
+```json
+{"method": "initiative_timer.cancel", "params": {"timer_id": "abcd1234", "reason": "user_cancelled"}}
+```
+
+`initiative_timer.trigger` immediately triggers the current stored summary and returns the triggered summary and final generated result:
+
+```json
+{"method": "initiative_timer.trigger", "params": {"timer_id": "abcd1234"}}
+```
+
+`initiative_timer.hesitation` gets the current hesitation mechanism status:
+
+```json
+{"method": "initiative_timer.hesitation", "params": {}}
+```
+
+`initiative_timer.hesitation.set` enables or disables the hesitation mechanism; `persist` defaults to `true`, writing back to the configuration file used by the current Agent so it persists on next startup:
+
+```json
+{"method": "initiative_timer.hesitation.set", "params": {"enabled": true, "persist": true}}
+```
+
+Return fields include:
+
+- `enabled`: whether hesitation is currently enabled.
+- `max_rounds`: maximum hesitation re-judgment rounds.
+- `delay_seconds`: hesitation re-judgment delay, either integer seconds or `auto`.
+- `config_path`: path of the configuration file written back; returned only when the setting interface is persisted.
+
+Subscribable events include: `initiative_timer.created`, `initiative_timer.updated`, `initiative_timer.cancelled`, `initiative_timer.triggered`, `initiative_timer.discarded`. Event payloads contain `timer_id`, `generation`, `status`, `source`, `due_at`, `delay_seconds`, `reason`, `hesitation_enabled`, `hesitation_round`, `hesitation_max`, `fallback_on_no_schedule`, `is_fallback`, and optional `pending_summary`. `source: "ai"` means the model actively set it, `source: "reconsider"` means a hesitation reconsideration timer, and `source: "fallback"` means a system fallback natural reconsideration timer. `initiative_timer.triggered` only means the timer was effectively triggered; the actual proactive message sent is still exposed through `message.sent` / proactive message events with `content`.
+
+Related configuration section:
+
+```yaml
+initiative_timer:
+  enabled: true
+  min_delay_seconds: 30
+  max_delay_seconds: 1800
+  decision_temperature: 0.4
+  decision_max_tokens: 180
+  max_pending_summary_chars: 240
+  allow_frontend_edit_summary: true
+  replace_user_modified_timer: true
+  expose_pending_summary: true
+  hesitation_enabled: false
+  hesitation_max_rounds: 2
+  hesitation_delay_seconds: auto
+  fallback_on_no_schedule: true
+  fallback_delay_seconds: 300
+  fallback_summary: "Naturally reconsider the previous conversation later, and proactively add a sentence if there is still lingering feeling or a new thought."
+  fallback_reason: "AI did not actively set a timer; the system schedules a natural reconsideration to maintain character proactivity"
+```
+
+`allow_frontend_edit_summary` is the currently recommended field name; the old config `allow_frontend_edit_message` is still read as a compatibility alias, but clients and config files are recommended to gradually migrate to the new field name. If you need to restore the old behavior where "no timer from model means no subsequent proactive timer," explicitly set `fallback_on_no_schedule: false`.
+
+The built-in console CLI also provides corresponding interactive entry points:
+
+```text
+/timer
+/timer update delay 120
+/timer update due 2026-06-07T21:30:00+08:00
+/timer summary Remind the user to continue the previous topic later
+/timer cancel
+/timer trigger
+/timer hesitation status
+/timer hesitation on
+/timer hesitation off
+```
+
+Equivalent tag command form:
+
+```text
+<timer>summary Remind the user to continue the previous topic later</timer>
+<timer>trigger</timer>
+```
+
+CLI commands reuse the same Agent timer capability, without bypassing Runtime / Agent state, invalidation, and trigger semantics. `/timer hesitation on|off` immediately updates the current Agent state and writes back to the config file.
+
+## Configuration Validation API
+
+`config.validate` validates configuration files, inline configuration, and Runtime overrides without initializing the Agent:
+
+```json
+{
+  "method": "config.validate",
+  "params": {
+    "config": {"model": {"provider": "openai", "temperature": 3}},
+    "model_overrides": {"timeout": 60},
+    "embedding_overrides": {"dimensions": 1536}
+  }
+}
+```
+
+Return fields:
+
+- `ok`: whether there are no error-level diagnostics.
+- `source`: `inline` or `file`.
+- `config_path`: config path in file mode.
+- `diagnostics`: each item contains `code`, `path`, `severity`, `message`, and optional `suggestion`.
+- `error_count` / `warning_count`: number of errors and warnings.
+
+Provider field matrix distinguishes two types of compatibility diagnostics:
+
+- `config.provider.field_discouraged`: fields usually unnecessary or only suitable for custom gateway scenarios, kept as warning.
+- `config.provider.field_unsupported` / `config.provider.api_path_unsupported` / `config.provider.web_search_unsupported`: fields or capabilities explicitly unsupported by the current provider, returned as error.
+
+## Character Validation API
+
+`character.validate` can validate character files, character names, or inline character data:
+
+```json
+{
+  "method": "character.validate",
+  "params": {
+    "character_data": {
+      "name": "Reimu Hakurei",
+      "system_prompt": "You are Reimu Hakurei.",
+      "greeting": "Hello.",
+      "example_dialogue": [{"user": "Hello", "assistant": "Hello there."}]
+    }
+  }
+}
+```
+
+Return fields:
+
+- `ok`: whether there are no error-level diagnostics.
+- `source`: `inline` or `file`.
+- `character_path`: character path in file mode.
+- `preview`: preview of name, persona length, example count, and metadata.
+- `diagnostics` / `error_count` / `warning_count`: structured diagnostic information.
+
+`character.list` entries also include `ok`, `preview`, and `diagnostics`, making it easy for clients to display broken character files in the list.
+
+## Character Package API
+
+Character packages use the `.gensokyo-character` extension. They are essentially security-restricted zip archives; the root directory must contain `manifest.yaml`. The current format name is `gensokyoai.character.package` and the schema version is `1`. After the P3 ecosystem specification expansion, the manifest supports source, author homepage, license link, attribution, external links, repository index metadata, optional signature field, and `checksums.sha256`.
+
+`character_package.validate` validates character package structure, manifest, internal path safety, file size, character YAML, resource paths, ecosystem fields, external link URL schemes, and checksum:
+
+```json
+{
+  "method": "character_package.validate",
+  "params": {"package_path": "packages/reimu.gensokyo-character"}
+}
+```
+
+`character_package.preview` returns the same diagnostics, plus UI-oriented manifest summary, character preview, file list, `trust`, and `security` summaries.
+
+`character_package.import` imports a character package into the `characters` directory:
+
+```json
+{
+  "method": "character_package.import",
+  "params": {
+    "package_path": "packages/reimu.gensokyo-character",
+    "locale": "zh_cn",
+    "overwrite": false
+  }
+}
+```
+
+`character_package.export` generates a character package from an existing character YAML:
+
+```json
+{
+  "method": "character_package.export",
+  "params": {
+    "character_path": "characters/zh_cn/HakureiReimu.yaml",
+    "output_path": "packages/reimu.gensokyo-character",
+    "package_id": "HakureiReimu",
+    "author": "GensokyoAI",
+    "license": "Apache-2.0",
+    "source": "https://example.com/packages/reimu",
+    "license_url": "https://www.apache.org/licenses/LICENSE-2.0",
+    "external_links": [{"label": "Release page", "url": "https://example.com/packages/reimu", "purpose": "source"}],
+    "repository": {"id": "touhou/reimu", "url": "https://example.com/index.json"},
+    "signature": {"algorithm": "ed25519", "value": "base64-like-signature-value"},
+    "assets": [],
+    "overwrite": false
+  }
+}
+```
+
+Character package API return fields:
+
+- `ok`: whether there are no error-level diagnostics.
+- `format` / `schema_version`: character package format and schema version.
+- `manifest`: summary of package ID, name, version, author, license, source, external links, signature, checksum, character entry, resource list, etc.
+- `preview`: reuses character YAML validation preview structure.
+- `files`: file paths and sizes inside the package.
+- `trust`: trust metadata summary, including whether author, source, license, signature, and checksum are declared, and the number of external links.
+- `security`: security summary, including whether all external links use `https`, whether checksum is valid, whether undeclared files exist, signature verification level, and declared resource count.
+- `diagnostics` / `error_count` / `warning_count`: structured diagnostic information.
+- `imported` / `target_path`: import result fields.
+
+Ecosystem field diagnostic rules:
+
+- Missing `author`, `license`, `source`, `signature`, or `checksums` produces warnings so clients can show trust prompts before import.
+- `source`, `author_url`, `license_url`, `external_links[].url`, `repository.url`, `repository.homepage`, `repository.download_url` only allow `https` URLs; non-`https` is an error.
+- `signature` currently only validates field format, supporting recognition of `ed25519`, `rsa-pss-sha256`, and `minisign`, without real cryptographic verification; returned `security.signature_verification` is always `format_only`.
+- `checksums.sha256` performs SHA-256 verification of files inside the package; hash format errors, missing targets, or content mismatches are errors.
+- Resources declared in `assets` must exist; extra files inside the package besides `manifest.yaml`, `character`, and `assets` declarations produce `character_package.security.undeclared_file` warnings.
+
+## Resource Control
+
+Runtime resource control is governed by the `resource_control` configuration section. Current Runtime gates cover entry-level and deep execution sides:
+
+- `runtime`: total concurrency for high-cost Runtime entry points.
+- `agent_message`: current Runtime session message concurrency.
+- `stream`: streaming message concurrency.
+- `provider`: total concurrency for ModelClient / Provider call chains.
+- `model`: model call concurrency, covering chat, chat_stream, embeddings, and image_generation.
+- `tool`: ToolExecutor built-in tool and external tool execution concurrency.
+- `web_search`: `web_search` tool execution concurrency.
+- `image_generation`: image generation execution concurrency.
+- `dependency_install`: optional dependency installation concurrency.
+
+`runtime.info.resource_control` returns the current configuration summary and gate snapshot. Deep Provider / tool call rate limiting and entry-level gates use the same `resource.limit_exceeded` error structure; error details include `resource`, `reason`, `max_concurrent`, `queue_size`, `active`, `waiting`, and `action`, making it easy for clients to display recovery suggestions.
+
+## Session Message Editing API
+
+`session.messages` returns the complete editable history of the specified session; if `session_id` is not passed, the current session is used:
+
+```json
+{
+  "method": "session.messages",
+  "params": {"session_id": "optional-session-id"}
+}
+```
+
+The response contains `session`, `session_id`, `is_current`, `messages`, and `message_count`. `messages` preserves message extension fields such as `reasoning_content`, `tool_calls`, `tool_call_id`; frontend editing should preserve fields it does not understand as much as possible.
+
+`session.replace_messages` is used to submit the edited complete message array, enabling editing, deleting, or inserting any historical message:
+
+```json
+{
+  "method": "session.replace_messages",
+  "params": {
+    "session_id": "optional-session-id",
+    "messages": [
+      {"role": "user", "content": "Rewritten user message"},
+      {"role": "assistant", "content": "Inserted or edited assistant message"}
+    ]
+  }
+}
+```
+
+Validation rules:
+
+- `messages` must be an array.
+- Each message must be an object containing string `content`.
+- `role` only allows `system`, `user`, `assistant`, `tool`.
+- Runtime fully replaces target session messages, updates `message_count` / `total_turns`, and synchronizes the current session working memory cache.
+
+`session.regenerate_from` regenerates subsequent assistant replies from near the specified message index: Runtime finds the most recent `user` message from `message_index` backward, preserves history before that user message, resends that user message to the Agent, and returns the updated complete message list.
+
+```json
+{
+  "method": "session.regenerate_from",
+  "params": {
+    "session_id": "optional-session-id",
+    "message_index": 6,
+    "system_contexts": ["Optional temporary system context"]
+  }
+}
+```
+
+The response additionally contains:
+
+- `regenerated`: whether regeneration was completed.
+- `from_index`: index passed by the frontend.
+- `user_message_index`: actual user message index used for regeneration.
+- `content`: the newly generated assistant reply.
+
+Recommended frontend flow: first call `session.messages` to pull complete history; after the user edits, deletes, or inserts messages in the UI, call `session.replace_messages` to save; if the user chooses "regenerate from here," call `session.regenerate_from`, then refresh the UI with the returned `messages`.
+
+The built-in console CLI provides equivalent history editing entry points:
+
+```text
+/history
+/history export session_history.json
+/history import session_history.json
+/history delete 3
+/history insert 2 assistant Insert an assistant message
+/history regen 6
+```
+
+Equivalent tag command form:
+
+```text
+<history>import session_history.json</history>
+<history>regen 6</history>
+```
+
+CLI `/history import`, `/history delete`, `/history insert`, and `/history regen` reuse the session management layer's full replacement and persistence capabilities, keeping current working memory, session messages, and `total_turns` synchronized.
+
+## Session Export and Schema Version
+
+`session.export` returns a machine-readable session package containing:
+
+- `format`: currently `gensokyoai.session.export`.
+- `version`: reserved compatibility field.
+- `schema_version`: export package schema version.
+- `session_schema_version`: session file schema version.
+- `memory_schema_version`: memory topic store schema version.
+- `session` / `messages` / `message_count`: session metadata and message content.
+- `runtime`: basic path and startup state of the Runtime at export time.
+
+## Event Subscription
+
+SSE `/events` pushes Runtime events. Event fields are sanitized for sensitive information; fields such as `api_key`, `authorization`, `token`, `password` are replaced with `[redacted]`.
+
+## Memory Management API
+
+`memory.list` lists current session semantic memories:
+
+```json
+{
+  "method": "memory.list",
+  "params": {"topic_name": "Preferences", "limit": 50, "offset": 0}
+}
+```
+
+Returns `items`, `total`, `limit`, `offset`. Each memory contains `id`, `content`, `importance`, `topic`, `topic_name`, `tags`, `memory_type`, `timestamp`.
+
+`memory.search` searches current session semantic memories:
+
+```json
+{
+  "method": "memory.search",
+  "params": {"query": "tea", "top_k": 5, "threshold": 0.7, "include_embedding": true}
+}
+```
+
+Returns `score`, `keyword_score`, optional `embedding_score`, `matched_by`, and `diagnostics` for each result. When the embedding provider is not configured, unavailable, or call fails, Runtime automatically falls back to keyword / topic retrieval, explaining the reason in `diagnostics.embedding_fallback` and `diagnostics.embedding_error`.
+
+`memory.get`, `memory.update`, `memory.delete` respectively read, update, and delete current session semantic memories by `memory_id`. `memory.update` supports updating `content`, `importance`, `tags`.
+
+`memory.graph` returns the current session topic graph:
+
+```json
+{
+  "nodes": [{"id": "topic-1", "name": "Preferences", "recall_weight": 0.8}],
+  "edges": [],
+  "topic_count": 1,
+  "edge_count": 0
+}
+```
+
+## Method Metadata
+
+Machine-readable method metadata is generated from the RPC registry in code and contains:
+
+- `method`
+- `handler`
+- `legacy`
+- `namespace`
+- `deprecated`
+- `replacement`
+- `remove_after`

@@ -49,6 +49,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["GensokyoAI"]
+force-include = {"README_en.md" = "README_en.md", "docs/en" = "docs/en"}
+
+[tool.hatch.build.targets.sdist]
+include = ["README_en.md", "docs/en/**/*.md"]
 
 [dependency-groups]
 dev = [

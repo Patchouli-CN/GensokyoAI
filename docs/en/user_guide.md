@@ -1,0 +1,639 @@
+# User Guide
+
+This guide is for users running from source, installing from release packages, and integrating clients. It aims to stay consistent with `pyproject.toml`, `requirements.txt`, `run_default_uv.cmd`, and `run_default_pip.cmd`. The project is currently in the Alpha tightening stage; the Runtime API is ready for integration, but compatibility and documentation may continue to be tightened before a stable release.
+
+## 1. Environment Requirements
+
+- Operating system: Windows / Linux / macOS are all supported; Windows users can use the `.cmd` scripts in the repository.
+- Python runtime: the project requires Python 3.14 or higher.
+  - With uv: usually you only need to install uv first; uv will automatically select or download a suitable Python runtime according to `requires-python = ">=3.14"` in `pyproject.toml`.
+  - With pip: you need to install Python 3.14+ yourself, then run pip with this Python.
+- Package manager: `uv` is recommended; pip is also supported.
+- LLM Provider: prepare at least one model service.
+  - Ollama: runs locally, recommended by default, free but requires installing Ollama and pulling a model first.
+  - OpenAI / OpenRouter / DeepSeek / OpenAI Responses: require the corresponding API key; underlying dependency is the OpenAI SDK.
+  - Claude: requires Anthropic API key and Anthropic SDK.
+  - Gemini: requires Google API key and Google GenAI SDK.
+
+If using uv, check that uv is available and let it prepare Python according to project requirements:
+
+```bash
+uv --version
+uv python install 3.14
+```
+
+If using pip, check the current Python version:
+
+```bash
+python --version
+```
+
+If there are multiple Python versions on the system, on Windows you can also try:
+
+```bat
+py -3.14 --version
+```
+
+## 2. Get the Project
+
+```bash
+git clone https://github.com/Patchouli-CN/GensokyoAI.git
+cd GensokyoAI
+```
+
+If you downloaded a zip archive, extract it and run the following commands from the project root directory.
+
+## 3. Installation
+
+### 3.1 Using uv (Recommended)
+
+uv will automatically create a virtual environment and select a Python that meets the version requirements based on `pyproject.toml`. Install the default local Ollama dependency:
+
+```bash
+uv sync --extra ollama
+```
+
+Or install a specific provider extra:
+
+```bash
+uv sync --extra openai
+uv sync --extra openrouter
+uv sync --extra deepseek
+uv sync --extra openai_responses
+uv sync --extra claude
+uv sync --extra gemini
+uv sync --extra all
+```
+
+Common extra mapping:
+
+| extra | Installs | Provider |
+|-------|----------|----------|
+| `ollama` / `default` | `ollama` | `ollama` |
+| `openai` | `openai>=1.0.0` | `openai` |
+| `openrouter` | `openai>=1.0.0` | `openrouter` |
+| `deepseek` | `openai>=1.0.0` | `deepseek` |
+| `openai_responses` | `openai>=1.0.0` | `openai_responses` |
+| `claude` | `anthropic>=0.20.0` | `claude` |
+| `gemini` | `google-genai>=1.0.0` | `gemini` |
+| `all` | Ollama / OpenAI / Anthropic / Gemini SDKs | all built-in providers |
+
+### 3.2 Using pip
+
+Install only the minimum runtime dependencies:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+It is recommended to install the corresponding provider extra in editable package mode, which also registers command-line scripts. `requirements.txt` only contains minimum runtime dependencies and will not force installation of any LLM Provider SDK; if you want to use the default local Ollama startup method, install the `default` or `ollama` extra:
+
+```bash
+python -m pip install -e .[default]
+python -m pip install -e .[ollama]
+python -m pip install -e .[openai]
+python -m pip install -e .[openrouter]
+python -m pip install -e .[deepseek]
+python -m pip install -e .[openai_responses]
+python -m pip install -e .[claude]
+python -m pip install -e .[gemini]
+python -m pip install -e .[all]
+```
+
+If you only want to add a provider SDK on demand, you can also install manually:
+
+```bash
+python -m pip install ollama
+python -m pip install openai
+python -m pip install anthropic
+python -m pip install google-genai
+```
+
+### 3.3 Windows Quick Start Scripts
+
+Two scripts are provided in the project root:
+
+```bat
+run_default_uv.cmd
+run_default_pip.cmd
+```
+
+- `run_default_uv.cmd` runs `uv run --extra ollama -m GensokyoAI.cli.main --character "characters\zh_cn\KirisameMarisa.yaml" --new-session`.
+- `run_default_pip.cmd` runs `python -m GensokyoAI.cli.main --character "characters\zh_cn\KirisameMarisa.yaml" --new-session`.
+
+Before first use of `run_default_uv.cmd`, please install uv; usually no manual Python 3.14 installation is needed because uv can prepare the runtime automatically, and it will install the default Ollama SDK via `--extra ollama`. Before first use of `run_default_pip.cmd`, please manually install Python 3.14+, then install the dependencies needed for default startup via `python -m pip install -e .[default]` or `python -m pip install -e .[ollama]`; running only `python -m pip install -r requirements.txt` will not install the Ollama SDK.
+
+## 4. Configure the Main Chat Model
+
+The default configuration file is at `config/default.yaml`. We recommend copying it to a custom config, e.g. `config/local.yaml`, and then launching with `--config config/local.yaml`.
+
+### 4.1 Ollama (Default Local Provider)
+
+First install and start Ollama, then pull a model:
+
+```bash
+ollama pull qwen3.5:9b
+```
+
+Example configuration:
+
+```yaml
+config_schema_version: 1
+model:
+  provider: "ollama"
+  name: "qwen3.5:9b"
+  base_url: null
+```
+
+Ollama usually does not require `api_key` or `api_path`. If `api_path` is configured, the current configuration diagnostics will report an error because the Ollama provider does not support custom API paths.
+
+### 4.2 OpenAI Chat Completions
+
+```yaml
+model:
+  provider: "openai"
+  name: "gpt-4o"
+  api_key: "sk-..."
+  base_url: null
+```
+
+For third-party OpenAI-compatible services, configure `base_url`:
+
+```yaml
+model:
+  provider: "openai"
+  name: "your-model-name"
+  api_key: "sk-..."
+  base_url: "https://your-api.example.com/v1"
+```
+
+### 4.3 OpenRouter
+
+```yaml
+model:
+  provider: "openrouter"
+  name: "openai/gpt-4o"
+  api_key: "sk-or-..."
+  base_url: null
+  extra_headers:
+    HTTP-Referer: "https://your-site.example"
+    X-Title: "GensokyoAI"
+```
+
+### 4.4 DeepSeek
+
+We recommend using the standalone `deepseek` provider rather than configuring DeepSeek under the generic `openai` provider.
+
+```yaml
+model:
+  provider: "deepseek"
+  name: "deepseek-v4-pro"
+  api_key: "sk-..."
+  base_url: null
+  thinking_enabled: true
+  reasoning_effort: "high"
+```
+
+If `thinking_enabled: false` but `reasoning_effort` is still set, configuration diagnostics will warn that this field will be ignored.
+
+### 4.5 OpenAI Responses API
+
+```yaml
+model:
+  provider: "openai_responses"
+  name: "gpt-5"
+  api_key: "sk-..."
+  web_search_enabled: true
+  web_search_strategy: "explicit"
+  web_search_context_size: "medium"
+```
+
+### 4.6 Claude
+
+```yaml
+model:
+  provider: "claude"
+  name: "claude-sonnet-4-20250514"
+  api_key: "sk-ant-..."
+```
+
+### 4.7 Gemini
+
+```yaml
+model:
+  provider: "gemini"
+  name: "gemini-2.0-flash"
+  api_key: "AIza..."
+  web_search_enabled: true
+  web_search_strategy: "explicit"
+```
+
+## 5. Configure Embedding Model (Optional)
+
+The embedding model is configured independently from the main chat model. It is only needed when calling embeddings, connecting to vector retrieval, or external vector storage.
+
+```yaml
+embedding:
+  provider: "openai"
+  name: "text-embedding-3-small"
+  api_key: "sk-..."
+  base_url: null
+  dimensions: 1024
+  encoding_format: "float"
+```
+
+Note: Claude does not provide its own embeddings. If the main chat model uses Claude, configure embedding to OpenAI, Gemini, Ollama, or another compatible provider.
+
+## 6. Configuration Diagnostics and Upgrade Compatibility
+
+The current configuration schema version is `1`. New default configs write:
+
+```yaml
+config_schema_version: 1
+```
+
+Old configs may omit this field; if an older version is written, diagnostics will warn. If a number higher than the currently supported version is written, diagnostics will error and prompt you to upgrade the program or use a configuration supported by the current version.
+
+You can obtain structured diagnostics before initializing the Agent via the Runtime RPC `config.validate`; clients can display `diagnostics`, `error_count`, and `warning_count`.
+
+Post-P3 configuration diagnostics focus on:
+
+- Type checks, old-version, and future-version prompts for top-level `config_schema_version`.
+- Ranges, enums, and combinations for `resource_control`.
+- Known invalid combinations, such as `api_path` configured for Ollama, or provider built-in web search fields configured for DeepSeek / Claude.
+- Obviously invalid or masked resource limits, such as child resource concurrency greater than Runtime total concurrency.
+- Provider field matrix tiered diagnostics: fields that are definitely unsupported return error; fields that are only not recommended or suitable only for custom gateways remain warning.
+
+## 7. Resource Control Configuration
+
+`resource_control` is used to limit high-cost entry-level Runtime actions, avoiding excessive concurrent requests that cause lag, resource exhaustion, or abnormal API bills.
+
+```yaml
+resource_control:
+  enabled: true
+  runtime_max_concurrent: 4
+  runtime_queue_size: 8
+  session_max_concurrent: 1
+  provider_max_concurrent: 2
+  stream_max_concurrent: 1
+  model_max_concurrent: 2
+  tool_max_concurrent: 2
+  web_search_max_concurrent: 1
+  image_generation_max_concurrent: 1
+  dependency_install_max_concurrent: 1
+  acquire_timeout_seconds: 0.25
+  default_timeout_seconds: 120.0
+  dependency_install_timeout_seconds: 600
+  overflow_policy: "reject"
+```
+
+Notes:
+
+- `overflow_policy: "reject"`: quickly returns `resource.limit_exceeded` when resources are full.
+- `overflow_policy: "wait"`: allows waiting in queue; `acquire_timeout_seconds` must be greater than 0 in this case.
+- If child resource concurrency is greater than `runtime_max_concurrent`, it will be actually limited by the Runtime total gate, and diagnostics will warn.
+- Dependency installation is usually slow; we recommend `dependency_install_timeout_seconds` not less than `default_timeout_seconds`.
+
+## 8. Create and Validate Characters
+
+Example character YAML:
+
+```yaml
+name: "Rinnosuke Morichika"
+system_prompt: |
+  You are Rinnosuke Morichika, the owner of Kourindou...
+
+greeting: "「Welcome to Kourindou.」"
+
+example_dialogue:
+  - user: "What is this item?"
+    assistant: "「This is no ordinary Outside World item.」"
+```
+
+Built-in characters are located in `characters/zh_cn/`.
+
+Standalone CLI validation entry point:
+
+```bash
+python -m GensokyoAI.cli.character_cli characters/zh_cn/HakureiReimu.yaml --json
+python -m GensokyoAI.cli.character_cli characters/zh_cn --recursive
+```
+
+After installing as a package, you can also use:
+
+```bash
+gensokyoai-character characters/zh_cn/HakureiReimu.yaml --json
+gensokyoai-character characters/zh_cn --recursive
+```
+
+The exit code is `1` when error-level diagnostics exist, and `0` when only warnings remain.
+
+## 9. Character Package Usage
+
+A `.gensokyo-character` character package is essentially a security-restricted zip archive. The root directory must contain `manifest.yaml`; the current schema version is `1`. Before import, the package checks for path traversal, duplicate files, file size, character YAML, resource declarations, external links, checksums, and basic trust metadata.
+
+Runtime API support:
+
+- `character_package.validate`: validates package structure, manifest, internal paths, file size, character YAML, resource list, ecosystem fields, external links, and checksum.
+- `character_package.preview`: returns character preview, manifest summary, file list, and `trust` and `security` summaries.
+- `character_package.import`: imports the character package into the `characters` directory; import will not proceed if error-level diagnostics exist.
+- `character_package.export`: exports a local character YAML into a character package, automatically writing `checksums.sha256` inside the package.
+
+Recommended character package manifest declarations:
+
+- `author` / `author_url`: author or maintainer, and optional homepage.
+- `license` / `license_url` / `license_detail`: license, license link, and supplementary authorization notes.
+- `source`: original release page, repository, or trusted distribution page; external URLs must use `https`.
+- `attribution`: list of referenced sources for declaring original settings, images, or text materials.
+- `external_links`: list of external links shown to users before package installation, each containing `label`, `url`, and optional `purpose`.
+- `repository`: reserved package repository index metadata, e.g. `id`, `namespace`, `url`, `homepage`, `download_url`.
+- `signature`: optional signature field; current version only validates `algorithm` / `value` / `signer` format, not real cryptographic verification.
+- `checksums.sha256`: SHA-256 of character YAML and resource files inside the package; automatically generated on export.
+
+Missing `author`, `license`, `source`, `signature`, or `checksums` will produce warnings so users can judge trustworthiness; non-`https` external links such as `http`, `file`, `javascript` will produce errors.
+
+JSON Lines RPC examples:
+
+```json
+{"method":"character_package.validate","params":{"package_path":"packages/reimu.gensokyo-character"}}
+```
+
+```json
+{"method":"character_package.import","params":{"package_path":"packages/reimu.gensokyo-character","locale":"zh_cn","overwrite":false}}
+```
+
+```json
+{"method":"character_package.export","params":{"character_path":"characters/zh_cn/HakureiReimu.yaml","output_path":"packages/reimu.gensokyo-character","package_id":"HakureiReimu","author":"Patchouli-CN","license":"Apache-2.0","source":"https://example.com/packages/reimu","external_links":[{"label":"Release page","url":"https://example.com/packages/reimu","purpose":"source"}]}}
+```
+
+## 10. Start a Conversation
+
+With uv:
+
+```bash
+uv run --extra ollama -m GensokyoAI.cli.main --character characters/zh_cn/KirisameMarisa.yaml --new-session
+uv run --extra ollama -m GensokyoAI.cli.main --character characters/zh_cn/KirisameMarisa.yaml --config config/local.yaml --new-session
+uv run --extra ollama -m GensokyoAI.cli.main --character characters/zh_cn/KirisameMarisa.yaml --resume <session_id>
+uv run --extra ollama -m GensokyoAI.cli.main --list-sessions
+```
+
+With pip / regular Python:
+
+```bash
+python -m GensokyoAI.cli.main --character characters/zh_cn/KirisameMarisa.yaml --new-session
+python -m GensokyoAI.cli.main --character characters/zh_cn/KirisameMarisa.yaml --config config/local.yaml --new-session
+python -m GensokyoAI.cli.main --character characters/zh_cn/KirisameMarisa.yaml --resume <session_id>
+python -m GensokyoAI.cli.main --list-sessions
+```
+
+After installing as a package, you can also use the `gensokyoai` script entry point:
+
+```bash
+gensokyoai --character characters/zh_cn/KirisameMarisa.yaml --new-session
+gensokyoai --list-sessions
+```
+
+Command-line arguments:
+
+| Argument | Short | Description |
+|----------|-------|-------------|
+| `--character` | `-c` | Character config file path |
+| `--config` |  | Application config file path; default `config/default.yaml` |
+| `--new-session` |  | Create a new session |
+| `--resume` |  | Resume a session by specified ID |
+| `--list-sessions` |  | List all historical sessions |
+| `--no-stream` |  | Disable streaming output |
+
+## 11. Commands During Conversation
+
+### 11.1 Prompt Tags (Passed to AI)
+
+- `<know>Gensokyo is located in Japan...</know>`: dynamically inject reference material.
+- `<meta>Current scene: Hakurei Shrine...</meta>`: set scene / metadata.
+- `<attention>Remember, you are very sleepy now...</attention>`: remind or correct AI behavior.
+
+### 11.2 System Commands
+
+- `/help`: show help.
+- `/exit` or `/quit`: exit the program.
+- `/save`: save current session.
+- `/new`: create a new session.
+- `/back`: roll back the last turn.
+- `/sessions`: list historical sessions.
+- `/stream on/off`: toggle streaming output.
+- `/clear`: clear prompt context.
+- `/errors`: view recent error statistics.
+
+### 11.3 Initiative Timer Commands
+
+When the initiative timer is enabled, after each normal AI reply, the AI can save only a `pending_summary` of its later proactive speaking intent and a trigger time. If the user sends a new message before the trigger, the old timer becomes invalid; when the time is reached or manually triggered, the system regenerates the actual proactive message to the user based on the summary, current context, and pre-speech thinking.
+
+The initiative timer hesitation mechanism is disabled by default. When enabled, if the AI judges "don't proactively reply for now," it will re-judge after the configured delay, up to a maximum number of rounds; when disabled, no hesitation re-judgment is scheduled.
+
+"AI does not set a timer" only means the model did not proactively save a follow-up intent this round; if the system also does nothing, it will not speak proactively before the user inputs again. To avoid this unrealistic long silence, `initiative_timer.fallback_on_no_schedule` is enabled by default: when the model returns "no schedule," the summary is empty, or the decision JSON parsing fails, and no hesitation re-judgment is entered, the system automatically creates a natural reconsideration timer with `source: fallback`. When the time is reached, it still regenerates a real proactive message based on `fallback_summary`, current context, and pre-speech thinking, rather than directly sending a fixed template.
+
+In the console, slash commands can be used:
+
+```text
+/timer
+/timer update delay 120
+/timer update due 2026-06-07T21:30:00+08:00
+/timer summary Remind the user to continue the previous topic later
+/timer cancel
+/timer trigger
+/timer hesitation status
+/timer hesitation on
+/timer hesitation off
+```
+
+Equivalent tag commands can also be used:
+
+```text
+<timer>summary Remind the user to continue the previous topic later</timer>
+<timer>trigger</timer>
+```
+
+In configuration, it is recommended to use `initiative_timer.allow_frontend_edit_summary` to control whether the frontend can edit `pending_summary`; the old field `initiative_timer.allow_frontend_edit_message` is still read as a compatibility alias, but new configurations should migrate to `allow_frontend_edit_summary`. `initiative_timer.hesitation_enabled` controls the hesitation mechanism switch, default `false`; `initiative_timer.hesitation_max_rounds` and `initiative_timer.hesitation_delay_seconds` only take effect after it is enabled. `initiative_timer.fallback_on_no_schedule` controls the default fallback strategy, default `true`; `fallback_delay_seconds`, `fallback_summary`, and `fallback_reason` can adjust the fallback trigger delay, intended expression summary, and status reason.
+
+Common uses:
+
+- `/timer`: view current initiative timer state, trigger time, remaining seconds, and summary.
+- `/timer update delay <seconds>`: modify remaining trigger delay.
+- `/timer update due <ISO time>`: directly modify trigger time.
+- `/timer summary <summary>`: edit `pending_summary`.
+- `/timer cancel [reason]`: cancel the current initiative timer.
+- `/timer trigger`: immediately trigger the current initiative timer and generate the real proactive message.
+- `/timer hesitation status`: view whether the hesitation mechanism is enabled.
+- `/timer hesitation on`: enable the hesitation mechanism and write it back to the current config file.
+- `/timer hesitation off`: disable the hesitation mechanism and write it back to the current config file.
+
+### 11.4 History Message Editing Commands
+
+The console CLI can directly view and edit the complete historical messages of the current session. History editing reuses the session management layer's full replacement logic, keeping working memory, persisted messages, and session turn count in sync.
+
+```text
+/history
+/history export session_history.json
+/history import session_history.json
+/history delete 3
+/history insert 2 assistant Insert an assistant message
+/history regen 6
+```
+
+Equivalent tag commands can also be used:
+
+```text
+<history>import session_history.json</history>
+<history>regen 6</history>
+```
+
+Common uses:
+
+- `/history [count]`: show the most recent messages; default shows the latest 20.
+- `/history export [json path]`: export the current session's complete history as a JSON draft for manual editing.
+- `/history import <json path>`: read `messages` from the JSON file and fully replace the current session history.
+- `/history delete <message index>`: delete the message at the specified index.
+- `/history insert <index> <role> <content>`: insert a `system`, `user`, `assistant`, or `tool` message at the specified position.
+- `/history regen <message index>`: find the most recent `user` message from the specified index backward, truncate subsequent history, and regenerate the assistant reply.
+
+### 11.5 Chat Commands (Local Display Only, Not Sent to AI)
+
+- `<think>inner monologue</think>`: express character's inner thoughts.
+- `<whisper>whisper</whisper>`: speak softly.
+- `<ooc>out-of-character content</ooc>`: out-of-character communication.
+- `<describe>environment description</describe>`: scene description.
+- `<action>character action</action>`: action description.
+
+## 12. Runtime / HTTP Entry Point
+
+JSON Lines RPC:
+
+```bash
+python bridge_main.py
+```
+
+HTTP / WebSocket adapter:
+
+```bash
+python runtime_http.py --host 127.0.0.1 --port 8765
+```
+
+Common endpoints:
+
+- `GET /health`: health check.
+- `GET /info`: methods, capabilities, version, and schema information; the returned `methods`, `legacy_methods`, and `method_specs` are the preferred source for clients to discover RPC capabilities.
+- `POST /rpc`: JSON RPC requests.
+- `WebSocket /ws`: WebSocket RPC; `agent.send_message_stream` can push stream results event by event.
+
+Current non-legacy Runtime RPC methods include `runtime.info`, `runtime.health`, `runtime.shutdown`, `config.validate`, `character.validate`, `character.list`, `character_package.validate`, `character_package.preview`, `character_package.import`, `character_package.export`, `agent.init`, `agent.send_message`, `agent.send_message_stream`, `model.list`, `model.info`, `session.*`, `dependency.*`, `external_tool.status`, `initiative_timer.*`, and `memory.*`. Old non-namespaced methods remain compatible but are deprecated; new clients should migrate to namespaced methods according to `method_specs[].replacement`.
+
+## 13. Upgrade Process
+
+Upgrade from source repository:
+
+```bash
+git pull
+uv sync --extra ollama
+```
+
+If using pip:
+
+```bash
+git pull
+python -m pip install -e .[default]
+```
+
+Upgrade recommendations:
+
+1. First back up your own `config/local.yaml`, `characters/`, `sessions/`, memory data, and custom resources.
+2. Check `config/default.yaml` for new fields, especially `config_schema_version`, provider fields, and `resource_control`.
+3. Before starting, use the client or Runtime `config.validate` to check the configuration.
+4. Old session / memory data will be migrated automatically when read, with backups created; migration results can be viewed via `runtime.info.migration_diagnostics`.
+5. See `docs/en/versioning.md` and `docs/en/changelog.md` for version policy and changelog templates.
+
+## 14. Common Troubleshooting
+
+### Python Version Mismatch
+
+Symptom: installation or runtime reports Python version too low.
+
+Solution: if using uv, run `uv python install 3.14` and then `uv sync --extra ollama` again; if using pip, manually install Python 3.14+ and confirm that the current `python` or `py -3.14` points to the new version.
+
+### uv Not Found
+
+Symptom: `uv` is not recognized as an internal or external command.
+
+Solution: install uv first, or switch to pip installation.
+
+### Provider SDK Not Installed
+
+Symptom: using OpenAI / Claude / Gemini / Ollama reports missing module.
+
+Solution: install the corresponding extra, for example:
+
+```bash
+uv sync --extra openai
+python -m pip install -e .[openai]
+```
+
+### API Key Error or Missing
+
+Symptom: 401 / 403 / unauthorized / invalid api key.
+
+Solution: check `model.api_key` or environment variables; local Ollama does not need an API key.
+
+### Proxy or Network Issues
+
+Symptom: connection timeout, gateway HTML error page, DNS failure.
+
+Solution: check network, proxy, `base_url`, and `use_proxy`; for third-party compatible services confirm the URL contains the correct `/v1` path.
+
+### Ollama Not Started or Model Not Found
+
+Symptom: connection to `localhost:11434` fails, or model not found.
+
+Solution: start Ollama and run:
+
+```bash
+ollama pull qwen3.5:9b
+```
+
+### Wrong Configuration Field
+
+Symptom: startup reports `Unknown config field`, range error, or enum error.
+
+Solution: correct field names and values against `config/default.yaml`; prefer using `config.validate` to view complete diagnostics.
+
+### Resource Limit Error
+
+Symptom: Runtime returns `resource.limit_exceeded`.
+
+Solution: reduce concurrent requests, or adjust `resource_control.runtime_max_concurrent`, `session_max_concurrent`, `stream_max_concurrent`, `overflow_policy`, and `acquire_timeout_seconds`.
+
+## 15. Test and Development Commands
+
+Before release, it is recommended to run the full test suite, lint, format check, and type check:
+
+```bash
+python -m pytest
+python -m ruff check .
+python -m ruff format --check .
+python -m pyright
+```
+
+If the current interpreter environment lacks dev tools, we recommend using the uv development environment:
+
+```bash
+uv run pytest
+uv run ruff check .
+uv run ruff format --check .
+uv run pyright
+```
+
+You can also keep partial regression or compile checks as quick validation:
+
+```bash
+python -m unittest tests.test_claude_provider_conversion tests.test_deepseek_provider tests.test_model_client_embeddings
+python -m compileall GensokyoAI tests
+uv run python -m compileall GensokyoAI tests
+```
