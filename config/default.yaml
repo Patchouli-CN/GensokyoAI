@@ -15,11 +15,11 @@ event_trace_enabled: false
 
 # 主聊天模型配置
 model:
-  provider: "ollama"    # LLM Provider: ollama / openai / openrouter / deepseek / openai_responses / gemini / claude
-  name: "qwen3.5:9b"
-  base_url: null        # null 表示使用 Provider 默认地址；也兼容填入完整 endpoint（如 /v1/chat/completions）
+  provider: "openai"    # LLM Provider: ollama / openai / openrouter / deepseek / openai_responses / gemini / claude
+  name: "claude-sonnet-4-6-thinking"
+  base_url: "https://api.lmuai.com/v1"   # 走 lmuai 中转
   api_path: null        # 自定义 API path；OpenAI 默认 /chat/completions，Responses 默认 /responses
-  api_key: null         # API 密钥（OpenAI/Gemini/Claude/DeepSeek 等需要，ollama 不需要）
+  api_key: "sk-c03f9df8e646"
   extra_headers: {}     # 额外 HTTP 请求头；OpenRouter 可配置 HTTP-Referer / X-Title
   web_search_enabled: false      # Web search 总开关；默认 false，避免隐私和成本风险
   web_search_strategy: "off"     # off / explicit / auto；当前执行层仅在 enabled 且非 off 时注入 Provider 内置搜索
@@ -28,9 +28,9 @@ model:
   web_search_allow_fallback: true # 搜索不可用时允许降级为普通回答
   web_search_metadata: {}         # Provider 特定搜索参数扩展
   stream: true
-  think: false
+  think: true                                  # 打开 thinking,匹配 claude-sonnet-4-6-thinking
   thinking_enabled: null # DeepSeek 专用；null 表示使用 Provider 默认值（DeepSeek 默认 true）
-  reasoning_effort: null # DeepSeek 专用；null 表示默认 high，可选 high / max
+  reasoning_effort: "high" # Claude thinking 模型透传(OpenAI 兼容 SDK 会走 extra_body)
   temperature: 0.7
   top_p: 0.9
   max_tokens: 2048
@@ -42,7 +42,8 @@ model:
   retry_status_codes: [500, 502, 503, 504] # 默认仅重试临时服务端错误；如需重试 429 可显式加入
 
 # Embedding 模型配置（独立于主聊天模型，避免误用聊天模型调用 embeddings）
-# 未配置 name 时，ModelClient.embeddings() 会明确报错，不会再默认使用 model.name。
+# Claude 原生不支持 embeddings；当前用 claude-sonnet-4-6-thinking，先禁用语义记忆以免启动报错。
+# 如需恢复语义记忆，可改成 OpenAI 兼容的 embedding 模型（参照下方示例）。
 embedding:
   provider: null        # null 表示默认复用 model.provider；Claude 不支持 embeddings，需改用 openai/gemini/ollama 等
   name: null            # 例如 text-embedding-3-small / BAAI/bge-m3 / nomic-embed-text / gemini-embedding-001
@@ -52,6 +53,13 @@ embedding:
   encoding_format: null # OpenAI 支持 float / base64
   timeout: null         # null 表示复用 model.timeout
   use_proxy: null       # null 表示复用 model.use_proxy
+
+# --- 备用：如果想恢复语义记忆，启用一个 OpenAI 兼容 embedding 服务 ---
+# embedding:
+#   provider: "openai"
+#   name: "text-embedding-3-small"
+#   base_url: "https://api.lmuai.com/v1"   # 或者任何兼容 OpenAI embeddings 的端点
+#   api_key: "sk-c03f9df8e646fbf918f67ffe72e"
 
 # ===== Provider 配置示例 =====
 #
@@ -147,13 +155,13 @@ embedding:
 memory:
   working_max_turns: 20
   episodic_threshold: 50
-  episodic_summary_model: qwen3.5:9b
+  episodic_summary_model: claude-sonnet-4-6-thinking   # 复用主模型做摘要
   episodic_keep_recent: 10
-  semantic_enabled: true
+  semantic_enabled: false  # 当前用 Claude 不带 embedding，临时关闭语义记忆；后续接 embedding 后改回 true
   semantic_top_k: 5
   semantic_similarity_threshold: 0.7
   auto_memory_enabled: true
-  auto_memory_model: qwen3.5:9b
+  auto_memory_model: claude-sonnet-4-6-thinking        # 复用主模型写记忆
   
   # 话题生成配置
   topic_generation:

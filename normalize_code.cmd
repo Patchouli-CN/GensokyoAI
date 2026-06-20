@@ -11,12 +11,12 @@ if %errorlevel% neq 0 exit /b %errorlevel%
 
 echo.
 echo === pyright ===
-uv run pyright
+uv run python -m pyright
 if %errorlevel% neq 0 exit /b %errorlevel%
 
 echo.
 echo === pytest ===
-uv run pytest -q
+uv run python -m pytest -q
 if %errorlevel% neq 0 exit /b %errorlevel%
 
 echo.
