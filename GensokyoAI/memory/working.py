@@ -16,7 +16,7 @@ class WorkingMemoryManager:
     def add_message(
         self,
         role: str,
-        content: str,
+        content: str | list[dict[str, Any]],
         tool_calls=None,
         tool_call_id=None,
         reasoning_content: str | None = None,
