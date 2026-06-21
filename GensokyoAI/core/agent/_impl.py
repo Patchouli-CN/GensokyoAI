@@ -718,7 +718,10 @@ class Agent:
 
         # 主动发言成功：递增计数，并在未达上限时继续调度下一轮主动定时器
         self._ensure_initiative_timer().increment_consecutive_initiative_count()
-        if self._initiative_timer is not None and not self._initiative_timer._has_reached_initiative_limit():
+        if (
+            self._initiative_timer is not None
+            and not self._initiative_timer._has_reached_initiative_limit()
+        ):
             logger.debug("[Agent] 未达连续主动上限，继续调度下一轮主动定时器")
             self._last_initiative_timer_payload = await self.schedule_initiative_timer(message)
 
