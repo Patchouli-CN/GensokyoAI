@@ -450,7 +450,7 @@ class ConsoleBackend(BaseBackend):
         try:
             while self._running and not self.agent.is_shutting_down:
                 try:
-                    self.console.print(f"[{self.colors['user']}]你[/]", end="")
+                    self.console.print(f"[{self.colors['user']}]你: [/]", end="")
                     user_input = await aioconsole.ainput()
 
                     if not user_input.strip():
