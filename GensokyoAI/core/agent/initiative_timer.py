@@ -374,6 +374,8 @@ class InitiativeTimerManager:
         self, assistant_response: str, *, hesitation_round: int = 0
     ) -> dict[str, Any] | None:
         recent_messages = self.working_memory.get_recent(6)
+        context_text = self._format_context_for_decision(recent_messages, assistant_response)
+
         hesitation_note = ""
         if hesitation_round > 0:
             remaining = self.config.hesitation_max_rounds - hesitation_round
@@ -383,13 +385,11 @@ class InitiativeTimerManager:
             else:
                 hesitation_note += "，这是最后一次机会，若仍不需要则放弃"
             hesitation_note += "。）\n"
-        prompt = f"""你是 {self.character_name}。
+
+        system_prompt = f"""你是 {self.character_name}。
 
 现在不是对用户说话，而是在向 GensokyoAI 系统提交你的内部主动发言决定。
 这个决定仍然必须由你以 {self.character_name} 的身份、性格、动机和当前上下文来完成；系统只负责读取你提交的机器可解析状态。
-
-你刚刚回复了用户：
-{assistant_response}
 
 请判断你是否想在稍后主动补充一句话。要求：
 - 这是内部决策提交，不是用户可见台词；不要把结果写成角色发言、对白、旁白或解释。
@@ -401,7 +401,16 @@ class InitiativeTimerManager:
 - 额外输出一个 0~1 的 enthusiasm（热情度）：越高表示你当前越想主动继续聊，系统会把等待时间按 `delay_seconds * (1 - enthusiasm)` 缩短；如果不确定可填 0.5。
 - 只输出一个原始 JSON 对象；不要输出 Markdown 代码块、角色引号、解释文本或任何前后缀。
 {hesitation_note}
-JSON 格式：
+"""
+
+        user_prompt = f"""你刚刚回复了用户：
+{assistant_response}
+
+近期对话上下文：
+{context_text}
+
+请根据以上上下文提交决定。输出必须且只能是下面的 JSON 对象，不要有任何其他内容：
+
 {{
   "should_schedule": true/false,
   "delay_seconds": 120,
@@ -410,38 +419,81 @@ JSON 格式：
   "enthusiasm": 0.5
 }}
 """
-        messages: list[dict[str, str]] = [{"role": "system", "content": prompt}]
+
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        max_retries = 1
+        for attempt in range(max_retries + 1):
+            try:
+                decision_max_tokens = max(self.config.decision_max_tokens, 200)
+                options: dict[str, Any] = {
+                    "temperature": self.config.decision_temperature,
+                    "num_predict": decision_max_tokens,
+                    "max_tokens": decision_max_tokens,
+                }
+                if self._supports_structured_output():
+                    options["response_format"] = _INITIATIVE_TIMER_RESPONSE_FORMAT
+
+                response = await self.model_client.chat(
+                    messages=messages,
+                    options=options,
+                )
+                content = response.message.content
+                text = content.strip() if isinstance(content, str) else ""
+                if not text:
+                    logger.warning("主动定时器决策模型返回空内容，跳过")
+                    return None
+                data = self._parse_decision_json(text)
+                if data is not None:
+                    if self.debug_silent_output:
+                        logger.info(f"⏲️ [InitiativeTimer] 决策: {data}")
+                    return data
+
+                # 解析失败，尝试一次重试
+                if attempt < max_retries:
+                    logger.warning("主动定时器决策未返回合法 JSON，准备重试一次")
+                    messages.append({"role": "assistant", "content": text[:1000]})
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "你上一条回复不是合法的 JSON。请严格按照要求只输出 JSON 对象，"
+                                "不要写成角色台词、对白或解释。请重试。"
+                            ),
+                        }
+                    )
+                    continue
+
+                return None
+            except Exception as error:
+                logger.error(f"主动定时器决策失败: {error}")
+                return None
+
+        return None
+
+    def _format_context_for_decision(
+        self, recent_messages: list[dict[str, Any]], current_response: str
+    ) -> str:
+        """把近期对话格式化为决策上下文，避免重复放入当前刚生成的回复。"""
+        lines = []
         for item in recent_messages:
             role = item.get("role")
             content = item.get("content")
-            if isinstance(role, str) and isinstance(content, str) and role in {"user", "assistant"}:
-                messages.append({"role": role, "content": content})
-        try:
-            decision_max_tokens = max(self.config.decision_max_tokens, 200)
-            options: dict[str, Any] = {
-                "temperature": self.config.decision_temperature,
-                "num_predict": decision_max_tokens,
-                "max_tokens": decision_max_tokens,
-            }
-            if self._supports_structured_output():
-                options["response_format"] = _INITIATIVE_TIMER_RESPONSE_FORMAT
-
-            response = await self.model_client.chat(
-                messages=messages,
-                options=options,
-            )
-            content = response.message.content
-            text = content.strip() if isinstance(content, str) else ""
-            if not text:
-                logger.warning("主动定时器决策模型返回空内容，跳过")
-                return None
-            data = self._parse_decision_json(text)
-            if self.debug_silent_output:
-                logger.info(f"⏲️ [InitiativeTimer] 决策: {data}")
-            return data
-        except Exception as error:
-            logger.error(f"主动定时器决策失败: {error}")
-            return None
+            if not isinstance(role, str) or not isinstance(content, str):
+                continue
+            if role not in {"user", "assistant"}:
+                continue
+            # 避免把刚生成的 assistant 回复再当成上下文末尾，否则模型会误以为要继续对白
+            if role == "assistant" and content.strip() == current_response.strip():
+                continue
+            label = "User" if role == "user" else self.character_name
+            lines.append(f"{label}: {content.strip()}")
+        if not lines:
+            return "（无更早上下文）"
+        return "\n".join(lines)
 
     def _supports_structured_output(self) -> bool:
         supports = getattr(self.model_client, "supports", None)
