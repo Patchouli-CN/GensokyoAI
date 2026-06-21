@@ -753,7 +753,7 @@ class ConfigValidator:
             "think_engine.initiative_max_tokens",
             data.get("initiative_max_tokens"),
             diagnostics,
-            minimum=1,
+            minimum=0,
         )
         min_steps = data.get("random_walk_steps_min")
         max_steps = data.get("random_walk_steps_max")
