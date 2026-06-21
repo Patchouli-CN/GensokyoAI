@@ -9,6 +9,7 @@ from GensokyoAI.tools.registry import ToolRegistry
 from GensokyoAI.tools.tool_builtin.web_search import configure_web_search_tool
 from GensokyoAI.tools.web_search.providers.api import GenericAPISearchProvider
 from GensokyoAI.tools.web_search.providers.bing import BingSearchProvider
+from GensokyoAI.tools.web_search.providers.ddg import DuckDuckGoSearchProvider
 from GensokyoAI.tools.web_search.service import WebSearchService
 from GensokyoAI.tools.web_search.types import ProviderSearchResult, SearchItem
 
@@ -147,6 +148,31 @@ class WebSearchToolTests(unittest.TestCase):
         self.assertEqual(result.items[0].url, "https://example.test")
         self.assertEqual(result.items[0].snippet, "Summary")
 
+    def test_ddg_provider_maps_results(self):
+        class _FakeDDGS:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def text(self, query, **kwargs):
+                return [
+                    {
+                        "title": "DDG Title",
+                        "href": "https://example.test/ddg",
+                        "body": "DDG snippet",
+                    },
+                ]
+
+        with patch("GensokyoAI.tools.web_search.providers.ddg.DDGS", _FakeDDGS):
+            provider = DuckDuckGoSearchProvider(WebSearchToolConfig(enabled=True))
+            result = asyncio.run(provider.search("query", max_results=3))
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(len(result.items), 1)
+        self.assertEqual(result.items[0].title, "DDG Title")
+        self.assertEqual(result.items[0].url, "https://example.test/ddg")
+        self.assertEqual(result.items[0].snippet, "DDG snippet")
+        self.assertEqual(result.items[0].source, "ddg")
+
     def test_service_returns_disabled_when_config_disabled(self):
         service = WebSearchService(WebSearchToolConfig(enabled=False))
 
@@ -164,13 +190,13 @@ class WebSearchToolTests(unittest.TestCase):
 
         async def fake_search(provider, query, *, max_results=None):
             calls["count"] += 1
-            if provider.name == "bing":
+            if provider.name == "ddg":
                 return ProviderSearchResult(
-                    provider="bing",
+                    provider="ddg",
                     items=[
-                        SearchItem("Brief", "https://example.test/b", "short", "bing"),
+                        SearchItem("Brief", "https://example.test/b", "short", "ddg"),
                         SearchItem(
-                            "Duplicate", "https://example.test/a?utm_source=x", "duplicate", "bing"
+                            "Duplicate", "https://example.test/a?utm_source=x", "duplicate", "ddg"
                         ),
                     ],
                 )
@@ -188,7 +214,8 @@ class WebSearchToolTests(unittest.TestCase):
 
         with (
             patch(
-                "GensokyoAI.tools.web_search.providers.bing.BingSearchProvider.search", fake_search
+                "GensokyoAI.tools.web_search.providers.ddg.DuckDuckGoSearchProvider.search",
+                fake_search,
             ),
             patch(
                 "GensokyoAI.tools.web_search.providers.api.GenericAPISearchProvider.search",

@@ -10,6 +10,7 @@ from ...utils.request_utils import normalize_search_url
 from .providers.api import GenericAPISearchProvider
 from .providers.base import WebSearchProvider
 from .providers.bing import BingSearchProvider
+from .providers.ddg import DuckDuckGoSearchProvider
 from .types import ProviderSearchResult, SearchItem, WebSearchResult
 
 
@@ -73,8 +74,10 @@ class WebSearchService:
 
     def _build_providers(self, provider: str) -> list[WebSearchProvider]:
         providers: list[WebSearchProvider] = []
-        if provider in ("bing", "mixed"):
+        if provider == "bing":
             providers.append(BingSearchProvider(self.config))
+        if provider in ("ddg", "mixed"):
+            providers.append(DuckDuckGoSearchProvider(self.config))
         if provider in ("api", "mixed"):
             providers.append(GenericAPISearchProvider(self.config))
         return providers
@@ -126,6 +129,7 @@ class WebSearchService:
     def _source_priority(provider: str) -> float:
         priorities = {
             "api": 1.0,
+            "ddg": 0.95,
             "bing": 0.9,
         }
         return priorities.get(provider, 0.5)

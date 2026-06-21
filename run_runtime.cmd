@@ -6,7 +6,7 @@ chcp 65001 >nul
 cd /d "%~dp0"
 
 if exist ".venv\Scripts\python.exe" (
-    .venv\Scripts\python.exe runtime_http.py --host 127.0.0.1 --port 8765
+    .venv\Scripts\python.exe -m GensokyoAI.backends.web_server --host 127.0.0.1 --port 8765
 ) else (
-    python runtime_http.py --host 127.0.0.1 --port 8765
+    python -m GensokyoAI.backends.web_server --host 127.0.0.1 --port 8765
 )

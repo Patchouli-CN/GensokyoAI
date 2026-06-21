@@ -455,6 +455,8 @@ Equivalent tag commands can also be used:
 
 In configuration, it is recommended to use `initiative_timer.allow_frontend_edit_summary` to control whether the frontend can edit `pending_summary`; the old field `initiative_timer.allow_frontend_edit_message` is still read as a compatibility alias, but new configurations should migrate to `allow_frontend_edit_summary`. `initiative_timer.hesitation_enabled` controls the hesitation mechanism switch, default `false`; `initiative_timer.hesitation_max_rounds` and `initiative_timer.hesitation_delay_seconds` only take effect after it is enabled. `initiative_timer.fallback_on_no_schedule` controls the default fallback strategy, default `true`; `fallback_delay_seconds`, `fallback_summary`, and `fallback_reason` can adjust the fallback trigger delay, intended expression summary, and status reason.
 
+Proactive reply master switch: to completely disable AI proactive replies, set both `initiative_timer.enabled` and `think_engine.enabled` to `false`. `initiative_timer.enabled` controls the initiative timer, and `think_engine.enabled` controls the silent thinking engine; when both are off, the AI will not speak proactively based on time or idle state.
+
 Common uses:
 
 - `/timer`: view current initiative timer state, trigger time, remaining seconds, and summary.
@@ -504,6 +506,30 @@ Common uses:
 - `<describe>environment description</describe>`: scene description.
 - `<action>character action</action>`: action description.
 
+### 11.6 Web Search Tool Configuration
+
+GensokyoAI's own `web_search` tool now uses DuckDuckGo (`ddgs` package) by default and requires no API key. Bing HTML search, generic JSON API search, and mixed mode remain available as optional providers.
+
+```yaml
+tool:
+  enabled: true
+  builtin_tools: ["time", "moon", "memory", "system", "web_search"]
+  web_search:
+    enabled: true
+    provider: "ddg"        # ddg / bing / api / mixed
+    max_results: 10
+    timeout: 10
+    region: null           # optional, e.g. zh-CN / en-US
+    safe_search: "moderate" # off / moderate / strict
+```
+
+- `provider: "ddg"`: default; calls DuckDuckGo search (the synchronous API is executed via `asyncio.to_thread` in the async context).
+- `provider: "api"`: connect to a generic search API such as Tavily or BoCha; configure `tool.web_search.api.endpoint` and related fields.
+- `provider: "mixed"`: runs `ddg` and `api` in parallel, then deduplicates, ranks, and truncates results by source priority and quality.
+- `provider: "bing"`: Bing HTML search, kept for compatibility.
+
+On success, the search tool returns JSON containing `items` and `diagnostics`; diagnostic failures such as disabled config, unsupported provider, provider failure, or no results are returned as structured tool errors like `web_search.disabled`, `web_search.unsupported_provider`, `web_search.provider_failed`, and `web_search.no_results`.
+
 ## 12. Runtime / HTTP Entry Point
 
 JSON Lines RPC:
@@ -512,7 +538,13 @@ JSON Lines RPC:
 python bridge_main.py
 ```
 
-HTTP / WebSocket adapter:
+HTTP / WebSocket adapter (recommended new launch method):
+
+```bash
+python -m GensokyoAI.backends.web_server --host 127.0.0.1 --port 8765
+```
+
+`runtime_http.py` remains as a compatibility wrapper; the following command still works:
 
 ```bash
 python runtime_http.py --host 127.0.0.1 --port 8765

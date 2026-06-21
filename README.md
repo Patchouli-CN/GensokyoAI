@@ -47,7 +47,10 @@ GensokyoAI 提供前端无关的 Runtime 边界。机器可读版本、能力、
 - `GensokyoAI/runtime/service.py`：通用 `RuntimeService`。
 - `GensokyoAI/runtime/rpc.py`：RPC 方法注册、分发与 legacy 方法兼容。
 - `GensokyoAI/runtime/dependencies.py`：可选 Provider 依赖检测与白名单安装。
+- `GensokyoAI/backends/web_server/http_adapter.py`：HTTP / WebSocket Runtime 适配器。
+- `GensokyoAI/backends/web_server/main.py`：HTTP / WebSocket 入口主函数。
 - `bridge_main.py`：通用 JSON Lines RPC 入口，可被本地客户端或其他进程启动。
+- `runtime_http.py`：HTTP / WebSocket 入口兼容包装器，指向 `GensokyoAI.backends.web_server`。
 
 当前 Runtime RPC 支持：
 
@@ -126,7 +129,7 @@ GensokyoAI 针对外部 AI 服务调用做了稳定性优化：
 - 支持真正任意 `api_path`：默认路径继续走 SDK，SDK 固定 resource path 无法表达的代理路径会自动切换到自定义 HTTP 调用层。
 - 支持 `extra_headers`、Provider 能力声明、ProviderDefinition 控制面、模型列表查询和更完整的流式元信息。
 - 支持通过统一模型元数据注册表合并 Provider `/models`、内置快照、缓存和用户 override，从模型列表和元数据中推断 `web_search` 等模型级能力；第三方 OpenAI 兼容端点默认不会被高估为支持图片能力。
-- 支持显式开启真实联网搜索执行层：OpenAI Responses 可注入 `web_search_preview`，Gemini 可映射 Google Search grounding；也支持自有 `web_search` 工具走 Bing/API 搜索；默认关闭，不会自动联网。
+- 支持显式开启真实联网搜索执行层：OpenAI Responses 可注入 `web_search_preview`，Gemini 可映射 Google Search grounding；也支持自有 `web_search` 工具走 DuckDuckGo（`ddgs`）搜索，并保留 Bing/API 作为可选 Provider；默认关闭，不会自动联网。
 - 工具注入由 ToolBuildService 统一决策，会根据模型 tools 能力、工具总开关、builtin_tools 白名单和 Provider 内置搜索配置选择工具 schema 与附加 instructions。
 - 工具错误返回保留旧 `content` / `is_error` 字段，同时提供结构化 `error_code`、`technical_message`、`user_message`、`recoverable`、`action_hint` 和 `details`，便于 UI 展示与恢复动作。
 - 可通过 `retry_max_attempts`、`retry_initial_delay`、`retry_backoff_factor`、`retry_status_codes` 调整自动重试策略。
@@ -251,11 +254,11 @@ tool:
   enabled: true
   web_search:
     enabled: true
-    provider: "bing"   # bing / api / mixed
+    provider: "ddg"   # ddg / bing / api / mixed
     max_results: 10
 ```
 
-自有 `web_search` 工具默认走 Bing HTML 搜索；如果需要接入 Tavily、BoCha、企业搜索等 JSON API，可使用通用 API Provider：
+自有 `web_search` 工具默认走 DuckDuckGo（`ddgs`）搜索，无需 API Key；如果需要接入 Tavily、BoCha、企业搜索等 JSON API，可使用通用 API Provider：
 
 ```yaml
 tool:
@@ -272,7 +275,7 @@ tool:
       snippet_path: "content"
 ```
 
-`provider: "mixed"` 会并行执行 Bing 和 API 搜索，并按来源优先级与结果质量排序、去重、截断结果。搜索工具成功时返回 JSON，包含 `items` 和 `diagnostics`，便于模型引用来源并排查搜索状态；配置禁用、Provider 不支持、Provider 失败或无结果等可诊断失败会通过结构化工具错误返回，例如 `web_search.disabled`、`web_search.unsupported_provider`、`web_search.provider_failed`、`web_search.no_results`。
+`provider: "mixed"` 会并行执行 DuckDuckGo 和 API 搜索，并按来源优先级与结果质量排序、去重、截断结果。搜索工具成功时返回 JSON，包含 `items` 和 `diagnostics`，便于模型引用来源并排查搜索状态；配置禁用、Provider 不支持、Provider 失败或无结果等可诊断失败会通过结构化工具错误返回，例如 `web_search.disabled`、`web_search.unsupported_provider`、`web_search.provider_failed`、`web_search.no_results`。
 
 ### 自定义 OpenAI 兼容服务
 
@@ -433,7 +436,7 @@ Provider 会自动转换为目标服务格式：
 
 ## Runtime RPC 能力
 
-GensokyoAI 提供前端无关的 Runtime 服务边界，当前可通过 [`bridge_main.py`](./bridge_main.py) 使用 JSON Lines RPC，也可通过 [`runtime_http.py`](./runtime_http.py) 启动 HTTP / WebSocket adapter。核心服务由 [`RuntimeService`](./GensokyoAI/runtime/service.py) 提供，RPC 方法映射由 [`dispatch_rpc()`](./GensokyoAI/runtime/rpc.py) 复用。客户端可以通过 `runtime.info` 查询当前支持的方法。
+GensokyoAI 提供前端无关的 Runtime 服务边界，当前可通过 [`bridge_main.py`](./bridge_main.py) 使用 JSON Lines RPC，也可通过 `python -m GensokyoAI.backends.web_server` 启动 HTTP / WebSocket adapter（[`runtime_http.py`](./runtime_http.py) 仍作为兼容包装器保留）。核心服务由 [`RuntimeService`](./GensokyoAI/runtime/service.py) 提供，RPC 方法映射由 [`dispatch_rpc()`](./GensokyoAI/runtime/rpc.py) 复用。客户端可以通过 `runtime.info` 查询当前支持的方法。
 
 当前已暴露的主要能力包括：
 
@@ -479,7 +482,13 @@ gensokyoai-character characters/zh_cn/HakureiReimu.yaml --json
 
 安装为脚本后可使用 `gensokyoai-character`，存在 error 级诊断时退出码为 `1`，仅有 warning 时退出码仍为 `0`。
 
-HTTP / WebSocket adapter 启动示例：
+HTTP / WebSocket adapter 启动示例（推荐）：
+
+```bash
+python -m GensokyoAI.backends.web_server --host 127.0.0.1 --port 8765
+```
+
+兼容旧命令：
 
 ```bash
 python runtime_http.py --host 127.0.0.1 --port 8765

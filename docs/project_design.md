@@ -113,6 +113,10 @@
 GensokyoAI/
 ├── GensokyoAI/                 # 主包目录
 │   ├── backends/               # 后端抽象与实现
+│   │   ├── web_server/         # HTTP / WebSocket Runtime 适配器
+│   │   │   ├── http_adapter.py # aiohttp HTTP / WebSocket 入口
+│   │   │   ├── main.py         # 命令行入口与 web.run_app
+│   │   │   └── __main__.py     # 支持 python -m GensokyoAI.backends.web_server
 │   ├── background/             # 后台任务系统
 │   ├── commands/               # 命令系统
 │   ├── core/                   # 核心模块
@@ -135,7 +139,7 @@ GensokyoAI/
 │   └── default.yaml            # 默认配置
 ├── tests/                      # 回归测试
 ├── bridge_main.py              # JSON Lines Runtime RPC 入口
-├── runtime_http.py             # HTTP / WebSocket Runtime 入口
+├── runtime_http.py             # HTTP / WebSocket Runtime 入口兼容包装器（指向 GensokyoAI/backends/web_server）
 ├── pyproject.toml              # 项目配置（UV / 打包脚本入口）
 ├── requirements.txt            # pip 依赖列表
 ├── run_default_uv.cmd          # Windows UV 快速启动脚本

@@ -113,6 +113,10 @@ Tool calling has been uniformly adapted for multiple providers: OpenAI / DeepSee
 GensokyoAI/
 ├── GensokyoAI/                 # Main package directory
 │   ├── backends/               # Backend abstraction and implementation
+│   │   ├── web_server/         # HTTP / WebSocket Runtime adapter
+│   │   │   ├── http_adapter.py # aiohttp HTTP / WebSocket entry
+│   │   │   ├── main.py         # CLI entry and web.run_app
+│   │   │   └── __main__.py     # supports python -m GensokyoAI.backends.web_server
 │   ├── background/             # Background task system
 │   ├── commands/               # Command system
 │   ├── core/                   # Core modules
@@ -135,7 +139,7 @@ GensokyoAI/
 │   └── default.yaml            # Default configuration
 ├── tests/                      # Regression tests
 ├── bridge_main.py              # JSON Lines Runtime RPC entry point
-├── runtime_http.py             # HTTP / WebSocket Runtime entry point
+├── runtime_http.py             # HTTP / WebSocket Runtime entry compatibility wrapper (points to GensokyoAI/backends/web_server)
 ├── pyproject.toml              # Project configuration (UV / packaging scripts)
 ├── requirements.txt            # pip dependency list
 ├── run_default_uv.cmd          # Windows UV quick start script

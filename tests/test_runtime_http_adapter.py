@@ -6,14 +6,14 @@ from typing import Any, cast
 from aiohttp import WSMsgType
 from aiohttp.test_utils import AioHTTPTestCase, TestClient, TestServer, unittest_run_loop
 
-from GensokyoAI.core.events import Event, EventBus, SystemEvent
-from GensokyoAI.runtime.http_adapter import (
+from GensokyoAI.backends.web_server.http_adapter import (
     RUNTIME_SERVICE_APP_KEY,
     create_app,
     parse_rpc_payload,
     rpc_error,
     rpc_success,
 )
+from GensokyoAI.core.events import Event, EventBus, SystemEvent
 
 
 class FakeHttpRuntimeService:

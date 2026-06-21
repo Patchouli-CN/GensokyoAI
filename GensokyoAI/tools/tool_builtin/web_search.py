@@ -90,7 +90,7 @@ def _result_to_tool_error(result) -> ToolError:
             technical_message=result.errors["provider"],
             user_message="当前联网搜索 Provider 不可用。",
             recoverable=True,
-            action_hint="请将 tool.web_search.provider 设置为 bing、api 或 mixed。",
+            action_hint="请将 tool.web_search.provider 设置为 ddg、bing、api 或 mixed。",
             details=result.to_dict()["diagnostics"],
         )
     if result.errors:

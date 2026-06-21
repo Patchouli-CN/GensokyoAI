@@ -455,6 +455,8 @@ gensokyoai --list-sessions
 
 配置中推荐使用 `initiative_timer.allow_frontend_edit_summary` 控制前端是否可编辑 `pending_summary`；旧字段 `initiative_timer.allow_frontend_edit_message` 仍作为兼容别名读取，但新配置建议迁移到 `allow_frontend_edit_summary`。`initiative_timer.hesitation_enabled` 控制犹豫机制开关，默认 `false`；`initiative_timer.hesitation_max_rounds` 与 `initiative_timer.hesitation_delay_seconds` 只在开启后生效。`initiative_timer.fallback_on_no_schedule` 控制默认兜底策略，默认 `true`；可通过 `fallback_delay_seconds`、`fallback_summary` 和 `fallback_reason` 调整兜底触发延迟、待表达意图摘要和状态理由。
 
+主动回话总开关：如需完全关闭 AI 主动回话，请将 `initiative_timer.enabled` 与 `think_engine.enabled` 同时设为 `false`。`initiative_timer.enabled` 控制主动定时器，`think_engine.enabled` 控制静默思考引擎；二者都关闭后，AI 不会基于时间或空闲状态主动开口。
+
 常见用途：
 
 - `/timer`：查看当前主动定时器状态、触发时间、剩余秒数和摘要。
@@ -504,6 +506,30 @@ gensokyoai --list-sessions
 - `<describe>环境描写</describe>`：场景描述。
 - `<action>角色动作</action>`：动作描写。
 
+### 11.6 联网搜索工具配置
+
+GensokyoAI 自有的 `web_search` 工具默认使用 DuckDuckGo（`ddgs` 包）搜索，无需 API Key；也保留 Bing HTML 搜索、通用 JSON API 搜索以及混合模式作为可选 Provider。
+
+```yaml
+tool:
+  enabled: true
+  builtin_tools: ["time", "moon", "memory", "system", "web_search"]
+  web_search:
+    enabled: true
+    provider: "ddg"        # ddg / bing / api / mixed
+    max_results: 10
+    timeout: 10
+    region: null           # 可选，例如 zh-CN / en-US
+    safe_search: "moderate" # off / moderate / strict
+```
+
+- `provider: "ddg"`：默认，调用 DuckDuckGo 搜索（同步 API 在异步上下文中通过 `asyncio.to_thread` 执行）。
+- `provider: "api"`：接入 Tavily、BoCha 等通用搜索 API，需配置 `tool.web_search.api.endpoint` 等字段。
+- `provider: "mixed"`：并行调用 `ddg` 与 `api`，按来源优先级与结果质量排序、去重、截断。
+- `provider: "bing"`：Bing HTML 搜索，作为兼容保留。
+
+搜索工具成功时返回包含 `items` 与 `diagnostics` 的 JSON；配置禁用、Provider 不支持、Provider 失败或无结果时会通过结构化工具错误返回，例如 `web_search.disabled`、`web_search.unsupported_provider`、`web_search.provider_failed`、`web_search.no_results`。
+
 ## 12. Runtime / HTTP 入口
 
 JSON Lines RPC：
@@ -512,7 +538,13 @@ JSON Lines RPC：
 python bridge_main.py
 ```
 
-HTTP / WebSocket adapter：
+HTTP / WebSocket adapter（推荐新启动方式）：
+
+```bash
+python -m GensokyoAI.backends.web_server --host 127.0.0.1 --port 8765
+```
+
+`runtime_http.py` 仍作为兼容包装器保留，以下命令继续有效：
 
 ```bash
 python runtime_http.py --host 127.0.0.1 --port 8765

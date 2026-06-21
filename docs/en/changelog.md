@@ -130,4 +130,7 @@ Use one or two sentences to explain the most important changes in this version, 
 
 ## Current Project Version Record Starting Point
 
-Official release records start continuous recording from `v2026.5.13.0`. This file is used as a template; specific version records are in the `docs/changelog/` directory.
+Official release records start continuous recording from `v2026.5.13.0`. This file is used as a template; specific version records are in the `docs/changelog/` directory:
+
+- [`v2026.5.13.0.md`](../changelog/v2026.5.13.0.md): first public Alpha release.
+- [`v2026.6.21.0.md`](../changelog/v2026.6.21.0.md): HTTP/WebSocket entry migration, default search switched to DuckDuckGo, initiative timer prompt optimization.

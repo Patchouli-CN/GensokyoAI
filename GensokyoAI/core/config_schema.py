@@ -166,7 +166,7 @@ class WebSearchToolConfig(Struct):
     """自有 Web search 工具配置。"""
 
     enabled: bool = False
-    provider: str = "bing"  # bing / api / mixed
+    provider: str = "ddg"  # ddg / bing / api / mixed
     max_results: int = 10
     timeout: int = 10
     cache_ttl_seconds: int = 300

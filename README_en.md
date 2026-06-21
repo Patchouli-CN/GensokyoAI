@@ -48,7 +48,10 @@ GensokyoAI provides a frontend-agnostic Runtime boundary. Machine-readable versi
 - `GensokyoAI/runtime/service.py`: generic `RuntimeService`.
 - `GensokyoAI/runtime/rpc.py`: RPC method registration, dispatch, and legacy method compatibility.
 - `GensokyoAI/runtime/dependencies.py`: optional provider dependency detection and whitelist-based installation.
+- `GensokyoAI/backends/web_server/http_adapter.py`: HTTP / WebSocket Runtime adapter.
+- `GensokyoAI/backends/web_server/main.py`: HTTP / WebSocket entry main function.
 - `bridge_main.py`: generic JSON Lines RPC entry point, runnable by local clients or other processes.
+- `runtime_http.py`: HTTP / WebSocket entry compatibility wrapper pointing to `GensokyoAI.backends.web_server`.
 
 Current Runtime RPC support includes:
 
@@ -126,7 +129,7 @@ GensokyoAI optimizes stability for external AI service calls:
 - API address formats for OpenAI, OpenAI-compatible services, OpenAI Responses, OpenRouter, and custom proxies are more tolerant.
 - Supports truly arbitrary `api_path`: default paths continue through the SDK; proxy paths that the SDK's fixed resource path cannot express automatically fall back to a custom HTTP call layer.
 - Supports `extra_headers`, provider capability declarations, `ProviderDefinition` control plane, model list queries, and more complete streaming metadata.
-- Supports explicit real web search execution layer: OpenAI Responses can inject `web_search_preview`; Gemini can map Google Search grounding; GensokyoAI also provides its own `web_search` tool via Bing/API search; disabled by default, no automatic web search.
+- Supports explicit real web search execution layer: OpenAI Responses can inject `web_search_preview`; Gemini can map Google Search grounding; GensokyoAI also provides its own `web_search` tool via DuckDuckGo (`ddgs`) search, with Bing/API remaining as optional providers; disabled by default, no automatic web search.
 - Tool injection is centrally decided by `ToolBuildService`, selecting tool schemas and additional instructions based on model tool capabilities, global tool switches, builtin tool whitelist, and provider built-in search configuration.
 - Tool errors retain legacy `content` / `is_error` fields while providing structured `error_code`, `technical_message`, `user_message`, `recoverable`, `action_hint`, and `details`, making UI display and recovery actions easier.
 - Retry policy can be adjusted via `retry_max_attempts`, `retry_initial_delay`, `retry_backoff_factor`, `retry_status_codes`.
@@ -251,11 +254,11 @@ tool:
   enabled: true
   web_search:
     enabled: true
-    provider: "bing"   # bing / api / mixed
+    provider: "ddg"   # ddg / bing / api / mixed
     max_results: 10
 ```
 
-The built-in `web_search` tool defaults to Bing HTML search. To connect to Tavily, BoCha, enterprise search, or other JSON APIs, use the generic API provider:
+The built-in `web_search` tool now defaults to DuckDuckGo (`ddgs`) search and requires no API key. To connect to Tavily, BoCha, enterprise search, or other JSON APIs, use the generic API provider:
 
 ```yaml
 tool:
@@ -272,7 +275,7 @@ tool:
       snippet_path: "content"
 ```
 
-`provider: "mixed"` runs Bing and API searches in parallel, then deduplicates, ranks, and truncates results by source priority and quality. On success, the search tool returns JSON containing `items` and `diagnostics` so the model can cite sources and troubleshoot search status; diagnostic failures such as disabled configuration, unsupported provider, provider failure, or no results are returned as structured tool errors like `web_search.disabled`, `web_search.unsupported_provider`, `web_search.provider_failed`, `web_search.no_results`.
+`provider: "mixed"` runs DuckDuckGo and API searches in parallel, then deduplicates, ranks, and truncates results by source priority and quality. On success, the search tool returns JSON containing `items` and `diagnostics` so the model can cite sources and troubleshoot search status; diagnostic failures such as disabled configuration, unsupported provider, provider failure, or no results are returned as structured tool errors like `web_search.disabled`, `web_search.unsupported_provider`, `web_search.provider_failed`, `web_search.no_results`.
 
 ### Custom OpenAI-Compatible Service
 
@@ -431,7 +434,7 @@ The provider automatically converts to the target service format:
 
 ## Runtime RPC Capabilities
 
-GensokyoAI provides a frontend-agnostic Runtime service boundary, currently accessible via [`bridge_main.py`](./bridge_main.py) as JSON Lines RPC and via [`runtime_http.py`](./runtime_http.py) as HTTP / WebSocket adapter. Core services are provided by [`RuntimeService`](./GensokyoAI/runtime/service.py); RPC method mapping is reused by [`dispatch_rpc()`](./GensokyoAI/runtime/rpc.py). Clients can query currently supported methods via `runtime.info`.
+GensokyoAI provides a frontend-agnostic Runtime service boundary, currently accessible via [`bridge_main.py`](./bridge_main.py) as JSON Lines RPC and via `python -m GensokyoAI.backends.web_server` as HTTP / WebSocket adapter ([`runtime_http.py`](./runtime_http.py) remains as a compatibility wrapper). Core services are provided by [`RuntimeService`](./GensokyoAI/runtime/service.py); RPC method mapping is reused by [`dispatch_rpc()`](./GensokyoAI/runtime/rpc.py). Clients can query currently supported methods via `runtime.info`.
 
 Main capabilities currently exposed:
 
@@ -477,7 +480,13 @@ gensokyoai-character characters/zh_cn/HakureiReimu.yaml --json
 
 After installation, `gensokyoai-character` is available as a script; the exit code is `1` when error-level diagnostics exist, and `0` when only warnings remain.
 
-HTTP / WebSocket adapter startup example:
+HTTP / WebSocket adapter startup example (recommended):
+
+```bash
+python -m GensokyoAI.backends.web_server --host 127.0.0.1 --port 8765
+```
+
+Compatibility wrapper:
 
 ```bash
 python runtime_http.py --host 127.0.0.1 --port 8765

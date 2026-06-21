@@ -620,7 +620,7 @@ class ConfigValidator:
                 self._validate_enum(
                     "tool.web_search.provider",
                     web_search.get("provider"),
-                    {"bing", "api", "mixed"},
+                    {"ddg", "bing", "api", "mixed"},
                     diagnostics,
                 )
                 self._validate_enum(

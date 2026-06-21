@@ -206,7 +206,7 @@ tool:
   custom_tools_path: null
   web_search:
     enabled: false           # 自有 web_search 工具总开关；默认关闭，避免隐私和成本风险
-    provider: "bing"         # bing / api / mixed；mixed 会合并 Bing 与 API 结果
+    provider: "ddg"         # ddg / bing / api / mixed；mixed 会合并 ddg 与 API 结果
     max_results: 10
     timeout: 10
     cache_ttl_seconds: 300
