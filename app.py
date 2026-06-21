@@ -37,7 +37,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_CHARACTER = "characters/zh_cn/KirisameMarisa.yaml"
 
 # 订阅哪些事件类型才能收到主动消息
-PROACTIVE_EVENT_TYPES = ["MESSAGE_SENT"]
+PROACTIVE_EVENT_TYPES = ["message.sent"]
 
 
 # ----------------- 后台事件监听(接收主动消息) -----------------
@@ -114,7 +114,7 @@ def _drain_event_queue() -> int:
         event_type = event.get("type")
         source = event.get("source")
         data = event.get("data") or {}
-        if event_type == "MESSAGE_SENT" and source == "initiative_timer" and data.get("initiative"):
+        if event_type == "message.sent" and source == "initiative_timer" and data.get("initiative"):
             content = data.get("content")
             if isinstance(content, str) and content.strip():
                 ss.messages.append({"role": "assistant", "content": content.strip()})

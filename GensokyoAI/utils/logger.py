@@ -4,10 +4,18 @@
 
 import inspect
 import logging as std_logging
+import os
 import sys
 from pathlib import Path
 
 from loguru import logger
+
+# 默认关闭完整堆栈，避免日志被异常 traceback 刷屏；可通过环境变量开启
+_LOGURU_FULL_TRACEBACK = os.environ.get("LOGURU_FULL_TRACEBACK", "0").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 # 移除默认配置
 logger.remove()
@@ -31,9 +39,14 @@ class LoguruHandler(std_logging.Handler):
             frame = frame.f_back
             depth += 1
 
-        logger.opt(depth=depth, exception=record.exc_info, colors=False).log(
-            level, "{}", record.getMessage()
+        # 默认只对 ERROR 及以上保留异常 traceback，防止 WARNING/INFO 被堆栈刷屏
+        exc = (
+            record.exc_info
+            if _LOGURU_FULL_TRACEBACK or record.levelno >= std_logging.ERROR
+            else False
         )
+
+        logger.opt(depth=depth, exception=exc, colors=False).log(level, "{}", record.getMessage())
 
 
 def setup_logging(
@@ -98,8 +111,8 @@ def setup_logging(
             level=log_level,
             rotation="10 MB",
             compression="zip",
-            backtrace=True,
-            diagnose=True,
+            backtrace=_LOGURU_FULL_TRACEBACK,
+            diagnose=_LOGURU_FULL_TRACEBACK,
             enqueue=True,
         )
 
