@@ -118,7 +118,7 @@ class ThinkEngineConfig(Struct):
     think_temperature: float = 0.7  # 思考时的温度
     think_max_tokens: int = 200  # 思考最大 token 数
     initiative_temperature: float = 0.8  # 生成主动消息时的温度
-    initiative_max_tokens: int = 100  # 生成主动消息最大 token 数
+    initiative_max_tokens: int = 0  # 生成主动消息最大 token 数；0 表示不限制
 
 
 class InitiativeTimerConfig(Struct):

@@ -621,11 +621,13 @@ class Agent:
                 "content": "（没有新用户输入，这是你自己决定要说的话，请按照上面的摘要和内部思考自然地主动开口。）",
             }
         )
-        initiative_options = {
+        max_tokens = self.config.think_engine.initiative_max_tokens
+        initiative_options: dict[str, Any] = {
             "temperature": self.config.think_engine.initiative_temperature,
-            "num_predict": self.config.think_engine.initiative_max_tokens,
-            "max_tokens": self.config.think_engine.initiative_max_tokens,
         }
+        if max_tokens > 0:
+            initiative_options["num_predict"] = max_tokens
+            initiative_options["max_tokens"] = max_tokens
         use_stream = self.config.model.stream
 
         logger.trace(
