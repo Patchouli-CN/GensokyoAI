@@ -17,6 +17,9 @@ _LOGURU_FULL_TRACEBACK = os.environ.get("LOGURU_FULL_TRACEBACK", "0").lower() in
     "yes",
 )
 
+# 默认抑制部分底层库的低级别日志，避免污染终端/文件
+_SUPPRESSED_LOW_LEVEL_LOGGERS = {"httpcore", "asyncio", "aiohttp.access"}
+
 # 移除默认配置
 logger.remove()
 
@@ -29,6 +32,13 @@ _handlers = {"console": None, "file": None}
 
 class LoguruHandler(std_logging.Handler):
     def emit(self, record: std_logging.LogRecord):
+        # 抑制 httpcore/asyncio/aiohttp.access 等库的 DEBUG/INFO 日志
+        if (
+            record.name.split(".")[0] in _SUPPRESSED_LOW_LEVEL_LOGGERS
+            and record.levelno < std_logging.WARNING
+        ):
+            return
+
         try:
             level = logger.level(record.levelname).name
         except ValueError:
