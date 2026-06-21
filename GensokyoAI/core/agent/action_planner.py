@@ -4,7 +4,7 @@
 import json
 import re
 from collections import deque
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ...utils.logger import logger
 from ..events import Event, EventBus, EventPriority, SystemEvent
@@ -17,6 +17,20 @@ if TYPE_CHECKING:
     from ...memory.semantic import SemanticMemoryManager
     from ...memory.working import WorkingMemoryManager
     from .model_client import ModelClient
+
+
+def _extract_text_from_content(content: Any) -> str:
+    """从字符串或多模态 content parts 中提取文本。"""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        texts = [
+            str(part.get("text", ""))
+            for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        ]
+        return " ".join(texts)
+    return ""
 
 
 class ActionPlanner:
@@ -72,12 +86,13 @@ class ActionPlanner:
     async def _on_message_received(self, event: Event) -> None:
         """收到用户消息 - 决定如何回应"""
         user_input = event.data.get("content", "")
+        text_input = _extract_text_from_content(user_input)
 
         # 空消息不回应
-        if not user_input or len(user_input.strip()) <= 1:
+        if not text_input or len(text_input.strip()) <= 1:
             action = ActionFactory.wait(reason="用户输入太短")
         else:
-            action = ActionFactory.speak(reason=f"回应: {user_input[:30]}...")
+            action = ActionFactory.speak(reason=f"回应: {text_input[:30]}...")
 
         self._record_action(action)
         self._publish_action(action, trigger_event=event)

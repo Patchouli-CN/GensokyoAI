@@ -87,7 +87,11 @@ class CoreListeners:
     async def on_message_received(self, event: Event) -> None:
         """记录用户消息到工作记忆"""
         user_input = event.data.get("content", "")
-        logger.debug(f"收到消息: {user_input[:50]}...")
+        if isinstance(user_input, list):
+            preview = f"[多模态消息，{len(user_input)} 个 parts]"
+        else:
+            preview = str(user_input)[:50]
+        logger.debug(f"收到消息: {preview}...")
 
         self.agent.working_memory.add_message("user", user_input)
 

@@ -3,6 +3,7 @@
 # GensokyoAI/backends/console/_impl.py
 
 import asyncio
+import mimetypes
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -313,6 +314,13 @@ class ConsoleBackend(BaseBackend):
         if not self._running or self.agent.is_shutting_down:
             return ""
 
+        stripped = message.strip()
+        if stripped.startswith("/image "):
+            content_parts = self._parse_image_input(stripped)
+            if content_parts:
+                return await self._send_multimodal(content_parts, system_contexts)
+            return ""
+
         results, clean_text = await self.cmd_executor.execute(message, self._cmd_context)
 
         if self._handle_command_results(results):
@@ -329,6 +337,78 @@ class ConsoleBackend(BaseBackend):
             response = await self._send_non_stream(clean_text, system_contexts)
 
         return response
+
+    async def _send_multimodal(
+        self, content_parts: list[dict[str, Any]], system_contexts: list[str] | None = None
+    ) -> str:
+        """发送多模态消息并获取回复"""
+        system_contexts = system_contexts or self._build_system_contexts()
+        if self._use_stream and self.agent.config.model.stream:
+            full_response = ""
+            self._streaming_done.clear()
+            try:
+                async for chunk in self.agent.send_multimodal_stream(
+                    content_parts, system_contexts
+                ):
+                    if self.agent.is_shutting_down:
+                        break
+                    if chunk.is_tool_call and chunk.tool_info:
+                        self._print_tool_call_indicator(chunk.tool_info)
+                    else:
+                        if not full_response:
+                            self._write_character_prefix()
+                        self.console.print(chunk.content, end="", style=self.colors["assistant"])
+                        full_response += chunk.content
+                        if self._stream_handler:
+                            self._stream_handler(chunk.content)
+            except asyncio.CancelledError:
+                logger.debug("多模态流式输出被取消")
+            except Exception as e:
+                logger.error(f"多模态流式输出错误: {e}")
+                self._print_error_message(str(e))
+            if full_response:
+                self.console.print()
+            self._streaming_done.set()
+            return full_response
+
+        self._write_character_prefix()
+        self.console.print("思考中...", style="dim", end="\r")
+        response = await self.agent.send_multimodal(content_parts, system_contexts)
+        content = ""
+        if response and isinstance(response.content, str):
+            content = response.content
+        self._write_character_prefix()
+        self.console.print(content, style=self.colors["assistant"])
+        if self._stream_handler:
+            self._stream_handler(content)
+        return content
+
+    def _parse_image_input(self, raw: str) -> list[dict[str, Any]] | None:
+        """解析 '/image path [text]'，返回统一 content parts 列表。
+
+        为节省工作记忆，图片只存本地路径（URL），发送时由 Provider 按需读取并转 base64。
+        """
+        parts = raw.split(maxsplit=2)
+        if len(parts) < 2:
+            self._print_error_message("用法: /image <图片路径> [可选文字]")
+            return None
+        image_path = Path(parts[1]).expanduser().resolve()
+        if not image_path.exists():
+            self._print_error_message(f"图片不存在: {image_path}")
+            return None
+        try:
+            mime_type, _ = mimetypes.guess_type(str(image_path))
+            mime_type = mime_type or "image/png"
+            image_url = image_path.as_uri()  # file://...
+        except Exception as e:
+            self._print_error_message(f"处理图片路径失败: {e}")
+            return None
+        result: list[dict[str, Any]] = [
+            {"type": "image", "image": {"url": image_url, "mime_type": mime_type}}
+        ]
+        if len(parts) > 2 and parts[2].strip():
+            result.insert(0, {"type": "text", "text": parts[2].strip()})
+        return result
 
     async def _send_stream(self, message: str, system_contexts: list[str]) -> str:
         """流式发送并显示"""

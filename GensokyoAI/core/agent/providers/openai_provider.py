@@ -12,8 +12,12 @@
 
 # GensokyoAI/core/agent/providers/openai_provider.py
 
+import base64
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 from ....utils.logger import logger
 from ....utils.request_utils import (
@@ -148,7 +152,26 @@ class OpenAIProvider(BaseProvider):
             image.get("mime_type") if isinstance(image, dict) else getattr(image, "mime_type", None)
         ) or "image/png"
         if url:
-            return url
+            # 本地文件路径 / file:// URL 在发送时读取并转 base64 data URL，避免长期占用内存
+            parsed = urlparse(str(url))
+            if parsed.scheme == "file":
+                local_path = Path(url2pathname(parsed.path))
+                if local_path.exists():
+                    try:
+                        raw = local_path.read_bytes()
+                        return f"data:{mime_type};base64,{base64.b64encode(raw).decode('utf-8')}"
+                    except Exception as error:
+                        logger.warning(f"读取本地图片失败: {local_path}, {error}")
+            elif parsed.scheme in ("http", "https"):
+                return str(url)
+            local_path = Path(str(url))
+            if local_path.exists():
+                try:
+                    raw = local_path.read_bytes()
+                    return f"data:{mime_type};base64,{base64.b64encode(raw).decode('utf-8')}"
+                except Exception as error:
+                    logger.warning(f"读取本地图片失败: {local_path}, {error}")
+            return str(url)
         if data:
             return data if str(data).startswith("data:") else f"data:{mime_type};base64,{data}"
         return ""

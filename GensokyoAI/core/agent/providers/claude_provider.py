@@ -5,9 +5,13 @@
 
 # GensokyoAI/core/agent/providers/claude_provider.py
 
+import base64
 import json
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 from ....utils.logger import logger
 from ....utils.request_utils import merge_headers
@@ -306,6 +310,57 @@ class ClaudeProvider(BaseProvider):
         mime_type = (
             image.get("mime_type") if isinstance(image, dict) else getattr(image, "mime_type", None)
         ) or "image/png"
+
+        def _read_local(path: Path) -> bytes:
+            return path.read_bytes()
+
+        if url:
+            parsed = urlparse(str(url))
+            if parsed.scheme == "file":
+                local_path = Path(url2pathname(parsed.path))
+                if local_path.exists():
+                    try:
+                        data = base64.b64encode(_read_local(local_path)).decode("utf-8")
+                        return {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": mime_type,
+                                "data": data,
+                            },
+                        }
+                    except Exception as error:
+                        logger.warning(f"读取本地图片失败: {local_path}, {error}")
+            elif parsed.scheme in ("http", "https"):
+                return {
+                    "type": "image",
+                    "source": {
+                        "type": "url",
+                        "url": str(url),
+                    },
+                }
+            local_path = Path(str(url))
+            if local_path.exists():
+                try:
+                    data = base64.b64encode(_read_local(local_path)).decode("utf-8")
+                    return {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": mime_type,
+                            "data": data,
+                        },
+                    }
+                except Exception as error:
+                    logger.warning(f"读取本地图片失败: {local_path}, {error}")
+            # 未知 scheme 也尝试当 URL 发
+            return {
+                "type": "image",
+                "source": {
+                    "type": "url",
+                    "url": str(url),
+                },
+            }
         if data:
             if str(data).startswith("data:") and ";base64," in str(data):
                 data = str(data).split(";base64,", 1)[1]
@@ -315,14 +370,6 @@ class ClaudeProvider(BaseProvider):
                     "type": "base64",
                     "media_type": mime_type,
                     "data": data,
-                },
-            }
-        if url:
-            return {
-                "type": "image",
-                "source": {
-                    "type": "url",
-                    "url": url,
                 },
             }
         return {"type": "text", "text": ""}

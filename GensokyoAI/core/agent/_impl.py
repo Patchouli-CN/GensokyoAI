@@ -270,6 +270,33 @@ class Agent:
 
             return None
 
+    async def send_multimodal(
+        self,
+        content_parts: list[dict[str, Any]],
+        system_contexts: list[str] | None = None,
+    ) -> UnifiedMessage | None:
+        """发送多模态消息（非流式）。"""
+        if self.is_shutting_down:
+            return None
+
+        async with self._request_semaphore:
+            if self.is_shutting_down:
+                return None
+            await self.discard_initiative_timer(reason="user_message_received", source="user")
+            response_future = self._action_executor.prepare_response()  # type: ignore
+            self._publish_message_received(content_parts, system_contexts)
+
+            try:
+                full_response = await asyncio.wait_for(response_future, timeout=60.0)
+                if full_response:
+                    return UnifiedMessage(role="assistant", content=full_response)
+            except TimeoutError:
+                logger.warning("多模态响应超时")
+                self._action_executor.cancel_response("send multimodal timeout")  # type: ignore
+                return UnifiedMessage(role="assistant", content="「唔…我有点走神了…」")
+
+            return None
+
     async def send_stream(
         self, user_input: str, system_contexts: list[str] | None = None
     ) -> AsyncIterator[StreamChunk]:
@@ -329,8 +356,71 @@ class Agent:
             finally:
                 self._action_executor.complete_response(full_response)  # type: ignore
 
+    async def send_multimodal_stream(
+        self,
+        content_parts: list[dict[str, Any]],
+        system_contexts: list[str] | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        """发送多模态消息（流式）。"""
+        if self.is_shutting_down:
+            return
+
+        async with self._request_semaphore:
+            if self.is_shutting_down:
+                return
+            await self.discard_initiative_timer(reason="user_message_received", source="user")
+            response_future = self._action_executor.prepare_response()  # type: ignore
+            self._publish_message_received(content_parts, system_contexts)
+
+            full_response = ""
+            loop = asyncio.get_running_loop()
+            started_at = loop.time()
+            last_chunk_at = started_at
+            saw_chunk = False
+            try:
+                while True:
+                    timeout = self._next_stream_wait_timeout(
+                        started_at=started_at,
+                        last_chunk_at=last_chunk_at,
+                        saw_chunk=saw_chunk,
+                    )
+                    if timeout <= 0:
+                        raise TimeoutError("stream response timeout")
+                    try:
+                        chunk = await asyncio.wait_for(
+                            self._action_executor.get_chunk(),  # type: ignore
+                            timeout=min(0.1, timeout),
+                        )
+                        if chunk:
+                            saw_chunk = True
+                            last_chunk_at = loop.time()
+                            full_response += chunk
+                            yield StreamChunk(content=chunk)
+                    except TimeoutError as error:
+                        if response_future.done():
+                            break
+                        if self._stream_timed_out(started_at, last_chunk_at, saw_chunk):
+                            raise TimeoutError("stream response timeout") from error
+                        continue
+            except asyncio.CancelledError, GeneratorExit:
+                self._action_executor.cancel_response("stream cancelled")  # type: ignore
+                raise
+            except TimeoutError as error:
+                logger.warning(f"多模态流式响应超时: {error}")
+                self._action_executor.cancel_response(str(error))  # type: ignore
+                yield StreamChunk(
+                    type="error",
+                    content="\n[响应超时]\n",
+                    error=str(error),
+                    error_code="agent.stream.timeout",
+                )
+            finally:
+                self._action_executor.complete_response(full_response)  # type: ignore
+
     def _publish_message_received(
-        self, user_input: str, system_contexts: list[str] | None = None
+        self,
+        user_input: str | list[dict[str, Any]],
+        system_contexts: list[str] | None = None,
     ) -> None:
         self.event_bus.publish(
             Event(
@@ -339,6 +429,20 @@ class Agent:
                 data={"content": user_input, "system_contexts": system_contexts},
             )
         )
+
+    @staticmethod
+    def _extract_text_from_content(content: Any) -> str:
+        """从字符串或多模态 content parts 中提取文本。"""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            texts = [
+                str(part.get("text", ""))
+                for part in content
+                if isinstance(part, dict) and part.get("type") == "text"
+            ]
+            return " ".join(texts)
+        return ""
 
     def _next_stream_wait_timeout(
         self,
@@ -488,13 +592,15 @@ class Agent:
     async def _on_generate_response(self, event: Event) -> None:
         user_input = event.data.get("user_input", "")
         system_contexts = event.data.get("system_contexts", [])
+        # MessageBuilder 需要文本做检索/搜索提示；实际多模态内容已在工作记忆中
+        text_input = self._extract_text_from_content(user_input)
 
         full_response = ""
         try:
             await self._ensure_background_manager()
             tool_build_result = await self._build_tools()
             self.message_builder.update_tool_build_result(tool_build_result)
-            messages = self.message_builder.build(user_input, system_contexts)
+            messages = self.message_builder.build(text_input, system_contexts)
             tools = tool_build_result.tools or None
 
             async for chunk in self.response_handler.process_stream(messages, tools):
