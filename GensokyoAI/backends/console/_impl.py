@@ -3,7 +3,6 @@
 # GensokyoAI/backends/console/_impl.py
 
 import asyncio
-import contextlib
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -58,29 +57,19 @@ class ConsoleBackend(BaseBackend):
             "initiative": "italic yellow",
         }
 
-        # 主动消息队列 + 后台显示任务
-        self._initiative_queue: asyncio.Queue[str] = asyncio.Queue()
-        self._display_task: asyncio.Task | None = None
-
         # 流式输出完成事件（用于主动消息等待）
         self._streaming_done = asyncio.Event()
         self._streaming_done.set()
 
-        # 订阅主动消息事件
+        # 订阅真正的主动发送消息，避免依赖 think.engine.initiative 流式片段
         agent.event_bus.subscribe(
-            SystemEvent.THINK_ENGINE_INITIATIVE,
-            self._on_initiative_message,
+            SystemEvent.MESSAGE_SENT,
+            self._on_initiative_message_sent,
             priority=EventPriority.LOW,
+            filter_func=lambda event: (
+                event.source == "initiative_timer" and event.data.get("initiative")
+            ),
         )
-        # 订阅主动消息流式片段
-        agent.event_bus.subscribe(
-            SystemEvent.THINK_ENGINE_INITIATIVE_CHUNK,
-            self._on_initiative_chunk,
-            priority=EventPriority.LOW,
-        )
-
-        # 是否正在流式输出主动消息
-        self._initiative_streaming = False
 
         # 累积的提示词上下文
         self._prompt_context: list[str] = []
@@ -417,10 +406,6 @@ class ConsoleBackend(BaseBackend):
     async def stop(self) -> None:
         """停止"""
         self._running = False
-        if self._display_task:
-            self._display_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._display_task
         await self.agent.shutdown()
         logger.info("控制台后端已停止")
 
@@ -439,55 +424,23 @@ class ConsoleBackend(BaseBackend):
 
     # ==================== 主动消息实时显示 ====================
 
-    async def _on_initiative_message(self, event: Event) -> None:
-        """收到完整主动消息 — 非流式模式入队列，流式模式跳过（chunk 已渲染）。"""
-        if self._use_stream:
-            return  # 流式片段已实时渲染
-        message = event.data.get("message", "")
-        if message:
-            await self._initiative_queue.put(message)
+    async def _on_initiative_message_sent(self, event: Event) -> None:
+        """收到实际发送的主动消息，等当前回复输出完再显示。"""
+        message = event.data.get("content", "")
+        if not isinstance(message, str) or not message.strip():
+            return
 
-    async def _on_initiative_chunk(self, event: Event) -> None:
-        """收到主动消息流式片段 — 实时渲染到终端。"""
-        content = event.data.get("content", "")
-        done = event.data.get("done", False)
+        await self._streaming_done.wait()
 
-        if not self._initiative_streaming:
-            # 首个片段：等待正常流式输出完成
-            await self._streaming_done.wait()
-            self._streaming_done.clear()
-            self._write_character_prefix()
-            self._initiative_streaming = True
-
-        if content:
-            self.console.print(content, end="", style=self.colors["assistant"])
-
-        if done:
-            self.console.print()
-            self._streaming_done.set()
-            self._initiative_streaming = False
-
-    async def _display_initiative_loop(self) -> None:
-        """后台协程 - 实时显示队列中的主动消息（仅非流式模式）。"""
-        while self._running:
-            try:
-                msg = await asyncio.wait_for(self._initiative_queue.get(), timeout=0.5)
-            except TimeoutError:
-                continue
-
-            # 等待流式输出完成再显示主动消息
-            await self._streaming_done.wait()
-
-            self.console.print()
-            self.console.print(f"[{self.colors['initiative']}]💭 {self._character_name}: {msg}[/]")
+        self.console.print()
+        self.console.print(
+            f"[{self.colors['initiative']}]💭 {self._character_name}: {message.strip()}[/]"
+        )
 
     # ==================== 交互式主循环 ====================
 
     async def run_interactive(self) -> None:
         await self.start()
-
-        # 启动主动消息显示协程
-        self._display_task = asyncio.create_task(self._display_initiative_loop())
 
         self.console.print("[dim]💡 输入 [/][bold cyan]<cmd>help</cmd>[/] [dim]查看所有命令[/]")
         self.console.print("[dim]💡 按 Ctrl+C 安全退出（会自动保存）[/]\n")
