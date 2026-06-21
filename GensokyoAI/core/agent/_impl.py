@@ -1,6 +1,7 @@
 """Agent 主类 - 事件驱动版"""
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from contextvars import ContextVar
 from pathlib import Path
@@ -556,7 +557,9 @@ class Agent:
         """定时器到点后：基于摘要先思考，再生成真正主动消息。"""
         pending_summary = str(payload.get("pending_summary") or "").strip()
         timer_id = str(payload.get("timer_id") or "").strip()
+        logger.debug(f"[Agent] 主动定时器 {timer_id} 触发，待表达摘要: {pending_summary[:60]}...")
         if not pending_summary:
+            logger.debug("[Agent] 主动定时器触发时摘要为空，跳过生成")
             return None
 
         await self._ensure_background_manager()
@@ -584,6 +587,7 @@ class Agent:
 - 不要判断要不要说；到点即代表要说。
 - 不要写最终要发送给用户的完整话术。
 - 只输出简短内部思考。"""
+        logger.trace(f"[Agent] 主动消息思考 prompt:\n{thought_prompt}")
         thought = ""
         try:
             thought_response = await self._model_client.chat(
@@ -596,6 +600,7 @@ class Agent:
             )
             content = thought_response.message.content
             thought = content.strip() if isinstance(content, str) else ""
+            logger.debug(f"[Agent] 主动消息思考结果: {thought[:100]}...")
         except Exception as error:
             logger.error(f"主动定时器说话前思考失败: {error}")
 
@@ -616,6 +621,11 @@ class Agent:
         }
         use_stream = self.config.model.stream
 
+        logger.trace(
+            f"[Agent] 主动消息生成请求 messages:\n"
+            f"{json.dumps(messages, ensure_ascii=False, indent=2)}"
+        )
+
         message = ""
         try:
             if use_stream:
@@ -629,6 +639,7 @@ class Agent:
                     chunk_text = chunk.content if hasattr(chunk, "content") else ""
                     if chunk_text:
                         chunks.append(chunk_text)
+                        logger.trace(f"[Agent] 主动消息流式 chunk: {chunk_text!r}")
                         self.event_bus.publish(
                             Event(
                                 type=SystemEvent.THINK_ENGINE_INITIATIVE_CHUNK,
@@ -637,6 +648,7 @@ class Agent:
                             )
                         )
                 message = "".join(chunks).strip()
+                logger.debug(f"[Agent] 主动消息流式生成完成，长度: {len(message)}")
                 # 发送流式结束标记
                 self.event_bus.publish(
                     Event(
@@ -652,6 +664,7 @@ class Agent:
                 )
                 content = response.message.content
                 message = content.strip() if isinstance(content, str) else ""
+                logger.debug(f"[Agent] 主动消息非流式生成完成，长度: {len(message)}")
         except Exception as error:
             logger.error(f"主动定时器主动消息生成失败: {error}")
             message = ""
@@ -688,6 +701,10 @@ class Agent:
                     "pending_summary": pending_summary,
                 },
             )
+        )
+        logger.info(
+            f"[Agent] 主动消息已发送，timer_id={timer_id}, 长度={len(message)}, "
+            f"内容: {message[:80]}..."
         )
         return {
             "sent": True,

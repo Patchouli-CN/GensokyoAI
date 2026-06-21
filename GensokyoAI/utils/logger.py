@@ -39,10 +39,14 @@ class LoguruHandler(std_logging.Handler):
         ):
             return
 
-        try:
-            level = logger.level(record.levelname).name
-        except ValueError:
-            level = record.levelno
+        # 把其他库的 DEBUG 降级为我们的 TRACE，避免标准库 DEBUG 刷屏
+        if record.levelno == std_logging.DEBUG:
+            level = "TRACE"
+        else:
+            try:
+                level = logger.level(record.levelname).name
+            except ValueError:
+                level = record.levelno
 
         frame, depth = inspect.currentframe(), 0
         while frame and (depth == 0 or frame.f_code.co_filename == std_logging.__file__):

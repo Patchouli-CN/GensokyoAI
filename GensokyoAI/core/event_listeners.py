@@ -101,7 +101,10 @@ class CoreListeners:
             response,
             reasoning_content=reasoning_content,
         )
-        logger.debug(f"记录并发送响应: {response[:50]}...")
+        if event.source == "initiative_timer" or event.data.get("initiative"):
+            logger.info(f"🤖 记录主动发送的助手消息: {response[:60]}...")
+        else:
+            logger.debug(f"记录并发送响应: {response[:60]}...")
 
     # ==================== 记忆事件 ====================
 
