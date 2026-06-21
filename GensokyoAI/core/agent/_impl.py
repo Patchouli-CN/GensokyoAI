@@ -715,6 +715,13 @@ class Agent:
             f"[Agent] 主动消息已发送，timer_id={timer_id}, 长度={len(message)}, "
             f"内容: {message[:80]}..."
         )
+
+        # 主动发言成功：递增计数，并在未达上限时继续调度下一轮主动定时器
+        self._ensure_initiative_timer().increment_consecutive_initiative_count()
+        if self._initiative_timer is not None and not self._initiative_timer._has_reached_initiative_limit():
+            logger.debug("[Agent] 未达连续主动上限，继续调度下一轮主动定时器")
+            self._last_initiative_timer_payload = await self.schedule_initiative_timer(message)
+
         return {
             "sent": True,
             "timer_id": timer_id,
@@ -729,6 +736,8 @@ class Agent:
         if self._initiative_timer is None:
             return None
         self._last_initiative_timer_payload = None
+        if source == "user":
+            self._initiative_timer.reset_consecutive_initiative_count()
         return await self._initiative_timer.discard(reason=reason, source=source)
 
     def current_initiative_timer(self) -> dict | None:

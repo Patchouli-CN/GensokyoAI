@@ -721,6 +721,12 @@ class ConfigMerger:
                 if override.fallback_reason != defaults.fallback_reason
                 else base.fallback_reason,
             ),
+            max_initiative_times=choose(
+                "max_initiative_times",
+                override.max_initiative_times
+                if override.max_initiative_times != defaults.max_initiative_times
+                else base.max_initiative_times,
+            ),
         )
 
     def _merge_think_engine(

@@ -91,6 +91,7 @@ class InitiativeTimerManager:
         self._lock = asyncio.Lock()
         self._last_assistant_response: str | None = None  # 犹豫重试时复用
         self._pace_stamps: list[datetime] = []  # 最近几次回复完成时间，用于 auto 延迟
+        self._consecutive_initiative_count = 0  # 用户未回复期间已连续主动发言次数
 
     def current_payload(self) -> dict[str, Any] | None:
         """返回当前定时器对前端可见的 payload。"""
@@ -106,6 +107,13 @@ class InitiativeTimerManager:
         """
         if not self.config.enabled or not assistant_response.strip():
             logger.trace("[InitiativeTimer] schedule_after_response 被禁用或回复为空，跳过")
+            return None
+
+        if self._has_reached_initiative_limit():
+            logger.debug(
+                f"[InitiativeTimer] 已连续主动发言 {self._consecutive_initiative_count} 次，"
+                f"达到上限 {self.config.max_initiative_times}，暂停新的主动定时器"
+            )
             return None
 
         self._last_assistant_response = assistant_response
@@ -321,6 +329,26 @@ class InitiativeTimerManager:
                 f"触发时间: {state.due_at.isoformat()}"
             )
 
+    def reset_consecutive_initiative_count(self) -> None:
+        """用户回复后重置连续主动发言计数器。"""
+        if self._consecutive_initiative_count != 0:
+            logger.debug(
+                f"[InitiativeTimer] 用户回复，重置连续主动计数: {self._consecutive_initiative_count} -> 0"
+            )
+        self._consecutive_initiative_count = 0
+
+    def increment_consecutive_initiative_count(self) -> None:
+        """主动消息成功发送后递增计数器。"""
+        self._consecutive_initiative_count += 1
+        logger.debug(
+            f"[InitiativeTimer] 连续主动计数递增: {self._consecutive_initiative_count}"
+        )
+
+    def _has_reached_initiative_limit(self) -> bool:
+        """是否已达到当前用户回合允许的最大连续主动发言次数。"""
+        max_times = self.config.max_initiative_times
+        return max_times > 0 and self._consecutive_initiative_count >= max_times
+
     # ------------------------------------------------------------------
     # 公共操作
     # ------------------------------------------------------------------
@@ -330,6 +358,8 @@ class InitiativeTimerManager:
     ) -> dict[str, Any] | None:
         """丢弃当前积存摘要。用户新消息进入时调用。"""
         logger.debug(f"[InitiativeTimer] 外部请求丢弃定时器，原因: {reason}, 来源: {source}")
+        if source == "user":
+            self.reset_consecutive_initiative_count()
         async with self._lock:
             return await self._discard_locked(reason=reason, source=source)
 

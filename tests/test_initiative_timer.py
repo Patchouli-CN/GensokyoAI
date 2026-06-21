@@ -403,6 +403,101 @@ class InitiativeTimerManagerTests(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_consecutive_initiative_limit_blocks_new_timer(self):
+        """达到最大连续主动次数后，schedule_after_response 应返回 None。"""
+
+        async def run():
+            event_bus = EventBus(enable_trace=False)
+            events = []
+            event_bus.subscribe(
+                SystemEvent.INITIATIVE_TIMER_CREATED, lambda event: events.append(event)
+            )
+            await event_bus.start()
+            try:
+                manager = InitiativeTimerManager(
+                    config=InitiativeTimerConfig(max_initiative_times=2),
+                    model_client=_FakeModelClient(),
+                    event_bus=event_bus,
+                    character_name="测试角色",
+                    working_memory=WorkingMemoryManager(max_turns=10),
+                )
+                manager._consecutive_initiative_count = 2
+
+                payload = await manager.schedule_after_response("刚才的回复")
+                self.assertIsNone(payload)
+                self.assertEqual(len(events), 0)
+            finally:
+                await event_bus.stop()
+
+        asyncio.run(run())
+
+    def test_consecutive_initiative_counter_increments_and_resets(self):
+        """计数器递增和重置逻辑正确。"""
+
+        async def run():
+            event_bus = EventBus(enable_trace=False)
+            await event_bus.start()
+            try:
+                manager = InitiativeTimerManager(
+                    config=InitiativeTimerConfig(max_initiative_times=3),
+                    model_client=_FakeModelClient(),
+                    event_bus=event_bus,
+                    character_name="测试角色",
+                    working_memory=WorkingMemoryManager(max_turns=10),
+                )
+                self.assertEqual(manager._consecutive_initiative_count, 0)
+                self.assertFalse(manager._has_reached_initiative_limit())
+
+                manager.increment_consecutive_initiative_count()
+                self.assertEqual(manager._consecutive_initiative_count, 1)
+                self.assertFalse(manager._has_reached_initiative_limit())
+
+                manager._consecutive_initiative_count = 3
+                self.assertTrue(manager._has_reached_initiative_limit())
+
+                manager.reset_consecutive_initiative_count()
+                self.assertEqual(manager._consecutive_initiative_count, 0)
+                self.assertFalse(manager._has_reached_initiative_limit())
+            finally:
+                await event_bus.stop()
+
+        asyncio.run(run())
+
+    def test_user_discard_resets_consecutive_initiative_counter(self):
+        """用户来源的 discard 会重置连续主动计数器。"""
+
+        async def run():
+            event_bus = EventBus(enable_trace=False)
+            await event_bus.start()
+            try:
+                manager = InitiativeTimerManager(
+                    config=InitiativeTimerConfig(),
+                    model_client=_FakeModelClient(),
+                    event_bus=event_bus,
+                    character_name="测试角色",
+                    working_memory=WorkingMemoryManager(max_turns=10),
+                )
+                payload = await manager.schedule_after_response("刚才的回复")
+                self.assertIsNotNone(payload)
+
+                manager.increment_consecutive_initiative_count()
+                manager.increment_consecutive_initiative_count()
+                self.assertEqual(manager._consecutive_initiative_count, 2)
+
+                # 非用户来源不应重置
+                await manager.discard(reason="system_cleanup", source="system")
+                self.assertEqual(manager._consecutive_initiative_count, 2)
+
+                # 用户回复应重置
+                await manager.schedule_after_response("新的回复")
+                manager.increment_consecutive_initiative_count()
+                await manager.discard(reason="user_message_received", source="user")
+                self.assertEqual(manager._consecutive_initiative_count, 0)
+            finally:
+                await event_bus.stop()
+
+        asyncio.run(run())
+
     def test_config_loader_persists_hesitation_enabled_in_yaml(self):
         from GensokyoAI.core.config import ConfigLoader
 

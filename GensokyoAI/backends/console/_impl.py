@@ -66,6 +66,9 @@ class ConsoleBackend(BaseBackend):
         self._initiative_first_chunk = True
         self._initiative_streamed_displayed = False
 
+        # 是否在等待用户输入（主动回复结束后需要补回输入提示）
+        self._waiting_for_input = False
+
         # 订阅主动消息流式片段，按正常 assistant 样式逐字显示
         agent.event_bus.subscribe(
             SystemEvent.THINK_ENGINE_INITIATIVE_CHUNK,
@@ -463,6 +466,8 @@ class ConsoleBackend(BaseBackend):
             self.console.print()
             self._initiative_streaming = False
             self._initiative_first_chunk = True
+            if self._waiting_for_input:
+                self.console.print(f"[{self.colors['user']}]你: [/]", end="")
 
     async def _on_initiative_message_sent(self, event: Event) -> None:
         """主动消息已完整发送；若已通过流式片段显示，则避免重复输出。"""
@@ -480,6 +485,8 @@ class ConsoleBackend(BaseBackend):
         self.console.print(
             f"[{self.colors['assistant']}]{self._character_name}: {message.strip()}[/]"
         )
+        if self._waiting_for_input:
+            self.console.print(f"[{self.colors['user']}]你: [/]", end="")
 
     # ==================== 交互式主循环 ====================
 
@@ -495,7 +502,9 @@ class ConsoleBackend(BaseBackend):
             while self._running and not self.agent.is_shutting_down:
                 try:
                     self.console.print(f"[{self.colors['user']}]你: [/]", end="")
+                    self._waiting_for_input = True
                     user_input = await aioconsole.ainput()
+                    self._waiting_for_input = False
 
                     if not user_input.strip():
                         continue
@@ -507,6 +516,7 @@ class ConsoleBackend(BaseBackend):
                         break
 
                 except KeyboardInterrupt:
+                    self._waiting_for_input = False
                     self.console.print("\n")
                     self._print_system_message("收到中断信号...", style="info")
                     break

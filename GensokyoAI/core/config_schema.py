@@ -140,6 +140,7 @@ class InitiativeTimerConfig(Struct):
     fallback_delay_seconds: int = 300
     fallback_summary: str = "稍后自然地重新考虑刚才的对话，若仍有余韵或新想法就主动补充一句。"
     fallback_reason: str = "AI 未主动设定定时器，系统安排一次自然再考虑以保持角色主动性"
+    max_initiative_times: int = 1  # 用户回复后最多连续主动发言次数；达到上限后暂停主动定时器
 
 
 class WebSearchAPIConfig(Struct):

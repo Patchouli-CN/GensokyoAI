@@ -187,6 +187,7 @@ initiative_timer:
   max_delay_seconds: 1800
   decision_temperature: 0.4
   decision_max_tokens: 300
+  max_initiative_times: 1           # 用户回复后最多连续主动发言次数；达到上限后暂停主动定时器
   max_pending_summary_chars: 240
   allow_frontend_edit_summary: true
   replace_user_modified_timer: true

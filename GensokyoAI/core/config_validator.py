@@ -828,6 +828,13 @@ class ConfigValidator:
             diagnostics,
             minimum=1,
         )
+        self._validate_numeric_range(
+            "initiative_timer.max_initiative_times",
+            data.get("max_initiative_times"),
+            diagnostics,
+            minimum=1,
+            maximum=100,
+        )
         for field_name in ("fallback_summary", "fallback_reason"):
             value = data.get(field_name)
             if value is not None and (not isinstance(value, str) or not value.strip()):
