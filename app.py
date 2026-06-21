@@ -85,15 +85,43 @@ async def _event_listener_loop(
 ) -> None:
     """长连接 /events,把服务端事件放进队列;断线后自动重连。"""
     client = GensokyoRuntimeClient(http_url, ws_url)
+    base_delay = 2.0
+    max_delay = 30.0
+    delay = base_delay
+
     while not stop_event.is_set():
+        # 先等 Runtime 初始化完成，避免在 agent.init 前就狂刷 /events 导致 500
+        try:
+            health = await client.health()
+        except Exception:
+            health = {}
+        if not health.get("initialized"):
+            await _interruptible_sleep(delay, stop_event)
+            delay = min(delay * 1.5, max_delay)
+            continue
+
         try:
             async for event in client.event_stream(event_types=PROACTIVE_EVENT_TYPES, timeout=None):
+                delay = base_delay
                 if stop_event.is_set():
                     break
                 event_queue.put(event)
-        except Exception:
-            # 断线或 Runtime 未就绪时静默重连
-            await asyncio.sleep(2)
+        except Exception as exc:
+            # 服务端未就绪或断线时静默重连；HTTP 500/503 时拉长间隔，避免污染日志
+            status = getattr(exc, "status", None)
+            if isinstance(status, int) and status >= 500:
+                delay = min(delay * 2, max_delay)
+            else:
+                delay = base_delay
+            await _interruptible_sleep(delay, stop_event)
+
+
+async def _interruptible_sleep(seconds: float, stop_event: threading.Event) -> None:
+    """可被 stop_event 提前打断的睡眠。"""
+    for _ in range(int(seconds * 2)):
+        if stop_event.is_set():
+            break
+        await asyncio.sleep(0.5)
 
 
 def _drain_event_queue() -> int:
