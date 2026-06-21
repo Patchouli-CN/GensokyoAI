@@ -61,7 +61,20 @@ class ConsoleBackend(BaseBackend):
         self._streaming_done = asyncio.Event()
         self._streaming_done.set()
 
-        # 订阅真正的主动发送消息，避免依赖 think.engine.initiative 流式片段
+        # 主动消息流式显示状态
+        self._initiative_streaming = False
+        self._initiative_first_chunk = True
+        self._initiative_streamed_displayed = False
+
+        # 订阅主动消息流式片段，按正常 assistant 样式逐字显示
+        agent.event_bus.subscribe(
+            SystemEvent.THINK_ENGINE_INITIATIVE_CHUNK,
+            self._on_initiative_chunk,
+            priority=EventPriority.LOW,
+            filter_func=lambda event: event.source == "initiative_timer",
+        )
+
+        # 订阅真正的主动发送消息，非流式模式下兜底显示
         agent.event_bus.subscribe(
             SystemEvent.MESSAGE_SENT,
             self._on_initiative_message_sent,
@@ -424,8 +437,39 @@ class ConsoleBackend(BaseBackend):
 
     # ==================== 主动消息实时显示 ====================
 
+    async def _on_initiative_chunk(self, event: Event) -> None:
+        """主动消息流式片段：等当前回复输出完后，按正常 assistant 样式逐字显示。"""
+        chunk = event.data.get("content", "")
+        done = event.data.get("done", False)
+        if not isinstance(chunk, str):
+            return
+
+        if not self._initiative_streaming:
+            self._initiative_streaming = True
+            self._initiative_first_chunk = True
+            self._initiative_streamed_displayed = False
+
+        await self._streaming_done.wait()
+
+        if self._initiative_first_chunk:
+            self._write_character_prefix()
+            self._initiative_first_chunk = False
+            self._initiative_streamed_displayed = True
+
+        if chunk:
+            self.console.print(chunk, end="", style=self.colors["assistant"])
+
+        if done:
+            self.console.print()
+            self._initiative_streaming = False
+            self._initiative_first_chunk = True
+
     async def _on_initiative_message_sent(self, event: Event) -> None:
-        """收到实际发送的主动消息，等当前回复输出完再显示。"""
+        """主动消息已完整发送；若已通过流式片段显示，则避免重复输出。"""
+        if self._initiative_streamed_displayed:
+            self._initiative_streamed_displayed = False
+            return
+
         message = event.data.get("content", "")
         if not isinstance(message, str) or not message.strip():
             return
@@ -434,7 +478,7 @@ class ConsoleBackend(BaseBackend):
 
         self.console.print()
         self.console.print(
-            f"[{self.colors['initiative']}]💭 {self._character_name}: {message.strip()}[/]"
+            f"[{self.colors['assistant']}]{self._character_name}: {message.strip()}[/]"
         )
 
     # ==================== 交互式主循环 ====================
