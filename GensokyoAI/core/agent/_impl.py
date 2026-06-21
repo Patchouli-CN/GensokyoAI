@@ -614,6 +614,13 @@ class Agent:
             f"说话前内部思考：{thought or '无'}"
         ]
         messages = self.message_builder.build("", system_contexts)
+        # 工作记忆末尾是助手自己的上一条回复，必须补一条 user 消息让模型继续生成下一句
+        messages.append(
+            {
+                "role": "user",
+                "content": "（没有新用户输入，这是你自己决定要说的话，请按照上面的摘要和内部思考自然地主动开口。）",
+            }
+        )
         initiative_options = {
             "temperature": self.config.think_engine.initiative_temperature,
             "num_predict": self.config.think_engine.initiative_max_tokens,
