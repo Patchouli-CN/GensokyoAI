@@ -5,7 +5,7 @@ This guide is for users running from source, installing from release packages, a
 ## 1. Environment Requirements
 
 - Operating system: Windows / Linux / macOS are all supported; Windows users can use the `.cmd` scripts in the repository.
-- Python runtime: the project requires Python 3.14 or higher.
+- Python runtime: the project requires Python 3.14 or higher; Python 3.14 is officially available and is no longer treated as a prerelease version.
   - With uv: usually you only need to install uv first; uv will automatically select or download a suitable Python runtime according to `requires-python = ">=3.14"` in `pyproject.toml`.
   - With pip: you need to install Python 3.14+ yourself, then run pip with this Python.
 - Package manager: `uv` is recommended; pip is also supported.

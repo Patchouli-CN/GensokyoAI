@@ -10,7 +10,7 @@
 >
 > 当前项目处于 Alpha 阶段：核心 Runtime、Provider、会话、记忆和工具能力已经成型，可用于集成验证；正式发布前仍会继续收口版本号、文档、端到端验收和兼容性说明。
 >
-> 项目使用 Python 3.14+ 语法与运行时能力，推荐通过 `uv` 启动和管理环境；`uv` 会按 `pyproject.toml` 自动选择或准备满足要求的 Python，不建议为兼容旧 Python 手动降级。
+> 项目使用 Python 3.14+ 语法与运行时能力；Python 3.14 已正式可用，且是本项目有意选择的最低运行时要求。推荐通过 `uv` 启动和管理环境；`uv` 会按 `pyproject.toml` 自动选择或准备满足要求的 Python，不建议为兼容旧 Python 手动降级。
 
 [**English README**](README_en.md) | [**中文 README**](README.md)
 

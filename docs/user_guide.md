@@ -5,7 +5,7 @@
 ## 1. 环境要求
 
 - 操作系统：Windows / Linux / macOS 均可；Windows 用户可以直接使用仓库内的 `.cmd` 启动脚本。
-- Python 运行时：项目要求 Python 3.14 或更高版本。
+- Python 运行时：项目要求 Python 3.14 或更高版本；Python 3.14 已正式可用，不再按预发布版本处理。
   - 使用 uv 时：通常只需要先安装 uv；uv 会按 `pyproject.toml` 的 `requires-python = ">=3.14"` 自动选择或下载合适的 Python 运行时。
   - 使用 pip 时：需要你自己先安装 Python 3.14+，再用这个 Python 执行 pip。
 - 包管理器：推荐使用 uv；也支持 pip。

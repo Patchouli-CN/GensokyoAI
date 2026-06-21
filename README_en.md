@@ -10,7 +10,7 @@
 >
 > The project is currently in Alpha: the core runtime, providers, sessions, memory, and tool capabilities are solid and ready for integration validation. Version numbers, documentation, end-to-end acceptance, and compatibility notes will continue to be tightened before a stable release.
 >
-> This project uses Python 3.14+ syntax and runtime features. We recommend managing the environment with `uv`; `uv` will automatically select or install a compatible Python based on `pyproject.toml`. Manual downgrades for older Python versions are not recommended.
+> This project uses Python 3.14+ syntax and runtime features. Python 3.14 is officially available and is the intentional minimum runtime requirement for this project. We recommend managing the environment with `uv`; `uv` will automatically select or install a compatible Python based on `pyproject.toml`. Manual downgrades for older Python versions are not recommended.
 
 📖 [English README](README_en.md) | [中文 README](README.md)
 
