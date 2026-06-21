@@ -9,6 +9,8 @@
 from __future__ import annotations
 
 import asyncio
+import queue
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -34,6 +36,102 @@ RUNTIME_WS = "ws://127.0.0.1:8765/ws"
 PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_CHARACTER = "characters/zh_cn/KirisameMarisa.yaml"
 
+# 订阅哪些事件类型才能收到主动消息
+PROACTIVE_EVENT_TYPES = ["MESSAGE_SENT"]
+
+
+# ----------------- 后台事件监听(接收主动消息) -----------------
+def _ensure_event_listener() -> None:
+    """确保每个 Streamlit 会话都有一个后台 SSE 事件监听器。"""
+    ss = st.session_state
+    thread = ss.get("_event_thread")
+    if thread is not None and thread.is_alive():
+        return
+
+    # 结束旧的监听循环(如果有)
+    old_stop = ss.get("_event_stop")
+    if old_stop is not None:
+        old_stop.set()
+
+    ss._event_queue = queue.Queue()
+    ss._event_stop = threading.Event()
+    ss._event_error = None
+
+    client: GensokyoRuntimeClient = ss.client
+    thread = threading.Thread(
+        target=_event_listener_target,
+        args=(client.http_url, client.ws_url, ss._event_queue, ss._event_stop),
+        daemon=True,
+    )
+    thread.start()
+    ss._event_thread = thread
+
+
+def _event_listener_target(
+    http_url: str,
+    ws_url: str,
+    event_queue: queue.Queue,
+    stop_event: threading.Event,
+) -> None:
+    """在线程中启动 asyncio 事件循环。"""
+    asyncio.run(_event_listener_loop(http_url, ws_url, event_queue, stop_event))
+
+
+async def _event_listener_loop(
+    http_url: str,
+    ws_url: str,
+    event_queue: queue.Queue,
+    stop_event: threading.Event,
+) -> None:
+    """长连接 /events,把服务端事件放进队列;断线后自动重连。"""
+    client = GensokyoRuntimeClient(http_url, ws_url)
+    while not stop_event.is_set():
+        try:
+            async for event in client.event_stream(event_types=PROACTIVE_EVENT_TYPES, timeout=None):
+                if stop_event.is_set():
+                    break
+                event_queue.put(event)
+        except Exception:
+            # 断线或 Runtime 未就绪时静默重连
+            await asyncio.sleep(2)
+
+
+def _drain_event_queue() -> int:
+    """把后台队列中的主动消息事件消费到 session_state.messages。"""
+    ss = st.session_state
+    q = ss.get("_event_queue")
+    if q is None:
+        return 0
+
+    count = 0
+    while not q.empty():
+        try:
+            event = q.get_nowait()
+        except queue.Empty:
+            break
+        if not isinstance(event, dict):
+            continue
+        event_type = event.get("type")
+        source = event.get("source")
+        data = event.get("data") or {}
+        if event_type == "MESSAGE_SENT" and source == "initiative_timer" and data.get("initiative"):
+            content = data.get("content")
+            if isinstance(content, str) and content.strip():
+                ss.messages.append({"role": "assistant", "content": content.strip()})
+                count += 1
+    return count
+
+
+def _try_auto_refresh() -> None:
+    """如果装了 streamlit-autorefresh,就自动定期 rerun 以刷新主动消息。"""
+    try:
+        from streamlit_autorefresh import st_autorefresh
+    except ImportError:
+        return
+
+    if st.session_state.agent_ready and not st.session_state.streaming:
+        st_autorefresh(interval=2000, limit=None, key="proactive_event_refresh")
+
 
 # ----------------- Session State 初始化 -----------------
 def init_state() -> None:
@@ -57,6 +155,9 @@ def init_state() -> None:
     # 调试
     ss.setdefault("init_log", [])
 
+    # 启动后台事件监听器,用于接收主动消息
+    _ensure_event_listener()
+
 
 init_state()
 
@@ -79,7 +180,7 @@ async def _list_sessions() -> list[dict]:
 async def _agent_init(character_path: str, session_id: str | None = None) -> dict:
     params: dict[str, Any] = {
         "character_path": character_path,
-        "config_path": str(PROJECT_ROOT / "config" / "default.yaml"),
+        "config_path": str(PROJECT_ROOT / "config" / "local.yaml"),
     }
     if session_id:
         params["session_id"] = session_id
@@ -399,11 +500,17 @@ def render_sidebar() -> None:
             on_click=_on_clear_click,
             disabled=st.session_state.streaming,
         )
+        if st.button(
+            "🔄 检查主动消息",
+            use_container_width=True,
+            disabled=st.session_state.streaming,
+        ):
+            st.rerun()
 
         st.divider()
         with st.expander("启动命令", expanded=False):
             st.code(
-                "cd D:\\minimaxFile\\gensokyoAI\\GensokyoAI\npython runtime_http.py",
+                "cd D:\\minimaxFile\\gensokyoAI\\GensokyoAI\npython -m GensokyoAI.backends.web_server",
                 language="bash",
             )
 
@@ -436,6 +543,10 @@ def render_main() -> None:
         )
         _render_init_log()
         return
+
+    # 消费后台事件队列中的主动消息,并尝试自动刷新 UI
+    _drain_event_queue()
+    _try_auto_refresh()
 
     # 历史消息
     for msg in st.session_state.messages:

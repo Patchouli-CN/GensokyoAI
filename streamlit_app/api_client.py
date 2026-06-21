@@ -3,6 +3,7 @@ GensokyoAI Runtime 客户端。
 
 - 普通 RPC:HTTP POST /rpc(简快)
 - 流式 RPC:WebSocket /ws(发送 agent.send_message_stream,逐 event 接收)
+- 事件订阅:HTTP GET /events(SSE,用于接收主动消息等服务端事件)
 """
 
 from __future__ import annotations
@@ -74,6 +75,50 @@ class GensokyoRuntimeClient:
             "agent.send_message",
             {"message": message},
         )
+
+    # ---------- 事件订阅 ----------
+    async def event_stream(
+        self,
+        event_types: list[str] | None = None,
+        categories: list[str] | None = None,
+        timeout: float | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """订阅 /events SSE 流,逐条 yield Runtime 事件字典。"""
+        params: dict[str, Any] = {}
+        if event_types:
+            params["event_types"] = ",".join(event_types)
+        if categories:
+            params["categories"] = ",".join(categories)
+
+        stream_timeout = (
+            aiohttp.ClientTimeout(total=timeout)
+            if timeout is not None
+            else aiohttp.ClientTimeout(total=None)
+        )
+        async with (
+            aiohttp.ClientSession(timeout=stream_timeout) as session,
+            session.get(f"{self.http_url}/events", params=params) as resp,
+        ):
+            resp.raise_for_status()
+            buffer = ""
+            async for chunk in resp.content.iter_any():
+                if not chunk:
+                    break
+                buffer += chunk.decode("utf-8", errors="replace")
+                while "\n\n" in buffer:
+                    frame, buffer = buffer.split("\n\n", 1)
+                    event_name: str | None = None
+                    data_lines: list[str] = []
+                    for line in frame.splitlines():
+                        if line.startswith("event:"):
+                            event_name = line[len("event:") :].strip()
+                        elif line.startswith("data:"):
+                            data_lines.append(line[len("data:") :].strip())
+                    if event_name == "runtime.event" and data_lines:
+                        try:
+                            yield json.loads("\n".join(data_lines))
+                        except json.JSONDecodeError:
+                            continue
 
     # ---------- 流式 RPC ----------
     async def send_message_stream(
