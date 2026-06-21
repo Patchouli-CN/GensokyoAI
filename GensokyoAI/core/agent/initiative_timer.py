@@ -28,6 +28,12 @@ _INITIATIVE_TIMER_DECISION_SCHEMA: dict[str, Any] = {
         "delay_seconds": {"type": "integer"},
         "summary": {"type": "string"},
         "reason": {"type": "string"},
+        "enthusiasm": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "角色当前主动交流的热情度，0~1；越高则等待时间越短",
+        },
     },
     "required": ["should_schedule", "delay_seconds", "summary", "reason"],
     "additionalProperties": False,
@@ -117,6 +123,8 @@ class InitiativeTimerManager:
 
         summary = self._trim_summary(summary)
         delay_seconds = self._clamp_delay(decision.get("delay_seconds"))
+        enthusiasm = decision.get("enthusiasm")
+        delay_seconds = self._apply_enthusiasm(delay_seconds, enthusiasm)
         reason = str(decision.get("reason") or "").strip()
 
         async with self._lock:
@@ -248,6 +256,8 @@ class InitiativeTimerManager:
         # AI 终于决定发言了！
         summary = self._trim_summary(summary)
         delay_seconds = self._clamp_delay(decision.get("delay_seconds"))
+        enthusiasm = decision.get("enthusiasm")
+        delay_seconds = self._apply_enthusiasm(delay_seconds, enthusiasm)
         reason = str(decision.get("reason") or "").strip()
 
         async with self._lock:
@@ -388,6 +398,7 @@ class InitiativeTimerManager:
 - 如果设置，只写"稍后主动发言意图的一句话摘要"，不要写完整可发送话术。
 - 摘要只描述到点后要围绕什么思考和表达，真正说出口的话会在触发时重新生成。
 - 延迟秒数必须在 {self.config.min_delay_seconds} 到 {self.config.max_delay_seconds} 之间。
+- 额外输出一个 0~1 的 enthusiasm（热情度）：越高表示你当前越想主动继续聊，系统会把等待时间按 `delay_seconds * (1 - enthusiasm)` 缩短；如果不确定可填 0.5。
 - 只输出一个原始 JSON 对象；不要输出 Markdown 代码块、角色引号、解释文本或任何前后缀。
 {hesitation_note}
 JSON 格式：
@@ -395,7 +406,8 @@ JSON 格式：
   "should_schedule": true/false,
   "delay_seconds": 120,
   "summary": "稍后主动发言意图的一句话摘要",
-  "reason": "简短理由"
+  "reason": "简短理由",
+  "enthusiasm": 0.5
 }}
 """
         messages: list[dict[str, str]] = [{"role": "system", "content": prompt}]
@@ -482,6 +494,19 @@ JSON 格式：
             user_modified=user_modified,
             hesitation_round=hesitation_round,
         )
+
+    @staticmethod
+    def _apply_enthusiasm(base_delay: int, enthusiasm: float | None) -> int:
+        """根据热情度调整等待时间。
+
+        公式：wait_sec = base_delay * (1 - enthusiasm)
+        热情度越高，等待越短；未提供或无效时不调整；结果受默认 30~600 限制。
+        """
+        if enthusiasm is None:
+            return base_delay
+        enthusiasm = max(0.0, min(1.0, float(enthusiasm)))
+        adjusted = int(base_delay * (1.0 - enthusiasm))
+        return max(30, min(600, adjusted))
 
     async def _run_timer(self, timer_id: str, generation: int) -> None:
         try:

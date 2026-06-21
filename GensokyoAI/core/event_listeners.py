@@ -33,7 +33,6 @@ class CoreListeners:
         # 对话事件
         bus.subscribe(SystemEvent.MESSAGE_RECEIVED, self.on_message_received)
         bus.subscribe(SystemEvent.MESSAGE_SENT, self.on_message_sent)
-        bus.subscribe(SystemEvent.THINK_ENGINE_INITIATIVE, self.on_initiative_speak_record)
 
         # 记忆事件
         bus.subscribe(SystemEvent.MEMORY_WORKING_ADDED, self.on_working_memory_added)
@@ -103,13 +102,6 @@ class CoreListeners:
             reasoning_content=reasoning_content,
         )
         logger.debug(f"记录并发送响应: {response[:50]}...")
-
-    async def on_initiative_speak_record(self, event: Event) -> None:
-        """当角色主动说话时，也把这句话记录到工作记忆"""
-        message = event.data.get("message", "")
-        if message:
-            self.agent.working_memory.add_message("assistant", message)
-            logger.debug(f"📝 已记录主动消息到工作记忆: {message[:30]}...")
 
     # ==================== 记忆事件 ====================
 
