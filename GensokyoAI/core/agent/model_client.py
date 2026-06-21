@@ -5,7 +5,7 @@
 import asyncio
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import TypeVar, cast
+from typing import Any, TypeVar, cast
 
 from ...runtime.event_contract import sanitize_event_payload
 from ...runtime.resource_control import (
@@ -58,13 +58,14 @@ class ModelClient:
         self._embedding_config = embedding_config or EmbeddingConfig()
         logger.debug(f"ModelClient 初始化完成，Provider: {config.provider}, 模型: {config.name}")
 
-    def _build_options(self) -> dict:
+    def _build_options(self) -> dict[str, Any]:
         """构建模型选项"""
-        options = {
+        options: dict[str, Any] = {
             "temperature": self.config.temperature,
             "top_p": self.config.top_p,
-            "num_predict": self.config.max_tokens,
         }
+        if self.config.max_tokens > 0:
+            options["num_predict"] = self.config.max_tokens
         if self.config.web_search_enabled or self.config.web_search_strategy != "off":
             options["web_search"] = {
                 "enabled": self.config.web_search_enabled,

@@ -98,7 +98,7 @@ class ClaudeProvider(BaseProvider):
         """非流式调用 Claude API"""
         options = options or {}
         system_prompt, claude_messages = self._convert_messages_to_claude(messages)
-        max_tokens = options.get("num_predict") or options.get("max_tokens", 2048)
+        max_tokens = options.get("num_predict") or options.get("max_tokens") or 8192
 
         call_kwargs: dict = {
             "model": model,
@@ -143,7 +143,7 @@ class ClaudeProvider(BaseProvider):
         """流式调用 Claude API"""
         options = options or {}
         system_prompt, claude_messages = self._convert_messages_to_claude(messages)
-        max_tokens = options.get("num_predict") or options.get("max_tokens", 2048)
+        max_tokens = options.get("num_predict") or options.get("max_tokens") or 8192
 
         call_kwargs: dict = {
             "model": model,

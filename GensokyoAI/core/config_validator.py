@@ -327,7 +327,7 @@ class ConfigValidator:
             f"{section}.top_p", data.get("top_p"), diagnostics, minimum=0, maximum=1
         )
         self._validate_numeric_range(
-            f"{section}.max_tokens", data.get("max_tokens"), diagnostics, minimum=1
+            f"{section}.max_tokens", data.get("max_tokens"), diagnostics, minimum=0
         )
         self._validate_numeric_range(
             f"{section}.timeout", data.get("timeout"), diagnostics, minimum=0.001
