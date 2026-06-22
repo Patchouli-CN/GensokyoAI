@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from msgspec import Struct
 
+from ..utils.url_security import UnsafeUrlError, validate_external_url
 from .config_schema import (
     EmbeddingConfig,
     InitiativeTimerConfig,
@@ -317,6 +318,73 @@ class ConfigValidator:
         )
         self._validate_model_values("model", data, diagnostics)
 
+    @staticmethod
+    def _error(
+        path: str,
+        message: str,
+        suggestion: str | None = None,
+        *,
+        code: str | None = None,
+    ) -> ConfigDiagnostic:
+        return ConfigDiagnostic(
+            code=code or "config.invalid",
+            path=path,
+            severity="error",
+            message=message,
+            suggestion=suggestion,
+        )
+
+    @staticmethod
+    def _warning(
+        path: str,
+        message: str,
+        suggestion: str | None = None,
+        *,
+        code: str | None = None,
+    ) -> ConfigDiagnostic:
+        return ConfigDiagnostic(
+            code=code or "config.warning",
+            path=path,
+            severity="warning",
+            message=message,
+            suggestion=suggestion,
+        )
+
+    def _validate_url_field(
+        self,
+        path: str,
+        value: Any,
+        diagnostics: list[ConfigDiagnostic],
+        *,
+        allow_private: bool = False,
+        code: str = "config.url.unsafe",
+    ) -> None:
+        """校验 URL 字段是否安全；None/空字符串跳过。"""
+
+        if value is None or value == "":
+            return
+        if not isinstance(value, str):
+            diagnostics.append(
+                self._error(
+                    path,
+                    f"{path} must be a string",
+                    suggestion="请填写以 http:// 或 https:// 开头的 URL。",
+                    code="config.url.type",
+                )
+            )
+            return
+        try:
+            validate_external_url(value, allow_private=allow_private)
+        except UnsafeUrlError as exc:
+            diagnostics.append(
+                self._error(
+                    path,
+                    str(exc),
+                    suggestion="请使用公网可访问的 http/https 地址；本地服务请通过配置显式放行。",
+                    code=code,
+                )
+            )
+
     def _validate_model_values(
         self, section: str, data: dict[str, Any], diagnostics: list[ConfigDiagnostic]
     ) -> None:
@@ -388,6 +456,16 @@ class ConfigValidator:
                         code="config.provider.unknown",
                     )
                 )
+
+        # SSRF 防护：base_url 不能指向内网 / 元数据服务
+        base_url = data.get("base_url")
+        self._validate_url_field(
+            f"{section}.base_url",
+            base_url,
+            diagnostics,
+            allow_private=provider == "ollama",
+            code="config.model.base_url.unsafe",
+        )
 
         if data.get("web_search_enabled") is True and data.get("web_search_strategy") == "off":
             diagnostics.append(
@@ -530,6 +608,13 @@ class ConfigValidator:
         )
         self._validate_numeric_range(
             f"{section}.dimensions", data.get("dimensions"), diagnostics, minimum=1
+        )
+        # SSRF 防护：embedding base_url 同样不能指向内网 / 元数据服务
+        self._validate_url_field(
+            f"{section}.base_url",
+            data.get("base_url"),
+            diagnostics,
+            code="config.embedding.base_url.unsafe",
         )
 
     def _validate_memory_data(self, data: Any, diagnostics: list[ConfigDiagnostic]) -> None:
@@ -680,6 +765,13 @@ class ConfigValidator:
         )
         self._validate_enum(
             "tool.web_search.api.method", data.get("method"), {"GET", "POST"}, diagnostics
+        )
+        # SSRF 防护：通用搜索 API endpoint 不能指向内网 / 元数据服务
+        self._validate_url_field(
+            "tool.web_search.api.endpoint",
+            data.get("endpoint"),
+            diagnostics,
+            code="config.tool.web_search.api.endpoint.unsafe",
         )
 
     def _validate_session_data(self, data: Any, diagnostics: list[ConfigDiagnostic]) -> None:
@@ -1183,27 +1275,3 @@ class ConfigValidator:
     @staticmethod
     def _struct_field_names(struct_type: type) -> set[str]:
         return set(getattr(struct_type, "__struct_fields__", ()))
-
-    @staticmethod
-    def _error(
-        path: str,
-        message: str,
-        suggestion: str | None = None,
-        *,
-        code: str = "config.validation.error",
-    ) -> ConfigDiagnostic:
-        return ConfigDiagnostic(
-            code=code, path=path, severity="error", message=message, suggestion=suggestion
-        )
-
-    @staticmethod
-    def _warning(
-        path: str,
-        message: str,
-        suggestion: str | None = None,
-        *,
-        code: str = "config.validation.warning",
-    ) -> ConfigDiagnostic:
-        return ConfigDiagnostic(
-            code=code, path=path, severity="warning", message=message, suggestion=suggestion
-        )

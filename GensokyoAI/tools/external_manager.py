@@ -16,6 +16,10 @@ from msgspec import Struct, field
 
 from GensokyoAI.runtime.event_contract import sanitize_event_payload
 from GensokyoAI.tools.errors import ToolError, ToolExecutionError
+from GensokyoAI.utils.command_security import (
+    CommandSecurityError,
+    validate_external_tool_command,
+)
 
 EXTERNAL_TOOL_PREFIX = "external"
 DEFAULT_EXTERNAL_TOOL_TIMEOUT_SECONDS = 30.0
@@ -148,6 +152,8 @@ class ExternalToolSource(Protocol):
     """外部工具源适配器协议。"""
 
     source_id: str
+    # 可选：若适配器通过子进程启动，应在此暴露原始命令列表供安全校验。
+    command: list[str] | None = None
 
     async def start(self) -> None: ...
 
@@ -178,6 +184,15 @@ class ExternalToolManager:
         source_id = normalize_external_name(source.source_id, kind="source_id")
         if source_id in self._sources:
             raise ValueError(f"External tool source already registered: {source_id}")
+        # 若适配器暴露启动命令，先进行安全校验
+        command = getattr(source, "command", None)
+        if command is not None:
+            try:
+                validate_external_tool_command(command)
+            except CommandSecurityError as exc:
+                raise ValueError(
+                    f"External tool source command rejected for security: {exc}"
+                ) from exc
         self._sources[source_id] = source
         self._states[source_id] = ExternalToolSourceState(source_id=source_id)
 

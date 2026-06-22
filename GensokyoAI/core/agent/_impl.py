@@ -14,6 +14,7 @@ from ...session.context import SessionContext
 from ...tools.build_service import ToolBuildContext, ToolBuildResult
 from ...tools.tool_builtin.memory_tool import set_event_bus
 from ...tools.tool_builtin.web_search import configure_web_search_tool
+from ...utils.content_security import detect_prompt_injection
 from ...utils.helpers import safe_get
 from ...utils.logger import logger
 from ..config import AppConfig, ConfigLoader
@@ -422,11 +423,37 @@ class Agent:
         user_input: str | list[dict[str, Any]],
         system_contexts: list[str] | None = None,
     ) -> None:
+        text_input = self._extract_text_from_content(user_input)
+        report = detect_prompt_injection(text_input)
+        data: dict[str, Any] = {
+            "content": user_input,
+            "system_contexts": system_contexts,
+        }
+        if report.suspected:
+            data["prompt_injection_suspected"] = True
+            data["prompt_injection_report"] = report.to_dict()
+            logger.warning(
+                f"检测到疑似 prompt injection: {report.matched_patterns}, "
+                f"风险分数: {report.risk_score}"
+            )
+            self.event_bus.publish(
+                Event(
+                    type=SystemEvent.SECURITY_PROMPT_INJECTION_DETECTED,
+                    source="agent",
+                    data={
+                        "risk_score": report.risk_score,
+                        "matched_patterns": report.matched_patterns,
+                        "category": report.category,
+                        "preview": text_input[:200],
+                    },
+                )
+            )
+
         self.event_bus.publish(
             Event(
                 type=SystemEvent.MESSAGE_RECEIVED,
                 source="agent",
-                data={"content": user_input, "system_contexts": system_contexts},
+                data=data,
             )
         )
 

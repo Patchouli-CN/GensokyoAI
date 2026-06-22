@@ -15,6 +15,8 @@ from typing import Any, Literal
 
 from msgspec import Struct
 
+from ..utils.command_security import validate_pip_packages
+
 OPTIONAL_PROVIDER_DEPENDENCIES: dict[str, list[str]] = {
     "ollama": ["ollama"],
     "openai": ["openai>=1.0.0"],
@@ -162,11 +164,17 @@ def install_dependencies(
     *,
     scope: InstallScope = "current_runtime",
     timeout: int = 600,
+    only_binary: bool = False,
 ) -> dict[str, Any]:
     """Install missing optional Provider dependencies into the current runtime.
 
     The only supported scope is ``current_runtime``. Installation is executed via
     ``sys.executable -m pip install`` without shell expansion.
+
+    Args:
+        only_binary: If True, pass ``--only-binary=:all:`` to pip so that only
+            pre-built wheels are installed. This mitigates supply-chain risk from
+            source distributions executing arbitrary code at install time.
     """
 
     if scope != "current_runtime":
@@ -195,6 +203,15 @@ def install_dependencies(
         if not status.get("installed", False)
     ]
     packages = packages_for_providers(missing_providers)
+    try:
+        validate_pip_packages(packages)
+    except ValueError as exc:
+        raise DependencyError(
+            f"Invalid dependency package names: {exc}",
+            code="dependency_package_security_rejected",
+            details={"packages": packages},
+            recoverable=True,
+        ) from exc
     if not packages:
         return {
             "ok": True,
@@ -207,7 +224,10 @@ def install_dependencies(
             "stderr": "",
         }
 
-    command = [sys.executable, "-m", "pip", "install", *packages]
+    command = [sys.executable, "-m", "pip", "install"]
+    if only_binary:
+        command.append("--only-binary=:all:")
+    command.extend(packages)
     try:
         completed = subprocess.run(
             command,

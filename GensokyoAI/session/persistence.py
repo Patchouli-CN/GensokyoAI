@@ -17,6 +17,7 @@ from ..core.migrations import (
 from ..core.schema_versions import SESSION_FILE_FORMAT, SESSION_SCHEMA_VERSION
 from ..utils.helpers import utc_now
 from ..utils.logger import logger
+from ..utils.path_security import sanitize_path_id
 from .context import SessionContext
 
 
@@ -54,10 +55,12 @@ class SessionPersistence:
         self._session_index.pop(session_id, None)
 
     def _get_session_path(self, character_id: str, session_id: str) -> Path:
-        """获取会话文件路径"""
-        char_path = self.base_path / character_id
+        """获取会话文件路径；对 character_id 与 session_id 做路径净化。"""
+        safe_character_id = sanitize_path_id(character_id)
+        safe_session_id = sanitize_path_id(session_id)
+        char_path = self.base_path / safe_character_id
         char_path.mkdir(parents=True, exist_ok=True)
-        return char_path / f"{session_id}.json"
+        return char_path / f"{safe_session_id}.json"
 
     def _backup_path(self, path: Path) -> Path:
         """获取备份文件路径。"""
@@ -278,9 +281,10 @@ class SessionPersistence:
 
     def save_messages(self, session_id: str, messages: list[dict]) -> None:
         """保存消息（同步）- 优化版"""
+        safe_session_id = sanitize_path_id(session_id)
         char_id = self._session_index.get(session_id)
         if char_id:
-            session_file = self.base_path / char_id / f"{session_id}.json"
+            session_file = self._get_session_path(char_id, safe_session_id)
             if session_file.exists():
                 data = self._read_session_file(session_file)
                 data["messages"] = messages
@@ -293,10 +297,11 @@ class SessionPersistence:
     async def async_save_message(self, session_id: str, messages: list[dict]) -> None:
         """保存消息（异步）- 优化版"""
         async with self._lock:
+            safe_session_id = sanitize_path_id(session_id)
             # 使用索引快速定位
             char_id = self._session_index.get(session_id)
             if char_id:
-                session_file = self.base_path / char_id / f"{session_id}.json"
+                session_file = self._get_session_path(char_id, safe_session_id)
                 if session_file.exists():
                     data = await self._read_session_file_async(session_file)
                     data["messages"] = messages
@@ -309,7 +314,7 @@ class SessionPersistence:
             # 降级：遍历查找（同时更新索引）
             for char_dir in self.base_path.iterdir():
                 if char_dir.is_dir():
-                    session_file = char_dir / f"{session_id}.json"
+                    session_file = self._get_session_path(char_dir.name, safe_session_id)
                     if session_file.exists():
                         self._add_to_index(char_dir.name, session_id)
                         data = await self._read_session_file_async(session_file)
@@ -324,10 +329,11 @@ class SessionPersistence:
 
     def load_messages(self, session_id: str) -> list[dict]:
         """加载消息（同步）"""
+        safe_session_id = sanitize_path_id(session_id)
         # 使用索引快速定位
         char_id = self._session_index.get(session_id)
         if char_id:
-            session_file = self.base_path / char_id / f"{session_id}.json"
+            session_file = self._get_session_path(char_id, safe_session_id)
             if session_file.exists():
                 data = self._read_session_file(session_file)
                 messages = data.get("messages", [])
@@ -337,7 +343,7 @@ class SessionPersistence:
         # 降级：遍历查找
         for char_dir in self.base_path.iterdir():
             if char_dir.is_dir():
-                session_file = char_dir / f"{session_id}.json"
+                session_file = self._get_session_path(char_dir.name, safe_session_id)
                 if session_file.exists():
                     self._add_to_index(char_dir.name, session_id)
                     data = self._read_session_file(session_file)
@@ -348,10 +354,11 @@ class SessionPersistence:
 
     async def load_messages_async(self, session_id: str) -> list[dict]:
         """加载消息（异步 - 使用 ayafileio）"""
+        safe_session_id = sanitize_path_id(session_id)
         # 使用索引快速定位
         char_id = self._session_index.get(session_id)
         if char_id:
-            session_file = self.base_path / char_id / f"{session_id}.json"
+            session_file = self._get_session_path(char_id, safe_session_id)
             if session_file.exists():
                 data = await self._read_session_file_async(session_file)
                 messages = data.get("messages", [])
@@ -361,7 +368,7 @@ class SessionPersistence:
         # 降级：遍历查找
         for char_dir in self.base_path.iterdir():
             if char_dir.is_dir():
-                session_file = char_dir / f"{session_id}.json"
+                session_file = self._get_session_path(char_dir.name, safe_session_id)
                 if session_file.exists():
                     self._add_to_index(char_dir.name, session_id)
                     data = await self._read_session_file_async(session_file)
@@ -391,7 +398,7 @@ class SessionPersistence:
     def list_sessions(self, character_id: str) -> list[SessionContext]:
         """列出所有会话（同步）"""
         sessions = []
-        char_path = self.base_path / character_id
+        char_path = self.base_path / sanitize_path_id(character_id)
         if char_path.exists():
             for file in char_path.glob("*.json"):
                 try:
@@ -404,7 +411,7 @@ class SessionPersistence:
     async def list_sessions_async(self, character_id: str) -> list[SessionContext]:
         """列出所有会话（异步 - 使用 ayafileio）"""
         sessions = []
-        char_path = self.base_path / character_id
+        char_path = self.base_path / sanitize_path_id(character_id)
         if char_path.exists():
             for file in char_path.glob("*.json"):
                 try:
@@ -416,10 +423,11 @@ class SessionPersistence:
 
     def delete_session(self, session_id: str) -> bool:
         """删除会话（同步）- 优化版"""
+        safe_session_id = sanitize_path_id(session_id)
         # 使用索引快速定位；删除成功后再移除索引，避免提前移除导致快速路径失效。
         char_id = self._session_index.get(session_id)
         if char_id:
-            session_file = self.base_path / char_id / f"{session_id}.json"
+            session_file = self._get_session_path(char_id, safe_session_id)
             if session_file.exists():
                 session_file.unlink()
                 self._remove_from_index(session_id)
@@ -429,7 +437,7 @@ class SessionPersistence:
         # 降级：遍历查找
         for char_dir in self.base_path.iterdir():
             if char_dir.is_dir():
-                session_file = char_dir / f"{session_id}.json"
+                session_file = self._get_session_path(char_dir.name, safe_session_id)
                 if session_file.exists():
                     session_file.unlink()
                     self._remove_from_index(session_id)
@@ -440,10 +448,11 @@ class SessionPersistence:
     async def delete_session_async(self, session_id: str) -> bool:
         """删除会话（异步）- 优化版"""
         async with self._lock:
+            safe_session_id = sanitize_path_id(session_id)
             # 使用索引快速定位；删除成功后再移除索引，避免提前移除导致快速路径失效。
             char_id = self._session_index.get(session_id)
             if char_id:
-                session_file = self.base_path / char_id / f"{session_id}.json"
+                session_file = self._get_session_path(char_id, safe_session_id)
                 if session_file.exists():
                     await asyncio.to_thread(session_file.unlink)
                     self._remove_from_index(session_id)
@@ -453,7 +462,7 @@ class SessionPersistence:
             # 降级：遍历查找
             for char_dir in self.base_path.iterdir():
                 if char_dir.is_dir():
-                    session_file = char_dir / f"{session_id}.json"
+                    session_file = self._get_session_path(char_dir.name, safe_session_id)
                     if session_file.exists():
                         await asyncio.to_thread(session_file.unlink)
                         self._remove_from_index(session_id)

@@ -685,6 +685,12 @@ uv run ruff format --check .
 uv run pyright
 ```
 
+安全回归测试独立放在 `tests_security/` 目录，`python -m pytest` 与 `uv run pytest` 都会自动收集。也可以单独运行：
+
+```bash
+python -m pytest tests_security/
+```
+
 也可以保留局部回归或编译检查作为快速验证：
 
 ```bash
@@ -692,3 +698,50 @@ python -m unittest tests.test_claude_provider_conversion tests.test_deepseek_pro
 python -m compileall GensokyoAI tests
 uv run python -m compileall GensokyoAI tests
 ```
+
+## 16. 安全指南
+
+本项目在架构上把 Agent 跑在用户本地进程内，但仍有一些攻击面需要在部署和使用时注意。
+
+### 16.1 凭证与密钥
+
+- 永远不要把真实 API Key 写进 `config/default.yaml` 或 `config/local.yaml`。
+- 推荐通过环境变量注入：
+  - `GENSOKYOAI_API_KEY`：模型 Provider 的 API Key。
+  - `GENSOKYOAI_RUNTIME_TOKEN`：Runtime HTTP/WebSocket 的认证 Token。
+- Runtime Token 如果启用，建议至少 16 位随机字符串；空字符串会被视为未启用认证。
+
+### 16.2 Runtime HTTP/WebSocket 安全
+
+- `allowed_origins` 默认会拒绝所有跨域 `Origin` 请求；如需完全开放本地调试，请显式配置 `["*"]`。
+- 认证 Token 仅通过请求头 `Authorization: Bearer <token>` 或 `X-Runtime-Token` 传递，URL query string 中的 `token` 已被忽略。
+- 连续认证失败会触发按 IP 的内存级限流（默认 60 秒窗口内 10 次）。
+- WebSocket 单条消息大小上限为 1MB，HTTP 请求体大小由 `max_request_body_size` 控制。
+
+### 16.3 SSRF 与外部 URL
+
+- `model.base_url`、`embedding.base_url`、`tool.web_search.api.endpoint` 在配置校验阶段会拒绝指向内网、回环、链路本地或云元数据服务的 URL。
+- `ollama` Provider 会被额外放行本地私有地址，但仍禁止 `169.254.169.254` 等元数据地址。
+
+### 16.4 命令与依赖安全
+
+- 外部 MCP 工具源如果暴露启动命令，会拒绝 `bash/sh/cmd/powershell/python -c` 等高风险命令以及 shell 元字符。
+- Provider 依赖安装使用白名单机制，并支持 `only_binary=True` 强制只安装 wheel，降低 sdist 供应链风险。
+- 不要安装来源不明的 MCP server 或第三方工具。
+
+### 16.5 Prompt Injection
+
+- 用户输入进入记忆系统前会进行轻量启发式检测，命中可疑模式时会在事件总线触发 `security.prompt_injection_detected`，并在工作记忆消息中标记 `prompt_injection_suspected`。
+- 该检测不直接拦截消息，而是让后续记忆摘要、话题检索可以做降权或人工复核。
+
+### 16.6 外部工具权限
+
+- 外部工具带有 `permissions` 元数据，包含 `safe`、`read-only`、`network`、`filesystem`、`destructive`、`costly` 等标签。
+- 默认策略允许 `safe/read-only/network`，`filesystem/destructive/costly` 会要求客户端显式确认后才可调用。
+- 可通过 `ExternalToolExecutionPolicy` 自定义允许的权限集合。
+
+### 16.7 超出代码层面的建议
+
+- 如果历史提交中曾包含真实 API Key，请轮换密钥；需要彻底从历史中移除时，使用 `git filter-repo` 并通知所有协作者。
+- 多实例部署时，跨进程资源限制需要外部网关或 Redis，单进程闸门无法共享状态。
+- 对不可信 MCP server，建议配合操作系统级沙箱（seccomp-bpf、Windows Job Object 等）。
