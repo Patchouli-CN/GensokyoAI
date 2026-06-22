@@ -2,7 +2,7 @@
 
 import asyncio
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..utils.helpers import utc_now
 from ..utils.logger import logger
@@ -93,7 +93,12 @@ class CoreListeners:
             preview = str(user_input)[:50]
         logger.debug(f"收到消息: {preview}...")
 
-        self.agent.working_memory.add_message("user", user_input)
+        extra: dict[str, Any] = {}
+        if event.data.get("prompt_injection_suspected"):
+            extra["prompt_injection_suspected"] = True
+            extra["prompt_injection_report"] = event.data.get("prompt_injection_report")
+
+        self.agent.working_memory.add_message("user", user_input, **extra)
 
     async def on_message_sent(self, event: Event) -> None:
         """记录助手消息到工作记忆 - 统一入口"""

@@ -11,8 +11,10 @@ import contextlib
 import hmac
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from aiohttp import WSMsgType, web
@@ -29,21 +31,32 @@ RUNTIME_SERVICE_APP_KEY: web.AppKey[RuntimeService] = web.AppKey(
 
 DEFAULT_WS_HEARTBEAT_INTERVAL = 30.0
 DEFAULT_MAX_REQUEST_BODY_SIZE = 1024 * 1024
+DEFAULT_WS_MAX_MSG_SIZE = 1024 * 1024
+MIN_AUTH_TOKEN_LENGTH = 16
+AUTH_RATE_LIMIT_MAX_FAILURES = 10
+AUTH_RATE_LIMIT_WINDOW_SECONDS = 60.0
 
 
 class RuntimeHttpSecurityConfig(Struct, frozen=True):
     token: str | None = None
     allowed_origins: tuple[str, ...] = ()
+    allow_all_origins: bool = False
     max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE
 
     @property
     def auth_enabled(self) -> bool:
+        # 空字符串视为未启用认证，避免 compare_digest("", "") == True 的绕过
         return bool(self.token)
 
 
 RUNTIME_SECURITY_APP_KEY: web.AppKey[RuntimeHttpSecurityConfig] = web.AppKey(
     "runtime_http_security",
     RuntimeHttpSecurityConfig,
+)
+
+RUNTIME_AUTH_RATE_LIMIT_APP_KEY: web.AppKey[dict[str, tuple[int, float]]] = web.AppKey(
+    "runtime_auth_rate_limit",
+    dict,
 )
 
 
@@ -80,21 +93,44 @@ def parse_rpc_payload(payload: Any) -> tuple[Any, str, dict[str, Any]]:
     return request_id, method, params
 
 
+def _normalize_token(value: str | None) -> str | None:
+    """把空字符串规范化为 None，避免空 token 被误认为启用认证。"""
+
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped if stripped else None
+
+
 def create_app(
     root_dir: Path | None = None,
     *,
     service: RuntimeService | None = None,
     auth_token: str | None = None,
     allowed_origins: list[str] | tuple[str, ...] | None = None,
+    allow_all_origins: bool = False,
     max_request_body_size: int = DEFAULT_MAX_REQUEST_BODY_SIZE,
 ) -> web.Application:
+    token = _normalize_token(auth_token or os.environ.get("GENSOKYOAI_RUNTIME_TOKEN"))
+    if token is not None and len(token) < MIN_AUTH_TOKEN_LENGTH:
+        raise RuntimeError(
+            f"Runtime auth token must be at least {MIN_AUTH_TOKEN_LENGTH} characters"
+        )
+
+    origins = tuple(allowed_origins or ())
+    if origins and "*" in origins:
+        allow_all_origins = True
+        origins = ()
+
     app = web.Application(client_max_size=max_request_body_size)
     app[RUNTIME_SERVICE_APP_KEY] = service or RuntimeService(root_dir=root_dir)
     app[RUNTIME_SECURITY_APP_KEY] = RuntimeHttpSecurityConfig(
-        token=auth_token or os.environ.get("GENSOKYOAI_RUNTIME_TOKEN"),
-        allowed_origins=tuple(allowed_origins or ()),
+        token=token,
+        allowed_origins=origins,
+        allow_all_origins=allow_all_origins,
         max_request_body_size=max_request_body_size,
     )
+    app[RUNTIME_AUTH_RATE_LIMIT_APP_KEY] = {}
     app.router.add_get("/health", handle_health)
     app.router.add_get("/info", handle_info)
     app.router.add_post("/rpc", handle_rpc)
@@ -170,7 +206,7 @@ async def handle_events(request: web.Request) -> web.StreamResponse:
 
 async def handle_ws(request: web.Request) -> web.WebSocketResponse:
     _validate_runtime_request(request)
-    ws = web.WebSocketResponse()
+    ws = web.WebSocketResponse(max_msg_size=DEFAULT_WS_MAX_MSG_SIZE)
     await ws.prepare(request)
     service = request.app[RUNTIME_SERVICE_APP_KEY]
     send_lock = asyncio.Lock()
@@ -478,18 +514,36 @@ async def _send_ws_json(
         await ws.send_str(_json_dumps(payload))
 
 
-def _validate_runtime_request(request: web.Request) -> None:
-    security = request.app[RUNTIME_SECURITY_APP_KEY]
-    _validate_origin(request, security)
-    _validate_auth_token(request, security)
-
-
 def _validate_origin(request: web.Request, security: RuntimeHttpSecurityConfig) -> None:
-    if not security.allowed_origins:
-        return
     origin = request.headers.get("Origin")
-    if origin and origin not in security.allowed_origins:
+    if not origin:
+        return
+
+    if security.allow_all_origins:
+        return
+
+    parsed_origin = urlparse(origin)
+    if parsed_origin.scheme not in {"http", "https", "ws", "wss", "file"}:
         raise web.HTTPForbidden(reason="Runtime request origin is not allowed")
+
+    origin_host = parsed_origin.hostname
+    if not origin_host:
+        raise web.HTTPForbidden(reason="Runtime request origin is not allowed")
+
+    if not security.allowed_origins:
+        # 默认未配置 allowed_origins 时，拒绝所有跨域 Origin 请求
+        raise web.HTTPForbidden(reason="Runtime request origin is not allowed")
+
+    origin_host_lower = origin_host.lower()
+    for allowed in security.allowed_origins:
+        allowed_parsed = urlparse(allowed)
+        allowed_host = allowed_parsed.hostname
+        if not allowed_host:
+            continue
+        if origin_host_lower == allowed_host.lower():
+            return
+
+    raise web.HTTPForbidden(reason="Runtime request origin is not allowed")
 
 
 def _validate_auth_token(request: web.Request, security: RuntimeHttpSecurityConfig) -> None:
@@ -503,11 +557,30 @@ def _validate_auth_token(request: web.Request, security: RuntimeHttpSecurityConf
     header_token = request.headers.get("X-Runtime-Token")
     if header_token:
         candidates.append(header_token.strip())
-    query_token = request.query.get("token")
-    if query_token:
-        candidates.append(query_token.strip())
     if not any(hmac.compare_digest(candidate, expected) for candidate in candidates):
+        _record_auth_failure(request)
         raise web.HTTPUnauthorized(reason="Runtime authentication token is required")
+
+
+def _record_auth_failure(request: web.Request) -> None:
+    peer = request.remote or request.headers.get("X-Forwarded-For", "unknown")
+    bucket = request.app[RUNTIME_AUTH_RATE_LIMIT_APP_KEY]
+    now = time.monotonic()
+    count, window_start = bucket.get(peer, (0, now))
+    if now - window_start > AUTH_RATE_LIMIT_WINDOW_SECONDS:
+        count = 0
+        window_start = now
+    count += 1
+    bucket[peer] = (count, window_start)
+    if count > AUTH_RATE_LIMIT_MAX_FAILURES:
+        raise web.HTTPTooManyRequests(reason="Too many failed authentication attempts")
+
+
+def _validate_runtime_request(request: web.Request) -> None:
+    security = request.app[RUNTIME_SECURITY_APP_KEY]
+    # 先校验 Origin，再校验 token；避免 token 被同源策略无关地泄露
+    _validate_origin(request, security)
+    _validate_auth_token(request, security)
 
 
 def _event_subscription_params_from_request(request: web.Request) -> dict[str, Any]:

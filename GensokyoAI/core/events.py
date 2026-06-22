@@ -105,6 +105,9 @@ class SystemEvent(Enum):
     THINK_ENGINE_INITIATIVE = "think.engine.initiative"  # 产生主动消息（完整）
     THINK_ENGINE_INITIATIVE_CHUNK = "think.engine.initiative.chunk"  # 主动消息流式片段
 
+    # 安全事件
+    SECURITY_PROMPT_INJECTION_DETECTED = "security.prompt_injection_detected"
+
     # 主动定时器事件
     INITIATIVE_TIMER_CREATED = "initiative_timer.created"
     INITIATIVE_TIMER_UPDATED = "initiative_timer.updated"

@@ -644,7 +644,10 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
     @unittest_run_loop
     async def test_rpc_requires_token_when_auth_enabled(self):
         server = TestServer(
-            create_app(service=cast(Any, FakeHttpRuntimeService()), auth_token="secret")
+            create_app(
+                service=cast(Any, FakeHttpRuntimeService()),
+                auth_token="supersecrettoken123",
+            )
         )
         client = TestClient(server)
         await client.start_server()
@@ -655,7 +658,7 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
             )
             allowed = await client.post(
                 "/rpc",
-                headers={"Authorization": "Bearer secret"},
+                headers={"Authorization": "Bearer supersecrettoken123"},
                 json={"id": 2, "method": "runtime.health", "params": {}},
             )
             denied_payload = await denied.json()

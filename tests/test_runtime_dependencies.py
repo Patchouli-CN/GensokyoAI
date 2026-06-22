@@ -498,7 +498,10 @@ class PackagingConfigurationTests(unittest.TestCase):
         self.assertIn("ruff>=0.6.0", groups["dev"])
         self.assertIn("pyright>=1.1.390", groups["dev"])
         self.assertIn("build>=1.2.0", groups["dev"])
-        self.assertEqual(pyproject["tool"]["pytest"]["ini_options"]["testpaths"], ["tests"])
+        self.assertEqual(
+            pyproject["tool"]["pytest"]["ini_options"]["testpaths"],
+            ["tests", "tests_security"],
+        )
         self.assertNotIn("asyncio_mode", pyproject["tool"]["pytest"]["ini_options"])
         self.assertEqual(pyproject["tool"]["coverage"]["report"]["fail_under"], 45)
         self.assertEqual(pyproject["tool"]["pyright"]["typeCheckingMode"], "basic")
