@@ -149,6 +149,10 @@ class TopicAwareStore:
                     t_data["last_accessed"] = ensure_utc(
                         datetime.fromisoformat(t_data["last_accessed"])
                     )
+                if "last_thought_at" in t_data and isinstance(t_data["last_thought_at"], str):
+                    t_data["last_thought_at"] = ensure_utc(
+                        datetime.fromisoformat(t_data["last_thought_at"])
+                    )
 
                 topic = Topic(name=t_data.pop("name", "未命名"), **t_data)
                 self._topics[topic.id] = topic
@@ -614,6 +618,8 @@ class TopicAwareStore:
             "recall_weight": self._calculate_recall_weight(topic),
             "related_topics": dict(topic.related_topics),
             "message_ids": list(topic.message_ids),
+            "last_thought_at": topic.last_thought_at.isoformat() if topic.last_thought_at else None,
+            "thought_count": topic.thought_count,
         }
 
     def search(
@@ -803,6 +809,18 @@ class TopicAwareStore:
     def get_topic_by_id(self, topic_id: str) -> Topic | None:
         """根据 ID 获取话题"""
         return self._topics.get(topic_id)
+
+    def mark_topic_thought(self, topic_id: str) -> bool:
+        """标记话题刚刚被思考过，更新思考时间戳和计数。
+
+        返回是否成功找到并更新话题。
+        """
+        topic = self._topics.get(topic_id)
+        if topic is None:
+            return False
+        topic.last_thought_at = utc_now()
+        topic.thought_count = getattr(topic, "thought_count", 0) + 1
+        return True
 
     def get_topic_graph(self) -> dict:
         """获取话题关联图"""

@@ -733,6 +733,12 @@ class ConfigValidator:
             maximum=1,
         )
         self._validate_numeric_range(
+            "think_engine.think_cooldown_minutes",
+            data.get("think_cooldown_minutes"),
+            diagnostics,
+            minimum=0,
+        )
+        self._validate_numeric_range(
             "think_engine.think_temperature",
             data.get("think_temperature"),
             diagnostics,

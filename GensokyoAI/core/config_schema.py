@@ -115,6 +115,8 @@ class ThinkEngineConfig(Struct):
     random_walk_steps_max: int = 5  # 随机游走最多步数
     emotional_trigger_threshold: float = 0.5  # 优先选择高情感话题的阈值
     emotional_priority_probability: float = 0.7  # 优先选择高情感话题的概率
+    think_cooldown_minutes: int = 10  # 话题被思考后多少分钟内降低再次选中概率
+    walk_visit_dedup: bool = True  # 单次随机游走是否避免重复访问同一话题
     think_temperature: float = 0.7  # 思考时的温度
     think_max_tokens: int = 200  # 思考最大 token 数
     initiative_temperature: float = 0.8  # 生成主动消息时的温度

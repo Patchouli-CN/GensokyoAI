@@ -205,18 +205,32 @@ def migrate_memory_store_payload(data: dict[str, Any]) -> tuple[dict[str, Any], 
         return migrated, changed
 
     migrated.setdefault("format", MEMORY_STORE_FORMAT)
-    migrated["schema_version"] = MEMORY_SCHEMA_VERSION
     migrated.setdefault("created_by", GENSOKYOAI_CREATED_BY)
     history = migrated.get("migration_history")
     if not isinstance(history, list):
         history = []
-    history.append(
-        _migration_entry(
-            from_version=current_version if isinstance(current_version, int) else None,
-            to_version=MEMORY_SCHEMA_VERSION,
-            reason="legacy_topic_store_without_schema_version",
+
+    if current_version == 1:
+        # v1 -> v2: Topic 新增 last_thought_at 和 thought_count 字段，旧数据使用默认值即可
+        migrated["schema_version"] = MEMORY_SCHEMA_VERSION
+        history.append(
+            _migration_entry(
+                from_version=1,
+                to_version=MEMORY_SCHEMA_VERSION,
+                reason="add_topic_thought_tracking_fields",
+            )
         )
-    )
+    else:
+        # 无 schema version 的旧数据直接升级到当前版本
+        migrated["schema_version"] = MEMORY_SCHEMA_VERSION
+        history.append(
+            _migration_entry(
+                from_version=current_version if isinstance(current_version, int) else None,
+                to_version=MEMORY_SCHEMA_VERSION,
+                reason="legacy_topic_store_without_schema_version",
+            )
+        )
+
     migrated["migration_history"] = history
     migrated.setdefault("topics", [])
     migrated.setdefault("memories", [])

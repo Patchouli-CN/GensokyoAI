@@ -175,6 +175,8 @@ think_engine:
   random_walk_steps_max: 5
   emotional_trigger_threshold: 0.5
   emotional_priority_probability: 0.7
+  think_cooldown_minutes: 10        # 话题被思考后多少分钟内降低再次选中概率
+  walk_visit_dedup: true            # 单次随机游走是否避免重复访问同一话题
   think_temperature: 0.7
   think_max_tokens: 200
   initiative_temperature: 0.8

@@ -8,6 +8,8 @@ import random
 from datetime import datetime, timedelta
 
 from ...memory.semantic import SemanticMemoryManager
+from ...memory.types import Topic
+from ...utils.helpers import utc_now
 from ...utils.logger import logger
 from ..config import ThinkEngineConfig
 from ..events import Event, EventBus, SystemEvent
@@ -98,31 +100,58 @@ class ThinkEngine:
             logger.debug(f"🧠 [ThinkEngine] {self.character_name} 没有话题可思考")
             return
 
-        # 优先选择高情感值的话题
+        # 优先选择高情感值的话题，但刚刚思考过的话题会进入冷却
         threshold = self.config.emotional_trigger_threshold
         emotional_topics = [t for t in topics if abs(t.emotional_valence) > threshold]
 
+        now = utc_now()
+
+        def _topic_weight(topic: Topic) -> float:
+            """计算话题被选为思考起点的权重。
+
+            基础权重受情感效价加成；刚思考过的话题按冷却时间线性恢复。
+            """
+            base = 1.0
+            emotional = 1.0 + abs(topic.emotional_valence) * 2.0
+            freshness = 1.0
+            if topic.last_thought_at is not None:
+                minutes_since = (now - topic.last_thought_at).total_seconds() / 60.0
+                cooldown = max(1.0, float(self.config.think_cooldown_minutes))
+                freshness = min(1.0, max(0.05, minutes_since / cooldown))
+            return base * emotional * freshness
+
         if emotional_topics and random.random() < self.config.emotional_priority_probability:
-            start_topic = random.choice(emotional_topics)
+            weights = [_topic_weight(t) for t in emotional_topics]
+            start_topic = random.choices(emotional_topics, weights=weights, k=1)[0]
             logger.debug(
-                f"🧠 [ThinkEngine] {self.character_name} 优先选择高情感话题: {start_topic.name}"
+                f"🧠 [ThinkEngine] {self.character_name} 优先选择高情感话题: {start_topic.name} "
+                f"(权重: {_topic_weight(start_topic):.2f})"
             )
         else:
-            start_topic = random.choice(topics)
+            weights = [_topic_weight(t) for t in topics]
+            start_topic = random.choices(topics, weights=weights, k=1)[0]
+            logger.debug(
+                f"🧠 [ThinkEngine] {self.character_name} 选择话题: {start_topic.name} "
+                f"(权重: {_topic_weight(start_topic):.2f})"
+            )
 
-        # 随机游走
+        # 随机游走；可选在单次思考内避免重复访问同一话题
         walk = [start_topic]
         current = start_topic
         steps = random.randint(self.config.random_walk_steps_min, self.config.random_walk_steps_max)
+        visited = {start_topic.id}
 
         for _ in range(steps):
             neighbors = list(current.related_topics.keys())
+            if self.config.walk_visit_dedup:
+                neighbors = [n for n in neighbors if n not in visited and n in store._topics]
             if neighbors:
                 weights = [current.related_topics[n] for n in neighbors]
                 next_id = random.choices(neighbors, weights=weights)[0]
                 current = store.get_topic_by_id(next_id)
                 if current:
                     walk.append(current)
+                    visited.add(current.id)
                 else:
                     break
             else:
@@ -192,6 +221,10 @@ class ThinkEngine:
                         },
                     )
                 )
+
+                # 标记本次游走涉及的话题为已思考，使后续思考自然转向其他话题
+                for topic in walk:
+                    store.mark_topic_thought(topic.id)
             else:
                 logger.debug(f"🤫 [ThinkEngine] {self.character_name} 思考了但内容为空")
 

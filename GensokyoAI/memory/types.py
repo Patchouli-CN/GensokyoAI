@@ -83,6 +83,8 @@ class Topic(Struct):
     emotional_valence: float = 0.0  # 🆕 情感效价
     related_topics: dict[str, float] = field(default_factory=dict)
     message_ids: list[str] = field(default_factory=list)
+    last_thought_at: datetime | None = None  # 🆕 上次被静默思考的时间
+    thought_count: int = 0  # 🆕 累计被静默思考次数
 
 
 class TopicMemory(Struct):

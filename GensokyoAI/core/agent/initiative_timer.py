@@ -340,7 +340,9 @@ class InitiativeTimerManager:
     def increment_consecutive_initiative_count(self) -> None:
         """主动消息成功发送后递增计数器。"""
         self._consecutive_initiative_count += 1
-        logger.debug(f"[InitiativeTimer] 连续主动计数递增: {self._consecutive_initiative_count}")
+        logger.debug(
+            f"[InitiativeTimer] 连续主动计数递增: {self._consecutive_initiative_count}/{self.config.max_initiative_times}"
+        )
 
     def _has_reached_initiative_limit(self) -> bool:
         """是否已达到当前用户回合允许的最大连续主动发言次数。"""
