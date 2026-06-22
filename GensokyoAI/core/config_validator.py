@@ -1167,6 +1167,7 @@ class ConfigValidator:
             "log_file",
             "debug_silent_output",
             "event_trace_enabled",
+            "begin_scene",
             "model",
             "embedding",
             "memory",

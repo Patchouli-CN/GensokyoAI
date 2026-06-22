@@ -253,6 +253,7 @@ class CharacterConfig(Struct):
     name: str
     system_prompt: str
     greeting: str = ""
+    begin_scene: str | None = None
     example_dialogue: list[dict[str, str]] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -280,6 +281,9 @@ class AppConfig(Struct):
     think_engine: ThinkEngineConfig = field(default_factory=ThinkEngineConfig)
     initiative_timer: InitiativeTimerConfig = field(default_factory=InitiativeTimerConfig)
     resource_control: ResourceControlConfig = field(default_factory=ResourceControlConfig)
+
+    # 角色开场模式：True=模型主动（场景开场），False=用户主动（静态greeting）
+    begin_scene: bool = True
 
     # 角色
     character: CharacterConfig | None = None

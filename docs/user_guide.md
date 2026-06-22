@@ -305,10 +305,33 @@ system_prompt: |
 
 greeting: "「欢迎来到香霖堂。」"
 
+begin_scene: "霖之助正在柜台后擦拭一件刚收来的外界道具，香霖堂里堆满了稀奇古怪的货物。"
+
 example_dialogue:
   - user: "这个道具是什么？"
     assistant: "「这可不是普通的外界道具。」"
 ```
+
+字段说明：
+
+- `name`：角色名称。
+- `system_prompt`：系统提示词，定义角色身份、性格、说话风格。
+- `greeting`：静态开场白，创建新会话时直接输出。
+- `begin_scene`：场景开场描述（可选）。配置 `begin_scene: true` 时，模型会基于该描述主动生成一段角色当前状态的叙述，而不是朗读静态 `greeting`。
+- `example_dialogue`：示例对话，帮助模型理解角色风格。
+- `metadata`：角色元数据，可用于检索或展示。
+
+开场模式由顶层配置 `begin_scene` 控制：
+
+```yaml
+# 主动场景开场：优先使用角色 YAML 中的 begin_scene，没有则回退到 greeting
+begin_scene: true
+
+# 用户主动开场：只输出静态 greeting，等待用户先开口
+begin_scene: false
+```
+
+`begin_scene` 适合想让角色"正在过自己的日子，被你撞见"的场景；`greeting` 则适合传统的"角色欢迎你"的交互。两者可同时存在，由 `begin_scene` 开关决定优先使用哪一个。
 
 内置角色位于 `characters/zh_cn/`。
 

@@ -137,8 +137,61 @@ class ConsoleBackend(BaseBackend):
 
         self._show_welcome_panel()
 
-        if greeting := safe_get(self.agent.config, "character.greeting"):
+        # 模型主动开场（begin_scene=True）：优先走场景开场，否则回退 greeting
+        if self.agent.config.begin_scene:
+            if begin_scene := safe_get(self.agent.config, "character.begin_scene"):
+                await self._send_begin_scene(begin_scene)
+            elif greeting := safe_get(self.agent.config, "character.greeting"):
+                self._print_assistant_message(greeting)
+        # 用户主动开场（begin_scene=False）：只走静态 greeting，等用户先开口
+        elif greeting := safe_get(self.agent.config, "character.greeting"):
             self._print_assistant_message(greeting)
+
+    async def _send_begin_scene(self, begin_scene: str) -> None:
+        """以场景消息触发角色开场，而非静态欢迎语。
+
+        将 begin_scene 包装为一条带括号的用户视角场景描述，
+        通过 system_contexts 控制模型从角色视角自然叙述当前状态，
+        不假设有人拜访、不打招呼。
+        """
+        # 向用户展示场景（灰色小字，表示这不是人说的）
+        self.console.print(f"[dim]（场景：{begin_scene}）[/]")
+
+        system_contexts = [
+            "【角色开场场景】当前没有用户主动说话。你正在忙自己的事。"
+            "请直接叙述你当前正在做的事、所处的状态或感受，"
+            "不要假设有人来拜访你，不要打招呼、不要说欢迎、不要自我介绍。"
+            "保持你的性格和说话习惯。"
+        ]
+
+        # 直接走 agent 流式/非流式，不走 console send 的命令解析层
+        if self._use_stream and self.agent.config.model.stream:
+            self._streaming_done.clear()
+            self._write_character_prefix()
+            try:
+                full_response = ""
+                async for chunk in self.agent.send_stream(
+                    f"({begin_scene})",
+                    system_contexts=system_contexts,
+                ):
+                    if self.agent.is_shutting_down:
+                        break
+                    content = chunk.content if hasattr(chunk, "content") else str(chunk)
+                    if content:
+                        self.console.print(content, end="")
+                        full_response += content
+                self.console.print()
+            finally:
+                self._streaming_done.set()
+        else:
+            response = await self.agent.send(
+                f"({begin_scene})",
+                system_contexts=system_contexts,
+            )
+            if response is not None:
+                content = response.content if isinstance(response.content, str) else ""
+                if content:
+                    self._print_assistant_message(content)
 
     def _show_welcome_panel(self) -> None:
         """显示欢迎面板"""

@@ -13,6 +13,9 @@ debug_silent_output: false
 # 事件追踪日志：开启后输出每个事件的详细投递日志；默认关闭以降低日志噪声
 event_trace_enabled: false
 
+# 开启主动场景：主动场景开启后将不在输出默认欢迎语，而是由模型主动对话，关闭则用户触发对话
+begin_scene: true
+
 # 主聊天模型配置
 model:
   provider: "openai"    # LLM Provider: ollama / openai / openrouter / deepseek / openai_responses / gemini / claude

@@ -18,6 +18,7 @@ class CharacterValidator:
         "name",
         "system_prompt",
         "greeting",
+        "begin_scene",
         "example_dialogue",
         "metadata",
     }
@@ -95,6 +96,7 @@ class CharacterValidator:
             return None
         system_prompt = data.get("system_prompt")
         greeting = data.get("greeting")
+        begin_scene = data.get("begin_scene")
         example_dialogue = data.get("example_dialogue")
         metadata = data.get("metadata")
         return {
@@ -102,6 +104,7 @@ class CharacterValidator:
             "name": data.get("name") if isinstance(data.get("name"), str) else fallback_id,
             "system_prompt_length": len(system_prompt) if isinstance(system_prompt, str) else 0,
             "greeting_length": len(greeting) if isinstance(greeting, str) else 0,
+            "has_begin_scene": isinstance(begin_scene, str) and bool(begin_scene.strip()),
             "example_count": len(example_dialogue) if isinstance(example_dialogue, list) else 0,
             "metadata": metadata if isinstance(metadata, dict) else {},
         }
@@ -121,6 +124,7 @@ class CharacterValidator:
             name=data["name"],
             system_prompt=data["system_prompt"],
             greeting=data.get("greeting", ""),
+            begin_scene=data.get("begin_scene"),
             example_dialogue=data.get("example_dialogue"),
             metadata=data.get("metadata", {}),
         )
