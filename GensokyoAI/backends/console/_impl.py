@@ -137,14 +137,20 @@ class ConsoleBackend(BaseBackend):
 
         self._show_welcome_panel()
 
+        # 恢复会话时不应再触发开场场景/问候语
+        current_session = self.agent.session_manager.get_current_session()
+        is_resumed_session = current_session is not None and current_session.total_turns > 0
+
         # 模型主动开场（begin_scene=True）：优先走场景开场，否则回退 greeting
-        if self.agent.config.begin_scene:
+        if not is_resumed_session and self.agent.config.begin_scene:
             if begin_scene := safe_get(self.agent.config, "character.begin_scene"):
                 await self._send_begin_scene(begin_scene)
             elif greeting := safe_get(self.agent.config, "character.greeting"):
                 self._print_assistant_message(greeting)
         # 用户主动开场（begin_scene=False）：只走静态 greeting，等用户先开口
-        elif greeting := safe_get(self.agent.config, "character.greeting"):
+        elif not is_resumed_session and (
+            greeting := safe_get(self.agent.config, "character.greeting")
+        ):
             self._print_assistant_message(greeting)
 
     async def _send_begin_scene(self, begin_scene: str) -> None:

@@ -1,10 +1,8 @@
-"""主动定时器 - 回答后积存主动发言摘要并按可编辑定时器触发。"""
+"""主动定时器 - 纯定时器调度，思考逻辑由 ThinkEngine 负责"""
 
 from __future__ import annotations
 
 import asyncio
-import json
-import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -15,37 +13,10 @@ from ...utils.helpers import utc_now
 from ...utils.logger import logger
 from ..config import InitiativeTimerConfig
 from ..events import Event, EventBus, SystemEvent
-from .types import ProviderCapability
 
 if TYPE_CHECKING:
     from ...memory.working import WorkingMemoryManager
-
-_JSON_OBJECT_PATTERN = re.compile(r"\{.*\}", re.DOTALL)
-_INITIATIVE_TIMER_DECISION_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "should_schedule": {"type": "boolean"},
-        "delay_seconds": {"type": "integer"},
-        "summary": {"type": "string"},
-        "reason": {"type": "string"},
-        "enthusiasm": {
-            "type": "number",
-            "minimum": 0.0,
-            "maximum": 1.0,
-            "description": "角色当前主动交流的热情度，0~1；越高则等待时间越短",
-        },
-    },
-    "required": ["should_schedule", "delay_seconds", "summary", "reason"],
-    "additionalProperties": False,
-}
-_INITIATIVE_TIMER_RESPONSE_FORMAT: dict[str, Any] = {
-    "type": "json_schema",
-    "json_schema": {
-        "name": "initiative_timer_decision",
-        "strict": True,
-        "schema": _INITIATIVE_TIMER_DECISION_SCHEMA,
-    },
-}
+    from .think_engine import ThinkEngine
 
 
 @dataclass
@@ -65,13 +36,19 @@ class InitiativeTimerState:
 
 
 class InitiativeTimerManager:
-    """管理回答后由 AI 生成的积存主动发言摘要与定时器。"""
+    """管理回答后由 AI 生成的积存主动发言摘要与定时器。
+
+    职责：
+    - 定时器调度（创建、取消、触发、管理）
+    - 委托 ThinkEngine 进行所有思考决策
+    - 不直接调用 LLM
+    """
 
     def __init__(
         self,
         *,
         config: InitiativeTimerConfig,
-        model_client: Any,
+        think_engine: ThinkEngine,
         event_bus: EventBus,
         character_name: str,
         working_memory: WorkingMemoryManager,
@@ -79,7 +56,7 @@ class InitiativeTimerManager:
         trigger_handler: Callable[[dict[str, Any]], Awaitable[dict[str, Any] | None]] | None = None,
     ) -> None:
         self.config = config
-        self.model_client = model_client
+        self.think_engine = think_engine
         self.event_bus = event_bus
         self.character_name = character_name
         self.working_memory = working_memory
@@ -100,11 +77,7 @@ class InitiativeTimerManager:
         return self._payload(self._state)
 
     async def schedule_after_response(self, assistant_response: str) -> dict[str, Any] | None:
-        """AI 回复完成后生成并设置下一条积存主动发言摘要。
-
-        决策为"不发言"时优先进入犹豫链；若未开启犹豫或犹豫耗尽，
-        默认会创建一条兜底自然再考虑定时器，避免角色长期失去主动能力。
-        """
+        """AI 回复完成后：委托 ThinkEngine 短期思考，然后设置定时器。"""
         if not self.config.enabled or not assistant_response.strip():
             logger.trace("[InitiativeTimer] schedule_after_response 被禁用或回复为空，跳过")
             return None
@@ -121,8 +94,19 @@ class InitiativeTimerManager:
         if len(self._pace_stamps) > 5:
             self._pace_stamps = self._pace_stamps[-5:]
 
+        # 委托 ThinkEngine 进行短期思考（回复后决策）
         logger.debug(f"[InitiativeTimer] 开始为 {self.character_name} 决策下一轮主动发言")
-        decision = await self._decide(assistant_response, hesitation_round=0)
+        recent_messages = self.working_memory.get_recent(6)
+        decision = await self.think_engine.decide_initiative(
+            assistant_response,
+            recent_messages,
+            min_delay_seconds=self.config.min_delay_seconds,
+            max_delay_seconds=self.config.max_delay_seconds,
+            decision_max_tokens=self.config.decision_max_tokens,
+            decision_temperature=self.config.decision_temperature,
+            hesitation_round=0,
+            hesitation_max_rounds=self.config.hesitation_max_rounds,
+        )
         if not decision:
             logger.debug("[InitiativeTimer] 决策解析失败，进入不发言处理流程")
             return await self._handle_no_schedule(reason="decision_parse_failed")
@@ -193,7 +177,8 @@ class InitiativeTimerManager:
         async with self._lock:
             payload = self._schedule_reconsider_timer(round_num)
             logger.info(
-                f"[InitiativeTimer] 进入第 {round_num} 轮犹豫，{self.config.hesitation_delay_seconds} 秒后重新决策"
+                f"[InitiativeTimer] 进入第 {round_num} 轮犹豫，"
+                f"{self.config.hesitation_delay_seconds} 秒后重新决策"
             )
             return payload
 
@@ -233,7 +218,7 @@ class InitiativeTimerManager:
             return self._compute_auto_delay()
         try:
             seconds = int(raw)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             return 180
         return max(1, seconds)
 
@@ -255,7 +240,6 @@ class InitiativeTimerManager:
             logger.trace("[InitiativeTimer] 无有效回复间隔，使用默认犹豫延迟 180s")
             return 180
         avg_interval = sum(intervals) / len(intervals)
-        # 弹性系数：节奏快等短一点，节奏慢等比放大
         delay = int(avg_interval * 0.8)
         result = max(30, min(600, delay))
         logger.debug(f"[InitiativeTimer] 自动犹豫延迟: 平均间隔 {avg_interval:.1f}s -> {result}s")
@@ -277,14 +261,24 @@ class InitiativeTimerManager:
         return self._payload(state)
 
     async def _handle_reconsider(self, round_num: int) -> None:
-        """犹豫定时器到期：重新让 AI 判断是否发言。"""
+        """犹豫定时器到期：重新让 ThinkEngine 决策是否发言。"""
         assistant_response = self._last_assistant_response or ""
         if not assistant_response:
             logger.debug("[InitiativeTimer] 犹豫重试时没有缓存的上一次回复，放弃")
             return
 
         logger.debug(f"[InitiativeTimer] 第 {round_num} 轮犹豫到期，重新决策")
-        decision = await self._decide(assistant_response, hesitation_round=round_num)
+        recent_messages = self.working_memory.get_recent(6)
+        decision = await self.think_engine.decide_initiative(
+            assistant_response,
+            recent_messages,
+            min_delay_seconds=self.config.min_delay_seconds,
+            max_delay_seconds=self.config.max_delay_seconds,
+            decision_max_tokens=self.config.decision_max_tokens,
+            decision_temperature=self.config.decision_temperature,
+            hesitation_round=round_num,
+            hesitation_max_rounds=self.config.hesitation_max_rounds,
+        )
         if not decision:
             await self._handle_no_schedule(
                 reason="reconsider_parse_failed", round_num=round_num + 1
@@ -333,7 +327,8 @@ class InitiativeTimerManager:
         """用户回复后重置连续主动发言计数器。"""
         if self._consecutive_initiative_count != 0:
             logger.debug(
-                f"[InitiativeTimer] 用户回复，重置连续主动计数: {self._consecutive_initiative_count} -> 0"
+                f"[InitiativeTimer] 用户回复，重置连续主动计数: "
+                f"{self._consecutive_initiative_count} -> 0"
             )
         self._consecutive_initiative_count = 0
 
@@ -341,7 +336,8 @@ class InitiativeTimerManager:
         """主动消息成功发送后递增计数器。"""
         self._consecutive_initiative_count += 1
         logger.debug(
-            f"[InitiativeTimer] 连续主动计数递增: {self._consecutive_initiative_count}/{self.config.max_initiative_times}"
+            f"[InitiativeTimer] 连续主动计数递增: "
+            f"{self._consecutive_initiative_count}/{self.config.max_initiative_times}"
         )
 
     def _has_reached_initiative_limit(self) -> bool:
@@ -431,10 +427,13 @@ class InitiativeTimerManager:
                 state.user_modified = True
                 self._cancel_task()
                 self._task = asyncio.create_task(self._run_timer(state.timer_id, state.generation))
-                self._publish(SystemEvent.INITIATIVE_TIMER_UPDATED, state, extra={"source": "user"})
+                self._publish(
+                    SystemEvent.INITIATIVE_TIMER_UPDATED, state, extra={"source": "user"}
+                )
                 logger.info(
                     f"[InitiativeTimer] 定时器 {state.timer_id} 已更新，"
-                    f"新触发时间: {state.due_at.isoformat()}, 摘要: {state.pending_summary[:40]}..."
+                    f"新触发时间: {state.due_at.isoformat()}, "
+                    f"摘要: {state.pending_summary[:40]}..."
                 )
             return self._payload(state)
 
@@ -450,161 +449,6 @@ class InitiativeTimerManager:
         logger.debug("[InitiativeTimer] 关闭并清理定时器")
         async with self._lock:
             await self._discard_locked(reason="shutdown", source="system")
-
-    # ------------------------------------------------------------------
-    # 决策
-    # ------------------------------------------------------------------
-
-    async def _decide(
-        self, assistant_response: str, *, hesitation_round: int = 0
-    ) -> dict[str, Any] | None:
-        recent_messages = self.working_memory.get_recent(6)
-        context_text = self._format_context_for_decision(recent_messages, assistant_response)
-
-        hesitation_note = ""
-        if hesitation_round > 0:
-            remaining = self.config.hesitation_max_rounds - hesitation_round
-            hesitation_note = f"（注意：这已是第 {hesitation_round} 次请你重新考虑是否主动发言"
-            if remaining > 0:
-                hesitation_note += f"，你还有 {remaining} 次犹豫机会"
-            else:
-                hesitation_note += "，这是最后一次机会，若仍不需要则放弃"
-            hesitation_note += "。）\n"
-
-        system_prompt = f"""你是 {self.character_name}。
-
-现在不是对用户说话，而是在向 GensokyoAI 系统提交你的内部主动发言决定。
-这个决定仍然必须由你以 {self.character_name} 的身份、性格、动机和当前上下文来完成；系统只负责读取你提交的机器可解析状态。
-
-请判断你是否想在稍后主动补充一句话。要求：
-- 这是内部决策提交，不是用户可见台词；不要把结果写成角色发言、对白、旁白或解释。
-- 这里的“不设置定时器”表示你本轮明确放弃稍后主动补充；如果系统没有其他兜底，这会让你在用户再次输入前不再主动开口。
-- 为了更拟真地保留角色的主动性，除非当前上下文确实没有任何自然、必要、符合角色的补充，否则优先设置一个短到中等延迟的定时器。
-- 如果设置，只写"稍后主动发言意图的一句话摘要"，不要写完整可发送话术。
-- 摘要只描述到点后要围绕什么思考和表达，真正说出口的话会在触发时重新生成。
-- 延迟秒数必须在 {self.config.min_delay_seconds} 到 {self.config.max_delay_seconds} 之间。
-- 额外输出一个 0~1 的 enthusiasm（热情度）：越高表示你当前越想主动继续聊，系统会把等待时间按 `delay_seconds * (1 - enthusiasm)` 缩短；如果不确定可填 0.5。
-- 只输出一个原始 JSON 对象；不要输出 Markdown 代码块、角色引号、解释文本或任何前后缀。
-{hesitation_note}
-"""
-
-        user_prompt = f"""你刚刚回复了用户：
-{assistant_response}
-
-近期对话上下文：
-{context_text}
-
-请根据以上上下文提交决定。输出必须且只能是下面的 JSON 对象，不要有任何其他内容：
-
-{{
-  "should_schedule": true/false,
-  "delay_seconds": 120,
-  "summary": "稍后主动发言意图的一句话摘要",
-  "reason": "简短理由",
-  "enthusiasm": 0.5
-}}
-"""
-
-        messages: list[dict[str, str]] = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
-
-        logger.trace(
-            f"[InitiativeTimer] 决策请求 messages:\n{json.dumps(messages, ensure_ascii=False, indent=2)}"
-        )
-
-        max_retries = 1
-        for attempt in range(max_retries + 1):
-            try:
-                decision_max_tokens = max(self.config.decision_max_tokens, 200)
-                options: dict[str, Any] = {
-                    "temperature": self.config.decision_temperature,
-                    "num_predict": decision_max_tokens,
-                    "max_tokens": decision_max_tokens,
-                }
-                if self._supports_structured_output():
-                    options["response_format"] = _INITIATIVE_TIMER_RESPONSE_FORMAT
-
-                response = await self.model_client.chat(
-                    messages=messages,
-                    options=options,
-                )
-                content = response.message.content
-                text = content.strip() if isinstance(content, str) else ""
-                if not text:
-                    logger.warning("主动定时器决策模型返回空内容，跳过")
-                    return None
-
-                logger.trace(f"[InitiativeTimer] 决策原始响应: {text!r}")
-                data = self._parse_decision_json(text)
-                if data is not None:
-                    logger.debug(f"[InitiativeTimer] 决策解析成功: {data}")
-                    return data
-
-                # 解析失败，尝试一次重试
-                if attempt < max_retries:
-                    logger.warning("主动定时器决策未返回合法 JSON，准备重试一次")
-                    messages.append({"role": "assistant", "content": text[:1000]})
-                    messages.append(
-                        {
-                            "role": "user",
-                            "content": (
-                                "你上一条回复不是合法的 JSON。请严格按照要求只输出 JSON 对象，"
-                                "不要写成角色台词、对白或解释。请重试。"
-                            ),
-                        }
-                    )
-                    continue
-
-                return None
-            except Exception as error:
-                logger.error(f"主动定时器决策失败: {error}")
-                return None
-
-        return None
-
-    def _format_context_for_decision(
-        self, recent_messages: list[dict[str, Any]], current_response: str
-    ) -> str:
-        """把近期对话格式化为决策上下文，避免重复放入当前刚生成的回复。"""
-        lines = []
-        for item in recent_messages:
-            role = item.get("role")
-            content = item.get("content")
-            if not isinstance(role, str) or not isinstance(content, str):
-                continue
-            if role not in {"user", "assistant"}:
-                continue
-            # 避免把刚生成的 assistant 回复再当成上下文末尾，否则模型会误以为要继续对白
-            if role == "assistant" and content.strip() == current_response.strip():
-                continue
-            label = "User" if role == "user" else self.character_name
-            lines.append(f"{label}: {content.strip()}")
-        if not lines:
-            return "（无更早上下文）"
-        return "\n".join(lines)
-
-    def _supports_structured_output(self) -> bool:
-        supports = getattr(self.model_client, "supports", None)
-        if callable(supports):
-            try:
-                return bool(supports(ProviderCapability.STRUCTURED_OUTPUT))
-            except Exception as error:
-                logger.warning(f"主动定时器结构化输出能力判断失败，将使用普通 JSON 提示: {error}")
-        return False
-
-    @staticmethod
-    def _parse_decision_json(text: str) -> dict[str, Any] | None:
-        match = _JSON_OBJECT_PATTERN.search(text)
-        raw = match.group(0) if match else text
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError as error:
-            preview = raw.replace("\r", "\\r").replace("\n", "\\n")[:300]
-            logger.error(f"主动定时器决策 JSON 解析失败: {error}; raw={preview!r}")
-            return None
-        return data if isinstance(data, dict) else None
 
     # ------------------------------------------------------------------
     # 状态管理
@@ -644,11 +488,7 @@ class InitiativeTimerManager:
 
     @staticmethod
     def _apply_enthusiasm(base_delay: int, enthusiasm: float | None) -> int:
-        """根据热情度调整等待时间。
-
-        公式：wait_sec = base_delay * (1 - enthusiasm)
-        热情度越高，等待越短；未提供或无效时不调整；结果受默认 30~600 限制。
-        """
+        """根据热情度调整等待时间。"""
         if enthusiasm is None:
             logger.trace("[InitiativeTimer] 未提供热情度，不调整延迟")
             return base_delay
@@ -682,7 +522,8 @@ class InitiativeTimerManager:
                             self._state = None
                             self._cancel_task()
                             logger.debug(
-                                f"[InitiativeTimer] 犹豫定时器 {timer_id} 到期，进入第 {reconsider_round} 轮重新决策"
+                                f"[InitiativeTimer] 犹豫定时器 {timer_id} 到期，"
+                                f"进入第 {reconsider_round} 轮重新决策"
                             )
                         else:
                             trigger_args = self._prepare_trigger_locked(state, source="timer")
@@ -769,7 +610,8 @@ class InitiativeTimerManager:
             extra={"reason": reason, "source": source},
         )
         logger.debug(
-            f"[InitiativeTimer] 定时器 {state.timer_id} 被丢弃，原因: {reason}, 来源: {source}"
+            f"[InitiativeTimer] 定时器 {state.timer_id} 被丢弃，"
+            f"原因: {reason}, 来源: {source}"
         )
         return payload
 
@@ -831,7 +673,7 @@ class InitiativeTimerManager:
     def _clamp_delay(self, value: Any) -> int:
         try:
             seconds = int(value)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             seconds = self.config.min_delay_seconds
         return max(self.config.min_delay_seconds, min(self.config.max_delay_seconds, seconds))
 

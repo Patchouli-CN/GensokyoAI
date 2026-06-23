@@ -1,38 +1,62 @@
-"""静默思考引擎 - 模拟默认模式网络"""
+"""思考引擎 - 负责所有 AI 思考活动
 
-# GensokyoAI/core/agent/think_engine.py
+职责分层：
+- 长期思考：定时游走话题图谱，产生内心独白（原 ThinkEngine）
+- 短期思考：每次 AI 回复后，决策是否设置主动定时器（原 InitiativeTimer._decide）
+- 说话前思考：定时器到期前，生成主动消息前的内部思考（原 Agent._handle_initiative_timer_trigger thought）
+
+❌ 不负责决策（交给 ActionPlanner）
+❌ 不负责生成主动消息（交给 InitiativeTimer + Agent）
+"""
 
 import asyncio
 import contextlib
+import json
 import random
+import re
 from datetime import datetime, timedelta
+from typing import Any
 
 from ...memory.semantic import SemanticMemoryManager
 from ...memory.types import Topic
 from ...utils.helpers import utc_now
 from ...utils.logger import logger
-from ..config import ThinkEngineConfig
+from ..config import InitiativeTimerConfig, ThinkEngineConfig
 from ..events import Event, EventBus, SystemEvent
 from .model_client import ModelClient
+from .types import ProviderCapability
+
+# 决策 JSON 解析相关（从原 InitiativeTimer 迁移）
+_JSON_OBJECT_PATTERN = re.compile(r"\{.*\}", re.DOTALL)
+_INITIATIVE_TIMER_DECISION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "should_schedule": {"type": "boolean"},
+        "delay_seconds": {"type": "integer"},
+        "summary": {"type": "string"},
+        "reason": {"type": "string"},
+        "enthusiasm": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "角色当前主动交流的热情度，0~1",
+        },
+    },
+    "required": ["should_schedule", "delay_seconds", "summary", "reason"],
+    "additionalProperties": False,
+}
+_INITIATIVE_TIMER_RESPONSE_FORMAT: dict[str, Any] = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "initiative_timer_decision",
+        "strict": True,
+        "schema": _INITIATIVE_TIMER_DECISION_SCHEMA,
+    },
+}
 
 
-# 为了研发这个引擎，下面是一个小故事：
-# 上白泽慧音：
-#  - **我思故我在，思想是一个人的重要组成部分！**
-#  - **什么？你问我这个历史老师为什么说起哲学了？**
-#  - **可能是阅历多了吧！**
 class ThinkEngine:
-    """
-    静默思考引擎 - 让 AI 拥有自己的心理时间
-
-    职责：
-    - 定时触发思考
-    - 随机游走话题图谱，产生联想
-    - 调用 LLM 进行静默思考
-    - 发布思考结果事件（THINK_ENGINE_THOUGHT）
-    - ❌ 不负责决策（交给 ActionPlanner）
-    - ❌ 不负责生成主动消息（交给 ActionPlanner）
-    """
+    """思考引擎 - 负责所有 AI 思考活动"""
 
     def __init__(
         self,
@@ -41,58 +65,66 @@ class ThinkEngine:
         event_bus: EventBus,
         character_name: str,
         config: ThinkEngineConfig,
+        initiative_timer_config: InitiativeTimerConfig | None = None,
         debug_silent_output: bool = False,
-    ):
+    ) -> None:
         self.semantic_memory = semantic_memory
         self.model_client = model_client
         self.event_bus = event_bus
         self.character_name = character_name
         self.config = config
+        self.initiative_timer_config = initiative_timer_config
         self.debug_silent_output = debug_silent_output
 
+        # 长期思考状态
         self._running = False
-        self._think_task: asyncio.Task | None = None
-        self._last_think_time: datetime | None = None
-        self._think_interval = timedelta(minutes=config.think_interval_minutes)
+        self._long_term_task: asyncio.Task | None = None
+        self._last_long_term_time: datetime | None = None
+        self._long_term_interval = timedelta(minutes=config.think_interval_minutes)
+
+    # ==================== 生命周期 ====================
 
     async def start(self) -> None:
-        """启动思考引擎"""
+        """启动思考引擎（仅启动长期思考循环）"""
         if self._running or not self.config.enabled:
             return
 
         self._running = True
-        self._think_task = asyncio.create_task(self._think_loop())
+        self._long_term_task = asyncio.create_task(self._long_term_loop())
         logger.info(
-            f"🧠 [ThinkEngine] 思考引擎已启动 (角色: {self.character_name}, 间隔: {self.config.think_interval_minutes}分钟)"
+            f"🧠 [ThinkEngine] 思考引擎已启动 (角色: {self.character_name}, "
+            f"长期思考间隔: {self.config.think_interval_minutes}分钟)"
         )
 
     async def stop(self) -> None:
         """停止思考引擎"""
         self._running = False
-        if self._think_task:
-            self._think_task.cancel()
+        if self._long_term_task:
+            self._long_term_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await self._think_task
+                await self._long_term_task
         logger.info(f"🧠 [ThinkEngine] 思考引擎已停止 (角色: {self.character_name})")
 
-    async def _think_loop(self) -> None:
-        """思考主循环"""
+    # ==================== 长期思考（定时话题游走）====================
+
+    async def _long_term_loop(self) -> None:
+        """长期思考主循环"""
         while self._running:
             try:
-                await asyncio.sleep(self._think_interval.total_seconds())
+                await asyncio.sleep(self._long_term_interval.total_seconds())
 
                 if not self._running:
                     break
 
-                await self._wander_and_think()
+                await self._long_term_think()
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"思考循环异常: {e}")
+                logger.error(f"长期思考循环异常: {e}")
 
-    async def _wander_and_think(self) -> None:
-        """随机游走话题图谱，产生联想"""
+    async def _long_term_think(self) -> None:
+        """随机游走话题图谱，产生联想（长期思考）"""
         store = self.semantic_memory.store
         topics = store.get_all_topics()
 
@@ -107,10 +139,6 @@ class ThinkEngine:
         now = utc_now()
 
         def _topic_weight(topic: Topic) -> float:
-            """计算话题被选为思考起点的权重。
-
-            基础权重受情感效价加成；刚思考过的话题按冷却时间线性恢复。
-            """
             base = 1.0
             emotional = 1.0 + abs(topic.emotional_valence) * 2.0
             freshness = 1.0
@@ -135,7 +163,7 @@ class ThinkEngine:
                 f"(权重: {_topic_weight(start_topic):.2f})"
             )
 
-        # 随机游走；可选在单次思考内避免重复访问同一话题
+        # 随机游走
         walk = [start_topic]
         current = start_topic
         steps = random.randint(self.config.random_walk_steps_min, self.config.random_walk_steps_max)
@@ -177,7 +205,7 @@ class ThinkEngine:
 """
 
         logger.debug(
-            f"🧠 [ThinkEngine] {self.character_name} 正在静默思考，游走话题: {[t.name for t in walk]}"
+            f"🧠 [ThinkEngine] {self.character_name} 正在长期思考，游走话题: {[t.name for t in walk]}"
         )
 
         try:
@@ -197,11 +225,9 @@ class ThinkEngine:
                     )
                 else:
                     logger.debug(
-                        f"💭 [ThinkEngine] {self.character_name} 产生静默思考（调试输出关闭，内容已隐藏）"
+                        f"💭 [ThinkEngine] {self.character_name} 产生长期思考（调试输出关闭，内容已隐藏）"
                     )
 
-                # 🆕 只发布思考事件，不判断意图，不生成消息
-                # 决策交给 ActionPlanner
                 self.event_bus.publish(
                     Event(
                         type=SystemEvent.THINK_ENGINE_THOUGHT,
@@ -222,17 +248,230 @@ class ThinkEngine:
                     )
                 )
 
-                # 标记本次游走涉及的话题为已思考，使后续思考自然转向其他话题
                 for topic in walk:
                     store.mark_topic_thought(topic.id)
             else:
-                logger.debug(f"🤫 [ThinkEngine] {self.character_name} 思考了但内容为空")
+                logger.debug(f"🤫 [ThinkEngine] {self.character_name} 长期思考了但内容为空")
 
         except Exception as e:
-            logger.error(f"静默思考失败: {e}")
+            logger.error(f"长期思考失败: {e}")
 
     def trigger_think_now(self) -> None:
-        """立即触发一次思考"""
+        """立即触发一次长期思考"""
         if self._running:
-            asyncio.create_task(self._wander_and_think())
-            logger.debug(f"🧠 [ThinkEngine] {self.character_name} 手动触发思考")
+            asyncio.create_task(self._long_term_think())
+            logger.debug(f"🧠 [ThinkEngine] {self.character_name} 手动触发长期思考")
+
+    # ==================== 短期思考（回复后主动决策）====================
+
+    async def decide_initiative(
+        self,
+        assistant_response: str,
+        recent_messages: list[dict[str, Any]],
+        *,
+        min_delay_seconds: int = 30,
+        max_delay_seconds: int = 1800,
+        decision_max_tokens: int = 300,
+        decision_temperature: float = 0.4,
+        hesitation_round: int = 0,
+        hesitation_max_rounds: int = 0,
+    ) -> dict[str, Any] | None:
+        """短期思考：AI 回复后，决定是否需要设置主动发言定时器。
+
+        返回决策字典或 None（解析失败时）。
+        """
+        context_text = self._format_context_for_decision(recent_messages, assistant_response)
+
+        hesitation_note = ""
+        if hesitation_round > 0:
+            remaining = hesitation_max_rounds - hesitation_round
+            hesitation_note = f"（注意：这已是第 {hesitation_round} 次请你重新考虑是否主动发言"
+            if remaining > 0:
+                hesitation_note += f"，你还有 {remaining} 次犹豫机会"
+            else:
+                hesitation_note += "，这是最后一次机会，若仍不需要则放弃"
+            hesitation_note += "。）\n"
+
+        system_prompt = f"""你是 {self.character_name}。
+
+现在不是对用户说话，而是在向 GensokyoAI 系统提交你的内部主动发言决定。
+这个决定仍然必须由你以 {self.character_name} 的身份、性格、动机和当前上下文来完成；系统只负责读取你提交的机器可解析状态。
+
+请判断你是否想在稍后主动补充一句话。要求：
+- 这是内部决策提交，不是用户可见台词；不要把结果写成角色发言、对白、旁白或解释。
+- 这里的"不设置定时器"表示你本轮明确放弃稍后主动补充；如果系统没有其他兜底，这会让你在用户再次输入前不再主动开口。
+- 为了更拟真地保留角色的主动性，除非当前上下文确实没有任何自然、必要、符合角色的补充，否则优先设置一个短到中等延迟的定时器。
+- 如果设置，只写"稍后主动发言意图的一句话摘要"，不要写完整可发送话术。
+- 摘要只描述到点后要围绕什么思考和表达，真正说出口的话会在触发时重新生成。
+- 延迟秒数必须在 {min_delay_seconds} 到 {max_delay_seconds} 之间。
+- 额外输出一个 0~1 的 enthusiasm（热情度）：越高表示你当前越想主动继续聊，系统会把等待时间按 `delay_seconds * (1 - enthusiasm)` 缩短；如果不确定可填 0.5。
+- 只输出一个原始 JSON 对象；不要输出 Markdown 代码块、角色引号、解释文本或任何前后缀。
+{hesitation_note}
+"""
+
+        user_prompt = f"""你刚刚回复了用户：
+{assistant_response}
+
+近期对话上下文：
+{context_text}
+
+请根据以上上下文提交决定。输出必须且只能是下面的 JSON 对象，不要有任何其他内容：
+
+{{
+  "should_schedule": true/false,
+  "delay_seconds": 120,
+  "summary": "稍后主动发言意图的一句话摘要",
+  "reason": "简短理由",
+  "enthusiasm": 0.5
+}}
+"""
+
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        logger.trace(
+            f"[ThinkEngine] 短期思考（主动决策）请求 messages:\n"
+            f"{json.dumps(messages, ensure_ascii=False, indent=2, default=str)}"
+        )
+
+        max_retries = 1
+        for attempt in range(max_retries + 1):
+            try:
+                max_tok = max(decision_max_tokens, 200)
+                options: dict[str, Any] = {
+                    "temperature": decision_temperature,
+                    "num_predict": max_tok,
+                    "max_tokens": max_tok,
+                }
+                if self._supports_structured_output():
+                    options["response_format"] = _INITIATIVE_TIMER_RESPONSE_FORMAT
+
+                response = await self.model_client.chat(
+                    messages=messages,
+                    options=options,
+                )
+                content = response.message.content
+                text = content.strip() if isinstance(content, str) else ""
+                logger.trace(f"[ThinkEngine] 短期思考原始响应: {text!r}")
+                data = self._parse_decision_json(text)
+                if data is not None:
+                    logger.debug(f"[ThinkEngine] 短期思考决策解析成功: {data}")
+                    return data
+
+                # 解析失败，尝试一次重试
+                if attempt < max_retries:
+                    logger.warning("短期思考决策未返回合法 JSON，准备重试一次")
+                    messages.append({"role": "assistant", "content": text[:1000]})
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "你上一条回复不是合法的 JSON。请严格按照要求只输出 JSON 对象，"
+                                "不要写成角色台词、对白或解释。请重试。"
+                            ),
+                        }
+                    )
+                    continue
+
+                return None
+            except Exception as error:
+                logger.error(f"短期思考（主动决策）失败: {error}")
+                return None
+
+        return None
+
+    # ==================== 说话前思考（定时器到期前）====================
+
+    async def pre_speak_thought(
+        self,
+        pending_summary: str,
+        recent_context: str,
+        *,
+        max_tokens: int = 200,
+        temperature: float = 0.7,
+    ) -> str:
+        """说话前思考：定时器到期后，生成主动消息前的内部思考。
+
+        返回思考文本（可能为空字符串）。
+        """
+        thought_prompt = f"""你是 {self.character_name}。
+
+主动定时器到点了，这表示你已经决定稍后要主动开口。
+
+【待表达意图摘要】
+{pending_summary}
+
+【最近对话】
+{recent_context or "无"}
+
+请先进行说话前的内部思考：
+- 根据当前上下文重新组织这次主动发言的重点。
+- 不要判断要不要说；到点即代表要说。
+- 不要写最终要发送给用户的完整话术。
+- 只输出简短内部思考。"""
+
+        logger.trace(f"[ThinkEngine] 说话前思考 prompt:\n{thought_prompt}")
+
+        try:
+            response = await self.model_client.chat(
+                messages=[{"role": "system", "content": thought_prompt}],
+                options={
+                    "temperature": temperature,
+                    "num_predict": max_tokens,
+                    "max_tokens": max_tokens,
+                },
+            )
+            content = response.message.content
+            thought = content.strip() if isinstance(content, str) else ""
+            logger.debug(f"[ThinkEngine] 说话前思考结果: {thought[:100]}...")
+            return thought
+        except Exception as error:
+            logger.error(f"说话前思考失败: {error}")
+            return ""
+
+    # ==================== 辅助方法 ====================
+
+    @staticmethod
+    def _format_context_for_decision(
+        recent_messages: list[dict[str, Any]], current_response: str
+    ) -> str:
+        """把近期对话格式化为决策上下文，避免重复放入当前刚生成的回复。"""
+        lines = []
+        for item in recent_messages:
+            role = item.get("role")
+            content = item.get("content")
+            if not isinstance(role, str) or not isinstance(content, str):
+                continue
+            if role not in {"user", "assistant"}:
+                continue
+            # 避免把刚生成的 assistant 回复再当成上下文末尾
+            if role == "assistant" and content.strip() == current_response.strip():
+                continue
+            label = "User" if role == "user" else "(角色)"
+            lines.append(f"{label}: {content.strip()}")
+        if not lines:
+            return "（无更早上下文）"
+        return "\n".join(lines)
+
+    def _supports_structured_output(self) -> bool:
+        supports = getattr(self.model_client, "supports", None)
+        if callable(supports):
+            try:
+                return bool(supports(ProviderCapability.STRUCTURED_OUTPUT))
+            except Exception as error:
+                logger.warning(f"结构化输出能力判断失败: {error}")
+        return False
+
+    @staticmethod
+    def _parse_decision_json(text: str) -> dict[str, Any] | None:
+        match = _JSON_OBJECT_PATTERN.search(text)
+        raw = match.group(0) if match else text
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as error:
+            preview = raw.replace("\r", "\\r").replace("\n", "\\n")[:300]
+            logger.error(f"决策 JSON 解析失败: {error}; raw={preview!r}")
+            return None
+        return data if isinstance(data, dict) else None

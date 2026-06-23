@@ -2,7 +2,7 @@
 
 # GensokyoAI/core/agent/message_builder.py
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ...tools.build_service import ToolBuildResult
 from ...tools.registry import ToolRegistry
@@ -12,8 +12,6 @@ if TYPE_CHECKING:
     from ...memory.semantic import SemanticMemoryManager
     from ...memory.working import WorkingMemoryManager
     from ..config import ModelConfig, WebSearchToolConfig
-
-
 class MessageOperation:
     """消息流式操作器；每个操作方法返回新的实例，不修改原对象。"""
 
@@ -78,6 +76,8 @@ class MessageBuilder:
         web_search_config: WebSearchToolConfig | None = None,
         model_config: ModelConfig | None = None,
         tool_build_result: ToolBuildResult | None = None,
+        metadata: dict[str, Any] | None = None,
+        example_dialogue: list[dict[str, str]] | None = None,
     ):
         """
         初始化消息构建器
@@ -89,6 +89,8 @@ class MessageBuilder:
             semantic_memory: 语义记忆管理器
             tool_registry: 工具注册中心（用于生成工具说明）
             tool_enabled: 是否启用工具
+            metadata: 角色元数据，将注入系统提示词
+            example_dialogue: 角色示例对话，作为 few-shot 注入
         """
         self._system_prompt = system_prompt
         self._working_memory = working_memory
@@ -100,11 +102,20 @@ class MessageBuilder:
         self._web_search_config = web_search_config
         self._model_config = model_config
         self._tool_build_result = tool_build_result
+        self._metadata = metadata or {}
+        self._example_dialogue = example_dialogue or []
 
     @property
     def system_prompt(self) -> str:
-        """获取系统提示词（包含工具说明）"""
+        """获取系统提示词（包含角色元数据和工具说明）"""
         prompt = self._system_prompt
+
+        # 注入角色元数据
+        if self._metadata:
+            metadata_lines = ["【角色元数据】"]
+            for key, value in self._metadata.items():
+                metadata_lines.append(f"- {key}: {value}")
+            prompt += "\n\n" + "\n".join(metadata_lines)
 
         # 添加 ToolBuildService 统一生成的工具说明；未接入时保持旧逻辑兼容。
         if self._tool_build_result is not None:
@@ -146,6 +157,19 @@ class MessageBuilder:
         if system_contexts:
             for ctx in system_contexts:
                 messages.append({"role": "system", "content": ctx})
+
+        # 🆕 注入角色示例对话（few-shot），帮助模型理解角色风格
+        # 限制最多 3 条，避免挤占上下文
+        if self._example_dialogue:
+            messages.append({"role": "system", "content": "【角色对话风格示例】"})
+            for item in self._example_dialogue[:3]:
+                if isinstance(item, dict):
+                    user_text = item.get("user", "")
+                    assistant_text = item.get("assistant", "")
+                    if user_text:
+                        messages.append({"role": "user", "content": user_text})
+                    if assistant_text:
+                        messages.append({"role": "assistant", "content": assistant_text})
 
         # 2. 情景记忆（历史摘要）
         if episodic_context := self._episodic_memory.get_relevant_context(user_input):

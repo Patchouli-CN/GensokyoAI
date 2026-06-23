@@ -23,11 +23,15 @@ class _FakeSemanticMemory:
 
 
 class _FakeModelClient:
-    def __init__(self, content: str = "一些静默思考内容"):
+    def __init__(self, content: str = "一些静默思考内容", *, structured_output: bool = False):
         self.content = content
+        self.structured_output = structured_output
         self.call_count = 0
         self.last_messages = None
         self.last_options = None
+
+    def supports(self, capability: str) -> bool:
+        return self.structured_output and capability == "structured_output"
 
     async def chat(self, messages, options=None):
         self.last_messages = messages
@@ -103,7 +107,7 @@ class ThinkEngineWalkTests(unittest.TestCase):
                     random_walk_steps_min=5,
                     random_walk_steps_max=5,
                 )
-                await engine._wander_and_think()
+                await engine._long_term_think()
 
                 # A 和 B 互相强关联，但去重后 walk 最多只能访问两个不同话题
                 visited_names = []
@@ -146,7 +150,7 @@ class ThinkEngineWalkTests(unittest.TestCase):
                 warm_count = 0
                 total = 30
                 for _ in range(total):
-                    await engine._wander_and_think()
+                    await engine._long_term_think()
                     if hot_topic.thought_count > 1:
                         hot_count += 1
                     elif warm_topic.thought_count > 0:
@@ -162,6 +166,127 @@ class ThinkEngineWalkTests(unittest.TestCase):
                 self.assertLess(hot_count, warm_count)
 
         asyncio.run(run())
+
+
+class ThinkEngineDecisionTests(unittest.TestCase):
+    def _make_engine(self, model_client: _FakeModelClient):
+        config = ThinkEngineConfig()
+        event_bus = EventBus(enable_trace=False)
+        semantic_memory = _FakeSemanticMemory(_FakeTopicStore())
+        return (
+            ThinkEngine(
+                semantic_memory=semantic_memory,
+                model_client=model_client,
+                event_bus=event_bus,
+                character_name="博丽灵梦",
+                config=config,
+            ),
+            event_bus,
+        )
+
+    def test_decide_initiative_parses_valid_json(self):
+        async def run():
+            model_client = _FakeModelClient(
+                '{"should_schedule": true, "delay_seconds": 120, "summary": "想补充一点", "reason": "有想法"}'
+            )
+            engine, _ = self._make_engine(model_client)
+            decision = await engine.decide_initiative(
+                "刚才的回复",
+                [],
+                min_delay_seconds=30,
+                max_delay_seconds=1800,
+            )
+            self.assertIsNotNone(decision)
+            assert decision is not None
+            self.assertTrue(decision["should_schedule"])
+            self.assertEqual(decision["delay_seconds"], 120)
+            self.assertEqual(decision["summary"], "想补充一点")
+            self.assertEqual(decision["reason"], "有想法")
+            self.assertEqual(model_client.call_count, 1)
+
+        asyncio.run(run())
+
+    def test_decide_initiative_returns_none_on_invalid_json(self):
+        async def run():
+            model_client = _FakeModelClient("这不是 JSON")
+            engine, _ = self._make_engine(model_client)
+            decision = await engine.decide_initiative("刚才的回复", [])
+            self.assertIsNone(decision)
+
+        asyncio.run(run())
+
+    def test_decide_initiative_uses_structured_output_when_supported(self):
+        async def run():
+            model_client = _FakeModelClient(
+                '{"should_schedule": true, "delay_seconds": 60, "summary": "结构化输出摘要", "reason": "想补充"}',
+                structured_output=True,
+            )
+            engine, _ = self._make_engine(model_client)
+            decision = await engine.decide_initiative("刚才的回复", [])
+            self.assertIsNotNone(decision)
+            assert decision is not None
+            self.assertTrue(decision["should_schedule"])
+            self.assertIsNotNone(model_client.last_options)
+            assert model_client.last_options is not None
+            self.assertEqual(model_client.last_options.get("response_format", {}).get("type"), "json_schema")
+
+        asyncio.run(run())
+
+    def test_decide_initiative_prompt_contains_character_and_constraints(self):
+        async def run():
+            model_client = _FakeModelClient()
+            engine, _ = self._make_engine(model_client)
+            await engine.decide_initiative(
+                "「赛钱箱在那边，随意投一点吧。」",
+                [{"role": "user", "content": "你好"}],
+                min_delay_seconds=30,
+                max_delay_seconds=1800,
+            )
+            self.assertIsNotNone(model_client.last_messages)
+            assert model_client.last_messages is not None
+            system_prompt = model_client.last_messages[0]["content"]
+            user_prompt = model_client.last_messages[1]["content"]
+            self.assertIn("你是 博丽灵梦", system_prompt)
+            self.assertIn("内部主动发言决定", system_prompt)
+            self.assertIn("不是用户可见台词", system_prompt)
+            self.assertIn("只输出一个原始 JSON 对象", system_prompt)
+            self.assertIn("「赛钱箱在那边，随意投一点吧。」", user_prompt)
+            self.assertIn("User: 你好", user_prompt)
+
+        asyncio.run(run())
+
+    def test_pre_speak_thought_returns_model_content(self):
+        async def run():
+            model_client = _FakeModelClient("重新组织后的重点")
+            engine, _ = self._make_engine(model_client)
+            thought = await engine.pre_speak_thought("想补充一点", "User: 你好")
+            self.assertEqual(thought, "重新组织后的重点")
+            self.assertIsNotNone(model_client.last_messages)
+            assert model_client.last_messages is not None
+            self.assertIn("待表达意图摘要", model_client.last_messages[0]["content"])
+            self.assertIn("想补充一点", model_client.last_messages[0]["content"])
+
+        asyncio.run(run())
+
+    def test_pre_speak_thought_returns_empty_on_failure(self):
+        async def run():
+            class _FailingModelClient(_FakeModelClient):
+                async def chat(self, messages, options=None):
+                    raise RuntimeError("模型调用失败")
+
+            engine, _ = self._make_engine(_FailingModelClient())
+            thought = await engine.pre_speak_thought("想补充一点", "User: 你好")
+            self.assertEqual(thought, "")
+
+        asyncio.run(run())
+
+
+class _FakeTopicStore:
+    def __init__(self):
+        self._topics = {}
+
+    def get_all_topics(self):
+        return list(self._topics.values())
 
 
 class MemoryStoreMigrationTests(unittest.TestCase):

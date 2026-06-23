@@ -4,8 +4,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from GensokyoAI.core.agent.initiative_timer import InitiativeTimerManager
+from GensokyoAI.core.agent.think_engine import ThinkEngine
 from GensokyoAI.core.agent.types import UnifiedMessage, UnifiedResponse
-from GensokyoAI.core.config import InitiativeTimerConfig
+from GensokyoAI.core.config import InitiativeTimerConfig, ThinkEngineConfig
 from GensokyoAI.core.events import EventBus, SystemEvent
 from GensokyoAI.memory.working import WorkingMemoryManager
 
@@ -38,6 +39,36 @@ class _FakeModelClient:
         )
 
 
+class _FakeSemanticMemory:
+    """只暴露 ThinkEngine 需要的 store 接口。"""
+
+    def __init__(self):
+        self.store = _FakeTopicStore()
+
+
+class _FakeTopicStore:
+    def __init__(self):
+        self._topics = {}
+
+    def get_all_topics(self):
+        return list(self._topics.values())
+
+
+def _make_think_engine(
+    model_client: _FakeModelClient,
+    event_bus: EventBus,
+    character_name: str = "测试角色",
+) -> ThinkEngine:
+    """构造一个用于 initiative_timer 测试的 ThinkEngine。"""
+    return ThinkEngine(
+        semantic_memory=_FakeSemanticMemory(),
+        model_client=model_client,
+        event_bus=event_bus,
+        character_name=character_name,
+        config=ThinkEngineConfig(),
+    )
+
+
 class InitiativeTimerManagerTests(unittest.TestCase):
     def test_schedule_update_trigger_and_discard_flow(self):
         async def run():
@@ -54,13 +85,14 @@ class InitiativeTimerManagerTests(unittest.TestCase):
             )
             await event_bus.start()
             try:
+                model_client = _FakeModelClient()
                 manager = InitiativeTimerManager(
                     config=InitiativeTimerConfig(
                         min_delay_seconds=10,
                         max_delay_seconds=120,
                         max_pending_summary_chars=50,
                     ),
-                    model_client=_FakeModelClient(),
+                    think_engine=_make_think_engine(model_client, event_bus),
                     event_bus=event_bus,
                     character_name="测试角色",
                     working_memory=WorkingMemoryManager(max_turns=10),
@@ -105,7 +137,7 @@ class InitiativeTimerManagerTests(unittest.TestCase):
             try:
                 manager = InitiativeTimerManager(
                     config=InitiativeTimerConfig(),
-                    model_client=_FakeModelClient(),
+                    think_engine=_make_think_engine(_FakeModelClient(), event_bus),
                     event_bus=event_bus,
                     character_name="测试角色",
                     working_memory=WorkingMemoryManager(max_turns=10),
@@ -131,8 +163,11 @@ class InitiativeTimerManagerTests(unittest.TestCase):
             try:
                 manager = InitiativeTimerManager(
                     config=InitiativeTimerConfig(fallback_delay_seconds=90),
-                    model_client=_FakeModelClient(
-                        '{"should_schedule": true, "delay_seconds": 60, "summary": "截断的摘要'
+                    think_engine=_make_think_engine(
+                        _FakeModelClient(
+                            '{"should_schedule": true, "delay_seconds": 60, "summary": "截断的摘要'
+                        ),
+                        event_bus,
                     ),
                     event_bus=event_bus,
                     character_name="测试角色",
@@ -160,8 +195,11 @@ class InitiativeTimerManagerTests(unittest.TestCase):
             try:
                 manager = InitiativeTimerManager(
                     config=InitiativeTimerConfig(hesitation_enabled=True),
-                    model_client=_FakeModelClient(
-                        '{"should_schedule": true, "delay_seconds": 60, "summary": "截断的摘要'
+                    think_engine=_make_think_engine(
+                        _FakeModelClient(
+                            '{"should_schedule": true, "delay_seconds": 60, "summary": "截断的摘要'
+                        ),
+                        event_bus,
                     ),
                     event_bus=event_bus,
                     character_name="测试角色",
@@ -186,8 +224,11 @@ class InitiativeTimerManagerTests(unittest.TestCase):
             try:
                 manager = InitiativeTimerManager(
                     config=InitiativeTimerConfig(fallback_delay_seconds=120),
-                    model_client=_FakeModelClient(
-                        '{"should_schedule": false, "delay_seconds": 60, "summary": "", "reason": "暂时没话说"}'
+                    think_engine=_make_think_engine(
+                        _FakeModelClient(
+                            '{"should_schedule": false, "delay_seconds": 60, "summary": "", "reason": "暂时没话说"}'
+                        ),
+                        event_bus,
                     ),
                     event_bus=event_bus,
                     character_name="测试角色",
@@ -212,8 +253,11 @@ class InitiativeTimerManagerTests(unittest.TestCase):
             try:
                 manager = InitiativeTimerManager(
                     config=InitiativeTimerConfig(),
-                    model_client=_FakeModelClient(
-                        '{"should_schedule": true, "delay_seconds": 60, "summary": "", "reason": "漏写摘要"}'
+                    think_engine=_make_think_engine(
+                        _FakeModelClient(
+                            '{"should_schedule": true, "delay_seconds": 60, "summary": "", "reason": "漏写摘要"}'
+                        ),
+                        event_bus,
                     ),
                     event_bus=event_bus,
                     character_name="测试角色",
@@ -237,8 +281,11 @@ class InitiativeTimerManagerTests(unittest.TestCase):
             try:
                 manager = InitiativeTimerManager(
                     config=InitiativeTimerConfig(fallback_on_no_schedule=False),
-                    model_client=_FakeModelClient(
-                        '{"should_schedule": false, "delay_seconds": 60, "summary": "", "reason": "暂时没话说"}'
+                    think_engine=_make_think_engine(
+                        _FakeModelClient(
+                            '{"should_schedule": false, "delay_seconds": 60, "summary": "", "reason": "暂时没话说"}'
+                        ),
+                        event_bus,
                     ),
                     event_bus=event_bus,
                     character_name="测试角色",
@@ -265,8 +312,11 @@ class InitiativeTimerManagerTests(unittest.TestCase):
                         hesitation_delay_seconds=1,
                         fallback_delay_seconds=120,
                     ),
-                    model_client=_FakeModelClient(
-                        '{"should_schedule": false, "delay_seconds": 60, "summary": "", "reason": "暂时没话说"}'
+                    think_engine=_make_think_engine(
+                        _FakeModelClient(
+                            '{"should_schedule": false, "delay_seconds": 60, "summary": "", "reason": "暂时没话说"}'
+                        ),
+                        event_bus,
                     ),
                     event_bus=event_bus,
                     character_name="测试角色",
@@ -296,10 +346,13 @@ class InitiativeTimerManagerTests(unittest.TestCase):
             try:
                 manager = InitiativeTimerManager(
                     config=InitiativeTimerConfig(),
-                    model_client=_FakeModelClient(
-                        "```json\n"
-                        '{"should_schedule": true, "delay_seconds": 60, "summary": "Markdown 里的摘要", "reason": "想补充"}'
-                        "\n```"
+                    think_engine=_make_think_engine(
+                        _FakeModelClient(
+                            "```json\n"
+                            '{"should_schedule": true, "delay_seconds": 60, "summary": "Markdown 里的摘要", "reason": "想补充"}'
+                            "\n```"
+                        ),
+                        event_bus,
                     ),
                     event_bus=event_bus,
                     character_name="测试角色",
@@ -323,7 +376,7 @@ class InitiativeTimerManagerTests(unittest.TestCase):
                 model_client = _FakeModelClient()
                 manager = InitiativeTimerManager(
                     config=InitiativeTimerConfig(),
-                    model_client=model_client,
+                    think_engine=_make_think_engine(model_client, event_bus, character_name="博丽灵梦"),
                     event_bus=event_bus,
                     character_name="博丽灵梦",
                     working_memory=WorkingMemoryManager(max_turns=10),
@@ -358,7 +411,7 @@ class InitiativeTimerManagerTests(unittest.TestCase):
                 model_client = _FakeModelClient(structured_output=True)
                 manager = InitiativeTimerManager(
                     config=InitiativeTimerConfig(),
-                    model_client=model_client,
+                    think_engine=_make_think_engine(model_client, event_bus),
                     event_bus=event_bus,
                     character_name="测试角色",
                     working_memory=WorkingMemoryManager(max_turns=10),
@@ -387,7 +440,7 @@ class InitiativeTimerManagerTests(unittest.TestCase):
                 model_client = _FakeModelClient(structured_output=False)
                 manager = InitiativeTimerManager(
                     config=InitiativeTimerConfig(),
-                    model_client=model_client,
+                    think_engine=_make_think_engine(model_client, event_bus),
                     event_bus=event_bus,
                     character_name="测试角色",
                     working_memory=WorkingMemoryManager(max_turns=10),
@@ -416,7 +469,7 @@ class InitiativeTimerManagerTests(unittest.TestCase):
             try:
                 manager = InitiativeTimerManager(
                     config=InitiativeTimerConfig(max_initiative_times=2),
-                    model_client=_FakeModelClient(),
+                    think_engine=_make_think_engine(_FakeModelClient(), event_bus),
                     event_bus=event_bus,
                     character_name="测试角色",
                     working_memory=WorkingMemoryManager(max_turns=10),
@@ -440,7 +493,7 @@ class InitiativeTimerManagerTests(unittest.TestCase):
             try:
                 manager = InitiativeTimerManager(
                     config=InitiativeTimerConfig(max_initiative_times=3),
-                    model_client=_FakeModelClient(),
+                    think_engine=_make_think_engine(_FakeModelClient(), event_bus),
                     event_bus=event_bus,
                     character_name="测试角色",
                     working_memory=WorkingMemoryManager(max_turns=10),
@@ -472,7 +525,7 @@ class InitiativeTimerManagerTests(unittest.TestCase):
             try:
                 manager = InitiativeTimerManager(
                     config=InitiativeTimerConfig(),
-                    model_client=_FakeModelClient(),
+                    think_engine=_make_think_engine(_FakeModelClient(), event_bus),
                     event_bus=event_bus,
                     character_name="测试角色",
                     working_memory=WorkingMemoryManager(max_turns=10),

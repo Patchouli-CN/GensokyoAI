@@ -135,3 +135,4 @@
 - [`v2026.5.13.0.md`](changelog/v2026.5.13.0.md)：首个公开 Alpha release。
 - [`v2026.6.21.0.md`](changelog/v2026.6.21.0.md)：HTTP/WebSocket 入口迁移、默认搜索切至 DuckDuckGo、主动定时器提示词优化。
 - [`v2026.6.22.0.md`](changelog/v2026.6.22.0.md)：安全更新（Runtime 认证加固、路径遍历防护、SSRF 防护、Prompt Injection 检测）、角色场景开场（begin_scene）。
+- [`v2026.6.23.0.md`](changelog/v2026.6.23.0.md)：主动定时器后台化、ThinkEngine 职责统一、角色卡 metadata/example_dialogue 注入、角色扮演视角约束。

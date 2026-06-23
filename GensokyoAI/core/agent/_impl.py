@@ -163,7 +163,41 @@ class Agent:
     def _build_system_prompt(self) -> str:
         if not self.config.character:
             raise AgentError("No Character be roleplayed.")
-        return self.config.character.system_prompt
+        prompt = self.config.character.system_prompt
+        # 追加框架级角色扮演约束，确保严格以角色视角回应
+        character_name = self.config.character.name
+        prompt += f"""
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【角色扮演框架规则 — 绝对优先，必须严格遵守】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. 【你就是{character_name}】
+   你是{character_name}本人，不是旁白、不是观察者、不是AI助手。
+   你只能以自己的第一人称视角感受和行动。
+
+2. 【禁止第三人称描述自己】
+   错误：「{character_name}微笑着说」 或 「*{character_name}从树丛中探出头来*」
+   正确：「*微笑* 你好！」 或 「从树丛里钻出来——哦，是你啊！」
+   你说话的时候，主语永远是你自己（我/你），不是{character_name}（她/他）。
+
+3. 【用户输入中的 * 星号动作】
+   用户消息中如果带有 * 星号（如「*微笑* 你好」），那是用户（另一个角色）的动作描写。
+   你应该直接回应，不要复述/模仿用户的动作。
+   错误：「*也从树丛中探出头来* 哦~这不是我吗？」
+   正确：「哟！吓我一跳——哦，是你啊DA☆ZE！你怎么跑魔法森林来了？」
+
+4. 【禁止重复用户内容】
+   不要复述、不要概括、不要翻译用户已经说过的话。
+   用户说完，你直接回应即可。
+
+5. 【禁止跳脱角色】
+   不要以「作为AI」「根据设定」「从角色角度来看」等旁观者语言。
+   不要解释你为什么这么说，直接说。
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        return prompt
 
     # ==================== 懒加载属性 ====================
 
@@ -212,6 +246,11 @@ class Agent:
                 # _build_tools() 是异步方法，不能在同步属性初始化中直接调用；
                 # 每轮响应生成前会在 _on_generate_response() 中 await 后更新结果。
                 tool_build_result=None,
+                metadata=self.config.character.metadata if self.config.character else {},
+                example_dialogue=(
+                    self.config.character.example_dialogue
+                    if self.config.character else None
+                ),
             )
             self._lazy_components.message_builder = self._message_builder
         return self._message_builder
@@ -589,6 +628,7 @@ class Agent:
                 event_bus=self.event_bus,
                 character_name=self.character_name,
                 config=self.config.think_engine,
+                initiative_timer_config=self.config.initiative_timer,
                 debug_silent_output=self.config.debug_silent_output,
             )
             self._lazy_components.think_engine = self._think_engine
@@ -723,9 +763,11 @@ class Agent:
 
     def _ensure_initiative_timer(self) -> InitiativeTimerManager:
         if self._initiative_timer is None:
+            if self._think_engine is None:
+                raise AgentError("ThinkEngine not initialized")
             self._initiative_timer = InitiativeTimerManager(
                 config=self.config.initiative_timer,
-                model_client=self._model_client,
+                think_engine=self._think_engine,
                 event_bus=self.event_bus,
                 character_name=self.character_name,
                 working_memory=self.working_memory,
@@ -742,7 +784,7 @@ class Agent:
     async def _handle_initiative_timer_trigger(
         self, payload: dict[str, Any]
     ) -> dict[str, Any] | None:
-        """定时器到点后：基于摘要先思考，再生成真正主动消息。"""
+        """定时器到点后：委托 ThinkEngine 说话前思考，再生成真正主动消息。"""
         pending_summary = str(payload.get("pending_summary") or "").strip()
         timer_id = str(payload.get("timer_id") or "").strip()
         logger.debug(f"[Agent] 主动定时器 {timer_id} 触发，待表达摘要: {pending_summary[:60]}...")
@@ -754,43 +796,21 @@ class Agent:
         tool_build_result = await self._build_tools()
         self.message_builder.update_tool_build_result(tool_build_result)
 
+        # 委托 ThinkEngine 进行说话前思考
         recent_messages = self.working_memory.get_recent(8)
         recent_context = "\n".join(
             f"{item.get('role', 'unknown')}: {item.get('content', '')}"
             for item in recent_messages
             if isinstance(item.get("content"), str)
         )
-        thought_prompt = f"""你是 {self.character_name}。
-
-主动定时器到点了，这表示你已经决定稍后要主动开口。
-
-【待表达意图摘要】
-{pending_summary}
-
-【最近对话】
-{recent_context or "无"}
-
-请先进行说话前的内部思考：
-- 根据当前上下文重新组织这次主动发言的重点。
-- 不要判断要不要说；到点即代表要说。
-- 不要写最终要发送给用户的完整话术。
-- 只输出简短内部思考。"""
-        logger.trace(f"[Agent] 主动消息思考 prompt:\n{thought_prompt}")
-        thought = ""
-        try:
-            thought_response = await self._model_client.chat(
-                messages=[{"role": "system", "content": thought_prompt}],
-                options={
-                    "temperature": self.config.think_engine.think_temperature,
-                    "num_predict": self.config.think_engine.think_max_tokens,
-                    "max_tokens": self.config.think_engine.think_max_tokens,
-                },
-            )
-            content = thought_response.message.content
-            thought = content.strip() if isinstance(content, str) else ""
-            logger.debug(f"[Agent] 主动消息思考结果: {thought[:100]}...")
-        except Exception as error:
-            logger.error(f"主动定时器说话前思考失败: {error}")
+        if self._think_engine is None:
+            raise AgentError("ThinkEngine not initialized")
+        thought = await self._think_engine.pre_speak_thought(
+            pending_summary=pending_summary,
+            recent_context=recent_context,
+            max_tokens=self.config.think_engine.think_max_tokens,
+            temperature=self.config.think_engine.think_temperature,
+        )
 
         system_contexts = [
             "【主动定时器触发 · 无新用户输入】\n"
@@ -820,7 +840,7 @@ class Agent:
 
         logger.trace(
             f"[Agent] 主动消息生成请求 messages:\n"
-            f"{json.dumps(messages, ensure_ascii=False, indent=2)}"
+            f"{json.dumps(messages, ensure_ascii=False, indent=2, default=str)}"
         )
 
         message = ""
