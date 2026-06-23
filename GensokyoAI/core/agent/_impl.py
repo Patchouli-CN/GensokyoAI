@@ -1,6 +1,7 @@
 """Agent 主类 - 事件驱动版"""
 
 import asyncio
+import contextlib
 import json
 from collections.abc import AsyncIterator
 from contextvars import ContextVar
@@ -340,18 +341,14 @@ class Agent:
                         )
                     except Exception:
                         get_chunk_task.cancel()
-                        try:
+                        with contextlib.suppress(asyncio.CancelledError):
                             await get_chunk_task
-                        except asyncio.CancelledError:
-                            pass
                         raise
 
                     if get_chunk_task in pending:
                         get_chunk_task.cancel()
-                        try:
+                        with contextlib.suppress(asyncio.CancelledError):
                             await get_chunk_task
-                        except asyncio.CancelledError:
-                            pass
 
                     if response_future in done:
                         break
@@ -369,7 +366,7 @@ class Agent:
                     if self._stream_timed_out(started_at, last_chunk_at, saw_chunk):
                         raise TimeoutError("stream response timeout")
                     continue
-            except (asyncio.CancelledError, GeneratorExit):
+            except asyncio.CancelledError, GeneratorExit:
                 self._action_executor.cancel_response("stream cancelled")  # type: ignore
                 raise
             except TimeoutError as error:
@@ -428,18 +425,14 @@ class Agent:
                         )
                     except Exception:
                         get_chunk_task.cancel()
-                        try:
+                        with contextlib.suppress(asyncio.CancelledError):
                             await get_chunk_task
-                        except asyncio.CancelledError:
-                            pass
                         raise
 
                     if get_chunk_task in pending:
                         get_chunk_task.cancel()
-                        try:
+                        with contextlib.suppress(asyncio.CancelledError):
                             await get_chunk_task
-                        except asyncio.CancelledError:
-                            pass
 
                     if response_future in done:
                         break
@@ -457,7 +450,7 @@ class Agent:
                     if self._stream_timed_out(started_at, last_chunk_at, saw_chunk):
                         raise TimeoutError("stream response timeout")
                     continue
-            except (asyncio.CancelledError, GeneratorExit):
+            except asyncio.CancelledError, GeneratorExit:
                 self._action_executor.cancel_response("stream cancelled")  # type: ignore
                 raise
             except TimeoutError as error:
