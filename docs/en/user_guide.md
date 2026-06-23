@@ -305,12 +305,33 @@ system_prompt: |
 
 greeting: "「Welcome to Kourindou.」"
 
+begin_scene: "Rinnosuke is wiping a newly acquired Outside World item behind the counter. Kourindou is piled with strange goods."
+
 example_dialogue:
   - user: "What is this item?"
     assistant: "「This is no ordinary Outside World item.」"
 ```
 
-Built-in characters are located in `characters/zh_cn/`.
+Field descriptions:
+
+- `name`: character name.
+- `system_prompt`: system prompt defining character identity, personality, and speaking style.
+- `greeting`: static greeting displayed when creating a new session.
+- `begin_scene`: scene opening description (optional). When `begin_scene: true` is set in the top-level config, the model will proactively generate a description of the character's current state based on this description, rather than reciting the static `greeting`.
+- `example_dialogue`: example dialogue to help the model understand the character style.
+- `metadata`: character metadata for retrieval or display.
+
+Opening mode is controlled by the top-level config `begin_scene`:
+
+```yaml
+# Proactive scene opening: prefer the character YAML's begin_scene, fallback to greeting
+begin_scene: true
+
+# User-initiated opening: only output the static greeting and wait for user input
+begin_scene: false
+```
+
+`begin_scene` is suitable for scenarios where the character is "living their own life and you happen to bump into them"; `greeting` is suitable for traditional "character welcomes you" interaction. Both can coexist, with `begin_scene` switch determining which takes priority.
 
 Standalone CLI validation entry point:
 
@@ -669,3 +690,56 @@ python -m unittest tests.test_claude_provider_conversion tests.test_deepseek_pro
 python -m compileall GensokyoAI tests
 uv run python -m compileall GensokyoAI tests
 ```
+
+Security regression tests are located in `tests_security/`; `python -m pytest` and `uv run pytest` will automatically collect them. You can also run them separately:
+
+```bash
+python -m pytest tests_security/
+```
+
+## 16. Security Guide
+
+Although this project runs the Agent in a user-local process, there are still some attack surfaces to be aware of when deploying and using.
+
+### 16.1 Credentials and Keys
+
+- Never write real API keys into `config/default.yaml` or `config/local.yaml`.
+- Recommended injection via environment variables:
+  - `GENSOKYOAI_API_KEY`: model provider API key.
+  - `GENSOKYOAI_RUNTIME_TOKEN`: Runtime HTTP/WebSocket authentication token.
+- Runtime Token, if enabled, should be at least 16 random characters; an empty string is treated as authentication disabled.
+
+### 16.2 Runtime HTTP/WebSocket Security
+
+- `allowed_origins` will reject all cross-origin requests by default; to fully open for local debugging, explicitly configure `["*"]`.
+- Authentication token is only passed via `Authorization: Bearer <token>` or `X-Runtime-Token` headers; `token` in URL query string is ignored.
+- Consecutive authentication failures trigger IP-based memory-level rate limiting (default 10 times within a 60-second window).
+- WebSocket single message size limit is 1MB; HTTP request body size is controlled by `max_request_body_size`.
+
+### 16.3 SSRF and External URLs
+
+- `model.base_url`, `embedding.base_url`, and `tool.web_search.api.endpoint` will reject URLs pointing to internal networks, loopback, link-local, or cloud metadata services during configuration validation.
+- The `ollama` provider is additionally allowed local private addresses, but `169.254.169.254` and other metadata addresses remain blocked.
+
+### 16.4 Commands and Dependency Security
+
+- External MCP tool sources that expose startup commands will reject high-risk commands such as `bash/sh/cmd/powershell/python -c` and shell metacharacters.
+- Provider dependency installation uses a whitelist mechanism and supports `only_binary=True` to force wheel-only installation, reducing sdist supply chain risks.
+- Do not install MCP servers or third-party tools from untrusted sources.
+
+### 16.5 Prompt Injection
+
+- User input is checked by lightweight heuristic detection before entering the memory system; suspicious matches trigger `security.prompt_injection_detected` on the event bus and mark `prompt_injection_suspected` in the working memory message.
+- This detection does not block the message directly; instead, downstream memory summarization and topic retrieval can deprioritize or manually review flagged content.
+
+### 16.6 External Tool Permissions
+
+- External tools carry `permissions` metadata, including tags such as `safe`, `read-only`, `network`, `filesystem`, `destructive`, and `costly`.
+- The default policy allows `safe/read-only/network`; `filesystem/destructive/costly` requires explicit client confirmation before execution.
+- The allowed permission set can be customized via `ExternalToolExecutionPolicy`.
+
+### 16.7 Beyond Code-Level Recommendations
+
+- If a real API key has ever been committed to git history, rotate the key; to completely remove it from history, use `git filter-repo` and notify all collaborators.
+- For multi-instance deployments, cross-process resource limits require an external gateway or Redis; single-process gates cannot share state.
+- For untrusted MCP servers, it is recommended to use OS-level sandboxing (seccomp-bpf, Windows Job Object, etc.).

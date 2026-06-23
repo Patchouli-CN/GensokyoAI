@@ -134,3 +134,4 @@ Official release records start continuous recording from `v2026.5.13.0`. This fi
 
 - [`v2026.5.13.0.md`](../changelog/v2026.5.13.0.md): first public Alpha release.
 - [`v2026.6.21.0.md`](../changelog/v2026.6.21.0.md): HTTP/WebSocket entry migration, default search switched to DuckDuckGo, initiative timer prompt optimization.
+- [`v2026.6.22.0.md`](../changelog/v2026.6.22.0.md): security update (Runtime authentication hardening, path traversal prevention, SSRF protection, Prompt Injection detection), character scene opening (begin_scene).
