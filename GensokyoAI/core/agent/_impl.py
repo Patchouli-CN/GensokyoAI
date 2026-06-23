@@ -326,23 +326,50 @@ class Agent:
                     )
                     if timeout <= 0:
                         raise TimeoutError("stream response timeout")
+
+                    # 同时等待 chunk 和 response_future，避免 response_future 完成后
+                    # 还要硬等 get_chunk 的 0.1s 超时
+                    get_chunk_task = asyncio.create_task(
+                        self._action_executor.get_chunk()  # type: ignore
+                    )
                     try:
-                        chunk = await asyncio.wait_for(
-                            self._action_executor.get_chunk(),  # type: ignore
+                        done, pending = await asyncio.wait(
+                            [get_chunk_task, response_future],
+                            return_when=asyncio.FIRST_COMPLETED,
                             timeout=min(0.1, timeout),
                         )
+                    except Exception:
+                        get_chunk_task.cancel()
+                        try:
+                            await get_chunk_task
+                        except asyncio.CancelledError:
+                            pass
+                        raise
+
+                    if get_chunk_task in pending:
+                        get_chunk_task.cancel()
+                        try:
+                            await get_chunk_task
+                        except asyncio.CancelledError:
+                            pass
+
+                    if response_future in done:
+                        break
+
+                    if get_chunk_task in done:
+                        chunk = get_chunk_task.result()
                         if chunk:
                             saw_chunk = True
                             last_chunk_at = loop.time()
                             full_response += chunk
                             yield StreamChunk(content=chunk)
-                    except TimeoutError as error:
-                        if response_future.done():
-                            break
-                        if self._stream_timed_out(started_at, last_chunk_at, saw_chunk):
-                            raise TimeoutError("stream response timeout") from error
                         continue
-            except asyncio.CancelledError, GeneratorExit:
+
+                    # 超时：两个都没完成
+                    if self._stream_timed_out(started_at, last_chunk_at, saw_chunk):
+                        raise TimeoutError("stream response timeout")
+                    continue
+            except (asyncio.CancelledError, GeneratorExit):
                 self._action_executor.cancel_response("stream cancelled")  # type: ignore
                 raise
             except TimeoutError as error:
@@ -387,23 +414,50 @@ class Agent:
                     )
                     if timeout <= 0:
                         raise TimeoutError("stream response timeout")
+
+                    # 同时等待 chunk 和 response_future，避免 response_future 完成后
+                    # 还要硬等 get_chunk 的 0.1s 超时
+                    get_chunk_task = asyncio.create_task(
+                        self._action_executor.get_chunk()  # type: ignore
+                    )
                     try:
-                        chunk = await asyncio.wait_for(
-                            self._action_executor.get_chunk(),  # type: ignore
+                        done, pending = await asyncio.wait(
+                            [get_chunk_task, response_future],
+                            return_when=asyncio.FIRST_COMPLETED,
                             timeout=min(0.1, timeout),
                         )
+                    except Exception:
+                        get_chunk_task.cancel()
+                        try:
+                            await get_chunk_task
+                        except asyncio.CancelledError:
+                            pass
+                        raise
+
+                    if get_chunk_task in pending:
+                        get_chunk_task.cancel()
+                        try:
+                            await get_chunk_task
+                        except asyncio.CancelledError:
+                            pass
+
+                    if response_future in done:
+                        break
+
+                    if get_chunk_task in done:
+                        chunk = get_chunk_task.result()
                         if chunk:
                             saw_chunk = True
                             last_chunk_at = loop.time()
                             full_response += chunk
                             yield StreamChunk(content=chunk)
-                    except TimeoutError as error:
-                        if response_future.done():
-                            break
-                        if self._stream_timed_out(started_at, last_chunk_at, saw_chunk):
-                            raise TimeoutError("stream response timeout") from error
                         continue
-            except asyncio.CancelledError, GeneratorExit:
+
+                    # 超时：两个都没完成
+                    if self._stream_timed_out(started_at, last_chunk_at, saw_chunk):
+                        raise TimeoutError("stream response timeout")
+                    continue
+            except (asyncio.CancelledError, GeneratorExit):
                 self._action_executor.cancel_response("stream cancelled")  # type: ignore
                 raise
             except TimeoutError as error:
@@ -616,6 +670,15 @@ class Agent:
             )
         )
 
+    async def _schedule_initiative_timer_bg(self, full_response: str) -> None:
+        """后台调度主动定时器，不阻塞主流程。"""
+        try:
+            self._last_initiative_timer_payload = await self.schedule_initiative_timer(
+                full_response
+            )
+        except Exception as e:
+            logger.error(f"后台调度主动定时器失败: {e}")
+
     async def _on_generate_response(self, event: Event) -> None:
         user_input = event.data.get("user_input", "")
         system_contexts = event.data.get("system_contexts", [])
@@ -658,11 +721,10 @@ class Agent:
                         data=data,
                     )
                 )
-                self._last_initiative_timer_payload = await self.schedule_initiative_timer(
-                    full_response
-                )
+                # 后台调度主动定时器，不阻塞 complete_response 和用户输入
+                asyncio.create_task(self._schedule_initiative_timer_bg(full_response))
 
-            # 🔑 无论如何都要把控制权还给用户；放在定时器计划后，确保 Runtime 返回可携带 initiative_timer。
+            # 🔑 无论如何都要把控制权还给用户
             if self._action_executor:
                 self._action_executor.complete_response(full_response)
 
