@@ -376,7 +376,9 @@ class InitiativeTimerManagerTests(unittest.TestCase):
                 model_client = _FakeModelClient()
                 manager = InitiativeTimerManager(
                     config=InitiativeTimerConfig(),
-                    think_engine=_make_think_engine(model_client, event_bus, character_name="博丽灵梦"),
+                    think_engine=_make_think_engine(
+                        model_client, event_bus, character_name="博丽灵梦"
+                    ),
                     event_bus=event_bus,
                     character_name="博丽灵梦",
                     working_memory=WorkingMemoryManager(max_turns=10),

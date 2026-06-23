@@ -218,7 +218,7 @@ class InitiativeTimerManager:
             return self._compute_auto_delay()
         try:
             seconds = int(raw)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return 180
         return max(1, seconds)
 
@@ -427,9 +427,7 @@ class InitiativeTimerManager:
                 state.user_modified = True
                 self._cancel_task()
                 self._task = asyncio.create_task(self._run_timer(state.timer_id, state.generation))
-                self._publish(
-                    SystemEvent.INITIATIVE_TIMER_UPDATED, state, extra={"source": "user"}
-                )
+                self._publish(SystemEvent.INITIATIVE_TIMER_UPDATED, state, extra={"source": "user"})
                 logger.info(
                     f"[InitiativeTimer] 定时器 {state.timer_id} 已更新，"
                     f"新触发时间: {state.due_at.isoformat()}, "
@@ -610,8 +608,7 @@ class InitiativeTimerManager:
             extra={"reason": reason, "source": source},
         )
         logger.debug(
-            f"[InitiativeTimer] 定时器 {state.timer_id} 被丢弃，"
-            f"原因: {reason}, 来源: {source}"
+            f"[InitiativeTimer] 定时器 {state.timer_id} 被丢弃，原因: {reason}, 来源: {source}"
         )
         return payload
 
@@ -673,7 +670,7 @@ class InitiativeTimerManager:
     def _clamp_delay(self, value: Any) -> int:
         try:
             seconds = int(value)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             seconds = self.config.min_delay_seconds
         return max(self.config.min_delay_seconds, min(self.config.max_delay_seconds, seconds))
 

@@ -248,8 +248,7 @@ class Agent:
                 tool_build_result=None,
                 metadata=self.config.character.metadata if self.config.character else {},
                 example_dialogue=(
-                    self.config.character.example_dialogue
-                    if self.config.character else None
+                    self.config.character.example_dialogue if self.config.character else None
                 ),
             )
             self._lazy_components.message_builder = self._message_builder

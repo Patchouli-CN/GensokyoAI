@@ -228,7 +228,9 @@ class ThinkEngineDecisionTests(unittest.TestCase):
             self.assertTrue(decision["should_schedule"])
             self.assertIsNotNone(model_client.last_options)
             assert model_client.last_options is not None
-            self.assertEqual(model_client.last_options.get("response_format", {}).get("type"), "json_schema")
+            self.assertEqual(
+                model_client.last_options.get("response_format", {}).get("type"), "json_schema"
+            )
 
         asyncio.run(run())
 

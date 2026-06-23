@@ -12,6 +12,8 @@ if TYPE_CHECKING:
     from ...memory.semantic import SemanticMemoryManager
     from ...memory.working import WorkingMemoryManager
     from ..config import ModelConfig, WebSearchToolConfig
+
+
 class MessageOperation:
     """消息流式操作器；每个操作方法返回新的实例，不修改原对象。"""
 
