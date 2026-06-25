@@ -151,7 +151,7 @@ class SessionPersistence:
                     },
                 ],
             )
-            raise original_error
+            raise original_error from None
 
     def _read_session_file(self, path: Path) -> dict:
         """读取并迁移会话 JSON 文件。"""

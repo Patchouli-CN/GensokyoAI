@@ -6,6 +6,7 @@ import asyncio
 import html as _html
 import json
 import re
+import sys
 from collections.abc import AsyncIterator
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -24,8 +25,6 @@ DEFAULT_FORCE_CLOSE = False
 
 # enable_cleanup_closed 在 Python 3.14+ 中不再需要（已修复 CPython 问题）
 # 仅在 Python < 3.14 时启用
-import sys
-
 _ENABLE_CLEANUP_CLOSED = sys.version_info < (3, 14)
 
 
