@@ -192,10 +192,10 @@ async def handle_events(request: web.Request) -> web.StreamResponse:
             event = await queue.get()
             try:
                 await response.write(_sse_frame("runtime.event", event))
-                await response.drain()
+                # drain() is deprecated in aiohttp 3.8+, write() already handles buffering
             finally:
                 queue.task_done()
-    except asyncio.CancelledError, ConnectionResetError, RuntimeError:
+    except (asyncio.CancelledError, ConnectionResetError, RuntimeError):
         pass
     finally:
         with contextlib.suppress(Exception):

@@ -95,11 +95,22 @@ class SessionPersistence:
         return self._quarantine_dir(path) / f"{path.name}.{timestamp}.{uuid4().hex}.bad"
 
     def _read_json_file(self, path: Path) -> dict:
-        """读取 JSON 文件；使用 msgspec 高性能解析，失败时尝试从备份恢复。"""
+        """读取 JSON 文件；使用 msgspec 高性能解析，失败时尝试从备份恢复。
+
+        注意：为了保持与标准库 json 的兼容性，msgspec 的 DecodeError 会被转换为 JSONDecodeError。
+        """
+        import json as _json  # 延迟导入，避免循环依赖
+
         try:
             with open(path, "rb") as f:
                 return _session_json_decoder.decode(f.read())
-        except Exception as original_error:
+        except msgspec.DecodeError as decode_error:
+            # 将 msgspec 异常转换为标准库 json.JSONDecodeError 以保持兼容性
+            original_error = _json.JSONDecodeError(
+                msg=str(decode_error),
+                doc="",
+                pos=0,
+            )
             logger.warning(f"读取 JSON 失败，尝试备份恢复 {path}: {original_error}")
             backup_path = self._backup_path(path)
             if backup_path.exists():
@@ -109,7 +120,12 @@ class SessionPersistence:
                     self._atomic_write_json(path, data, backup_existing=False)
                     logger.warning(f"已从备份恢复 JSON 文件: {path}")
                     return data
-                except Exception as backup_error:
+                except msgspec.DecodeError as backup_decode_error:
+                    backup_error = _json.JSONDecodeError(
+                        msg=str(backup_decode_error),
+                        doc="",
+                        pos=0,
+                    )
                     logger.warning(f"备份恢复失败 {backup_path}: {backup_error}")
 
             quarantine_path = self._quarantine_file(path)
@@ -231,9 +247,7 @@ class SessionPersistence:
         tmp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
         try:
             # 使用 msgspec 高性能序列化（比标准库 json 快 10-100 倍）
-            json_bytes = msgspec.json.format(
-                _session_json_encoder.encode(data), indent=2
-            )
+            json_bytes = msgspec.json.format(_session_json_encoder.encode(data), indent=2)
             with open(tmp_path, "wb") as f:
                 f.write(json_bytes)
             if backup_existing and path.exists():

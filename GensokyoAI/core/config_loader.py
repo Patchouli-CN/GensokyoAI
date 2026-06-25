@@ -23,7 +23,6 @@ from .config_schema import (
 )
 from .config_validator import ConfigDiagnostic, ConfigValidator
 
-
 # 角色配置缓存（LRU 简化版）：path -> (mtime, config)
 _character_config_cache: dict[Path, tuple[float, CharacterConfig]] = {}
 _CONFIG_CACHE_MAX_SIZE = 32
@@ -271,5 +270,5 @@ class ConfigLoader(ConfigMerger):
         return {
             "size": len(_character_config_cache),
             "max_size": _CONFIG_CACHE_MAX_SIZE,
-            "cached_paths": [str(p) for p in _character_config_cache.keys()],
+            "cached_paths": [str(p) for p in _character_config_cache],
         }

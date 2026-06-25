@@ -20,8 +20,13 @@ _connector: aiohttp.TCPConnector | None = None
 # 连接池配置
 DEFAULT_POOL_LIMIT = 100
 DEFAULT_POOL_LIMIT_PER_HOST = 10
-DEFAULT_ENABLE_CLEANUP_CLOSED = True
 DEFAULT_FORCE_CLOSE = False
+
+# enable_cleanup_closed 在 Python 3.14+ 中不再需要（已修复 CPython 问题）
+# 仅在 Python < 3.14 时启用
+import sys
+
+_ENABLE_CLEANUP_CLOSED = sys.version_info < (3, 14)
 
 
 async def get_client_session(
@@ -37,12 +42,14 @@ async def get_client_session(
     global _session, _connector
 
     if _session is None or _session.closed:
-        _connector = aiohttp.TCPConnector(
-            limit=limit,
-            limit_per_host=limit_per_host,
-            enable_cleanup_closed=DEFAULT_ENABLE_CLEANUP_CLOSED,
-            force_close=DEFAULT_FORCE_CLOSE,
-        )
+        connector_kwargs: dict[str, Any] = {
+            "limit": limit,
+            "limit_per_host": limit_per_host,
+            "force_close": DEFAULT_FORCE_CLOSE,
+        }
+        if _ENABLE_CLEANUP_CLOSED:
+            connector_kwargs["enable_cleanup_closed"] = True
+        _connector = aiohttp.TCPConnector(**connector_kwargs)
         _session = aiohttp.ClientSession(
             connector=_connector,
             raise_for_status=False,  # 我们自己处理状态码

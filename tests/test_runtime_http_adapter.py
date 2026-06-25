@@ -4,7 +4,7 @@ import unittest
 from typing import Any, cast
 
 from aiohttp import WSMsgType
-from aiohttp.test_utils import AioHTTPTestCase, TestClient, TestServer, unittest_run_loop
+from aiohttp.test_utils import AioHTTPTestCase, TestClient, TestServer
 
 from GensokyoAI.backends.web_server.http_adapter import (
     RUNTIME_SERVICE_APP_KEY,
@@ -164,7 +164,6 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
         self.fake_service = FakeHttpRuntimeService()
         return create_app(service=cast(Any, self.fake_service))
 
-    @unittest_run_loop
     async def test_get_health_and_info(self):
         health_response = await self.client.get("/health")
         info_response = await self.client.get("/info")
@@ -174,7 +173,6 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
         self.assertEqual(info_response.status, 200)
         self.assertEqual((await info_response.json())["name"], "Fake Runtime")
 
-    @unittest_run_loop
     async def test_post_rpc_returns_success_and_structured_error(self):
         response = await self.client.post(
             "/rpc",
@@ -198,7 +196,6 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
         self.assertFalse(error_payload["ok"])
         self.assertEqual(error_payload["error"]["code"], "runtime.error")
 
-    @unittest_run_loop
     async def test_http_rpc_cancellation_releases_in_flight_handler_state(self):
         task = asyncio.create_task(
             self.client.post(
@@ -217,7 +214,6 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
 
         self.assertEqual(self.fake_service.active_long_rpcs, 0)
 
-    @unittest_run_loop
     async def test_websocket_returns_normal_rpc_response(self):
         ws = await self.client.ws_connect("/ws")
         await ws.send_str(json.dumps({"id": 1, "method": "echo", "params": {"x": 1}}))
@@ -229,7 +225,6 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["result"]["params"], {"x": 1})
 
-    @unittest_run_loop
     async def test_websocket_streaming_rpc_sends_event_frames_then_done(self):
         ws = await self.client.ws_connect("/ws")
         await ws.send_str(
@@ -257,7 +252,6 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
         self.assertTrue(frames[3]["done"])
         self.assertEqual(frames[3]["result"]["content"], "echo:hi")
 
-    @unittest_run_loop
     async def test_websocket_streaming_rpc_sends_error_event_when_iterator_fails(self):
         ws = await self.client.ws_connect("/ws")
         await ws.send_str(
@@ -284,7 +278,6 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
         self.assertFalse(frames[2]["ok"])
         self.assertEqual(frames[2]["error"]["technical_message"], "stream boom")
 
-    @unittest_run_loop
     async def test_websocket_sends_heartbeat_frame(self):
         ws = await self.client.ws_connect("/ws?heartbeat_interval=0.01")
         message = await ws.receive(timeout=2)
@@ -296,7 +289,6 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
         self.assertEqual(payload["type"], "heartbeat")
         self.assertIn("ts", payload)
 
-    @unittest_run_loop
     async def test_websocket_can_cancel_streaming_rpc(self):
         ws = await self.client.ws_connect("/ws")
         await ws.send_str(
@@ -334,7 +326,6 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
         self.assertTrue(cancel_ack["result"]["cancel_requested"])
         self.assertEqual(cancelled_frame["event"]["type"], "cancelled")
 
-    @unittest_run_loop
     async def test_websocket_close_cancels_active_streaming_rpc(self):
         ws = await self.client.ws_connect("/ws")
         await ws.send_str(
@@ -356,7 +347,6 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
         self.assertTrue(self.fake_service.stream_cancelled.is_set())
         self.assertEqual(self.fake_service.active_streams, 0)
 
-    @unittest_run_loop
     async def test_websocket_runtime_subscribe_receives_filtered_events_and_unsubscribes(self):
         ws = await self.client.ws_connect("/ws")
         await ws.send_str(
@@ -411,7 +401,6 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
         self.assertTrue(unsub["result"]["closed"])
         self.assertEqual(self.fake_service.event_bus.stats["subscriber_count"], 0)
 
-    @unittest_run_loop
     async def test_websocket_runtime_subscription_cleanup_on_close(self):
         ws = await self.client.ws_connect("/ws")
         await ws.send_str(
@@ -436,7 +425,6 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
 
         self.assertEqual(self.fake_service.event_bus.stats["subscriber_count"], 0)
 
-    @unittest_run_loop
     async def test_sse_events_endpoint_receives_filtered_event_and_cleans_up(self):
         response = await self.client.get("/events?event_types=tool.call.started&queue_size=2")
         self.assertEqual(response.status, 200)
@@ -483,7 +471,6 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
         self.assertEqual(blank_line.decode(), "\n")
         self.assertEqual(self.fake_service.event_bus.stats["subscriber_count"], 0)
 
-    @unittest_run_loop
     async def test_sse_close_is_idempotent_and_removes_subscription_once(self):
         response = await self.client.get("/events?event_types=tool.call.started&queue_size=1")
         self.assertEqual(response.status, 200)
@@ -504,7 +491,6 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
         self.assertEqual(self.fake_service.event_bus.stats["subscriber_count"], 0)
         self.assertEqual(self.fake_service.closed_subscription_ids, [subscription_id])
 
-    @unittest_run_loop
     async def test_websocket_subscription_backpressure_with_heartbeat_cleans_up_on_close(self):
         ws = await self.client.ws_connect("/ws?heartbeat_interval=0.01")
         await ws.send_str(
@@ -553,7 +539,6 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
         )
         self.assertEqual(self.fake_service.event_bus.stats["subscriber_count"], 0)
 
-    @unittest_run_loop
     async def test_multiple_runtime_apps_keep_events_streams_and_shutdown_isolated(self):
         service_a = FakeHttpRuntimeService()
         service_b = FakeHttpRuntimeService()
@@ -641,7 +626,6 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
         self.assertTrue(service_a.shutdown_called)
         self.assertTrue(service_b.shutdown_called)
 
-    @unittest_run_loop
     async def test_rpc_requires_token_when_auth_enabled(self):
         server = TestServer(
             create_app(
@@ -671,7 +655,6 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
         self.assertEqual(allowed.status, 200)
         self.assertTrue(allowed_payload["ok"])
 
-    @unittest_run_loop
     async def test_origin_allowlist_rejects_cross_origin_request(self):
         server = TestServer(
             create_app(
@@ -690,7 +673,6 @@ class RuntimeHttpAdapterAppTests(AioHTTPTestCase):
         self.assertEqual(denied.status, 403)
         self.assertEqual(allowed.status, 200)
 
-    @unittest_run_loop
     async def test_cleanup_shuts_down_runtime_service(self):
         service = cast(Any, self.app[RUNTIME_SERVICE_APP_KEY])
         await self.app.cleanup()
