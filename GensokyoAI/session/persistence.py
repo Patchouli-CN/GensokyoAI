@@ -3,10 +3,12 @@
 # GensokyoAI\session\persistence.py
 
 import asyncio
-import json
 import shutil
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
+
+import msgspec
 
 from ..core.migrations import (
     make_migration_diagnostic,
@@ -20,17 +22,34 @@ from ..utils.logger import logger
 from ..utils.path_security import sanitize_path_id
 from .context import SessionContext
 
+# msgspec JSON 编码器/解码器（性能比标准库 json 快 10-100 倍）
+_session_json_encoder = msgspec.json.Encoder()
+_session_json_decoder = msgspec.json.Decoder(type=dict[str, Any])
+
+# 分片锁配置：减少锁竞争，提高并发性能
+_SHARD_COUNT = 16  # 锁分片数量（2 的幂方便位运算）
+
+
+def _get_shard_index(session_id: str) -> int:
+    """根据 session_id 计算锁分片索引。"""
+    return hash(session_id) % _SHARD_COUNT
+
 
 class SessionPersistence:
-    """会话持久化 - 基于 ayafileio 的真异步 I/O"""
+    """会话持久化 - 基于分片锁的高并发异步 I/O"""
 
     def __init__(self, base_path: Path):
         self.base_path = base_path
         self.base_path.mkdir(parents=True, exist_ok=True)
-        self._lock = asyncio.Lock()
+        # 分片锁：按 session_id 哈希分片，减少锁竞争
+        self._sharded_locks: list[asyncio.Lock] = [asyncio.Lock() for _ in range(_SHARD_COUNT)]
         # 添加 session_id -> character_id 的映射缓存
         self._session_index: dict[str, str] = {}
         self._build_index()
+
+    def _get_lock(self, session_id: str) -> asyncio.Lock:
+        """获取指定 session_id 对应的分片锁。"""
+        return self._sharded_locks[_get_shard_index(session_id)]
 
     def _build_index(self) -> None:
         """构建会话索引"""
@@ -76,17 +95,17 @@ class SessionPersistence:
         return self._quarantine_dir(path) / f"{path.name}.{timestamp}.{uuid4().hex}.bad"
 
     def _read_json_file(self, path: Path) -> dict:
-        """读取 JSON 文件；失败时尝试从备份恢复，仍失败则隔离损坏文件。"""
+        """读取 JSON 文件；使用 msgspec 高性能解析，失败时尝试从备份恢复。"""
         try:
-            with open(path, encoding="utf-8") as f:
-                return json.load(f)
+            with open(path, "rb") as f:
+                return _session_json_decoder.decode(f.read())
         except Exception as original_error:
             logger.warning(f"读取 JSON 失败，尝试备份恢复 {path}: {original_error}")
             backup_path = self._backup_path(path)
             if backup_path.exists():
                 try:
-                    with open(backup_path, encoding="utf-8") as f:
-                        data = json.load(f)
+                    with open(backup_path, "rb") as f:
+                        data = _session_json_decoder.decode(f.read())
                     self._atomic_write_json(path, data, backup_existing=False)
                     logger.warning(f"已从备份恢复 JSON 文件: {path}")
                     return data
@@ -207,12 +226,16 @@ class SessionPersistence:
         return await asyncio.to_thread(self._read_json_file, path)
 
     def _atomic_write_json(self, path: Path, data: dict, *, backup_existing: bool = True) -> None:
-        """以临时文件 + 原子替换写入 JSON，并在覆盖前保留 .bak。"""
+        """以临时文件 + 原子替换写入 JSON，使用 msgspec 高性能序列化，并在覆盖前保留 .bak。"""
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
         try:
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            # 使用 msgspec 高性能序列化（比标准库 json 快 10-100 倍）
+            json_bytes = msgspec.json.format(
+                _session_json_encoder.encode(data), indent=2
+            )
+            with open(tmp_path, "wb") as f:
+                f.write(json_bytes)
             if backup_existing and path.exists():
                 shutil.copy2(path, self._backup_path(path))
             tmp_path.replace(path)
@@ -257,8 +280,8 @@ class SessionPersistence:
         logger.debug(f"会话已保存: {path}")
 
     async def save_session_async(self, session: SessionContext) -> None:
-        """保存会话（异步 - 使用 ayafileio）"""
-        async with self._lock:
+        """保存会话（异步 - 使用分片锁提高并发）"""
+        async with self._get_lock(session.session_id):
             path = self._get_session_path(session.character_id, session.session_id)
             self._add_to_index(session.character_id, session.session_id)
 
@@ -295,8 +318,8 @@ class SessionPersistence:
                 return
 
     async def async_save_message(self, session_id: str, messages: list[dict]) -> None:
-        """保存消息（异步）- 优化版"""
-        async with self._lock:
+        """保存消息（异步）- 使用分片锁提高并发"""
+        async with self._get_lock(session_id):
             safe_session_id = sanitize_path_id(session_id)
             # 使用索引快速定位
             char_id = self._session_index.get(session_id)
@@ -446,8 +469,8 @@ class SessionPersistence:
         return False
 
     async def delete_session_async(self, session_id: str) -> bool:
-        """删除会话（异步）- 优化版"""
-        async with self._lock:
+        """删除会话（异步）- 使用分片锁提高并发"""
+        async with self._get_lock(session_id):
             safe_session_id = sanitize_path_id(session_id)
             # 使用索引快速定位；删除成功后再移除索引，避免提前移除导致快速路径失效。
             char_id = self._session_index.get(session_id)

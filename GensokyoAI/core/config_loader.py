@@ -24,6 +24,11 @@ from .config_schema import (
 from .config_validator import ConfigDiagnostic, ConfigValidator
 
 
+# 角色配置缓存（LRU 简化版）：path -> (mtime, config)
+_character_config_cache: dict[Path, tuple[float, CharacterConfig]] = {}
+_CONFIG_CACHE_MAX_SIZE = 32
+
+
 class ConfigLoader(ConfigMerger):
     """配置加载器"""
 
@@ -227,9 +232,44 @@ class ConfigLoader(ConfigMerger):
         return normalized
 
     def load_character(self, path: Path) -> CharacterConfig:
-        """加载角色配置"""
+        """加载角色配置，带 LRU 缓存（基于文件修改时间）。"""
+        global _character_config_cache
+
+        # 检查缓存：文件未修改则直接返回缓存
+        mtime = path.stat().st_mtime if path.exists() else 0
+        if path in _character_config_cache:
+            cached_mtime, cached_config = _character_config_cache[path]
+            if cached_mtime == mtime:
+                return cached_config
+
+        # 加载并验证
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         diagnostics = self._character_validator.validate_character_dict(data)
         self._character_validator.raise_for_errors(diagnostics)
-        return self._character_validator.to_character_config(data)
+        config = self._character_validator.to_character_config(data)
+
+        # 更新缓存（简单 LRU：超过大小则清空一半）
+        if len(_character_config_cache) >= _CONFIG_CACHE_MAX_SIZE:
+            # 简单策略：保留最近的 16 个
+            items = list(_character_config_cache.items())
+            _character_config_cache.clear()
+            for k, v in items[_CONFIG_CACHE_MAX_SIZE // 2 :]:
+                _character_config_cache[k] = v
+
+        _character_config_cache[path] = (mtime, config)
+        return config
+
+    @staticmethod
+    def clear_character_cache() -> None:
+        """清空角色配置缓存。"""
+        _character_config_cache.clear()
+
+    @staticmethod
+    def get_character_cache_info() -> dict[str, Any]:
+        """获取缓存状态信息。"""
+        return {
+            "size": len(_character_config_cache),
+            "max_size": _CONFIG_CACHE_MAX_SIZE,
+            "cached_paths": [str(p) for p in _character_config_cache.keys()],
+        }

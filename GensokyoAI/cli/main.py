@@ -11,6 +11,7 @@ from GensokyoAI.backends.console import ConsoleBackendBuilder
 from GensokyoAI.core.agent import Agent
 from GensokyoAI.core.config import ConfigLoader
 from GensokyoAI.utils.exec_hook import set_exechook
+from GensokyoAI.utils.request_utils import close_client_session
 
 # 灵梦，这是异变啊！
 # 灵梦：嗯？让我看看，这也不是没啥事吗？（喝茶）
@@ -142,7 +143,11 @@ async def main():
         .build()
     )
 
-    await backend.run_interactive()
+    try:
+        await backend.run_interactive()
+    finally:
+        # 清理：关闭全局 HTTP session，释放连接池
+        await close_client_session()
 
 
 def cli_main() -> None:

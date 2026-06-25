@@ -13,6 +13,71 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import aiohttp
 from msgspec import Struct
 
+# 全局 ClientSession 管理（单例模式，支持连接池复用）
+_session: aiohttp.ClientSession | None = None
+_connector: aiohttp.TCPConnector | None = None
+
+# 连接池配置
+DEFAULT_POOL_LIMIT = 100
+DEFAULT_POOL_LIMIT_PER_HOST = 10
+DEFAULT_ENABLE_CLEANUP_CLOSED = True
+DEFAULT_FORCE_CLOSE = False
+
+
+async def get_client_session(
+    *,
+    limit: int = DEFAULT_POOL_LIMIT,
+    limit_per_host: int = DEFAULT_POOL_LIMIT_PER_HOST,
+) -> aiohttp.ClientSession:
+    """获取全局 ClientSession 单例，支持连接池复用。
+
+    首次调用时创建 session，后续复用同一实例。
+    如果 session 已关闭，自动重新创建。
+    """
+    global _session, _connector
+
+    if _session is None or _session.closed:
+        _connector = aiohttp.TCPConnector(
+            limit=limit,
+            limit_per_host=limit_per_host,
+            enable_cleanup_closed=DEFAULT_ENABLE_CLEANUP_CLOSED,
+            force_close=DEFAULT_FORCE_CLOSE,
+        )
+        _session = aiohttp.ClientSession(
+            connector=_connector,
+            raise_for_status=False,  # 我们自己处理状态码
+        )
+    return _session
+
+
+def get_connector_info() -> dict[str, Any] | None:
+    """获取当前连接池状态信息（用于监控和调试）。"""
+    if _connector is None:
+        return None
+    return {
+        "limit": _connector.limit,
+        "limit_per_host": _connector.limit_per_host,
+        "size": len(_connector._conns),  # 当前连接数
+        "force_close": _connector._force_close,
+    }
+
+
+async def close_client_session() -> None:
+    """关闭全局 ClientSession，释放所有连接。
+
+    应在程序退出时调用，确保优雅关闭。
+    """
+    global _session, _connector
+
+    if _session is not None and not _session.closed:
+        await _session.close()
+        _session = None
+
+    if _connector is not None:
+        await _connector.close()
+        _connector = None
+
+
 HTTP_STATUS_MESSAGES: dict[int, str] = {
     400: "Bad Request",
     401: "Unauthorized",
@@ -286,14 +351,15 @@ def merge_headers(*headers: dict[str, Any] | None) -> dict[str, str]:
 async def post_json(
     url: str, payload: dict[str, Any], headers: dict[str, str], timeout: float | None = None
 ) -> dict[str, Any]:
-    """异步执行 JSON POST；用于 SDK 无法表达任意 api_path 的场景。"""
+    """异步执行 JSON POST；使用全局 ClientSession 实现连接复用。"""
     request_headers = {"Content-Type": "application/json", **headers}
     timeout_obj = aiohttp.ClientTimeout(total=timeout)
+
     try:
-        async with (
-            aiohttp.ClientSession(timeout=timeout_obj) as session,
-            session.post(url, json=payload, headers=request_headers) as response,
-        ):
+        session = await get_client_session()
+        async with session.post(
+            url, json=payload, headers=request_headers, timeout=timeout_obj
+        ) as response:
             raw = await response.text(encoding="utf-8", errors="replace")
             if response.status >= 400:
                 raise ModelAPIError(
@@ -324,14 +390,14 @@ def _preview_text(value: str, limit: int = 500) -> str:
 async def post_sse(
     url: str, payload: dict[str, Any], headers: dict[str, str], timeout: float | None = None
 ) -> AsyncIterator[dict[str, Any]]:
-    """异步执行 SSE POST，并逐条产出 JSON data。"""
+    """异步执行 SSE POST，使用全局 ClientSession 实现连接复用，并逐条产出 JSON data。"""
     request_headers = {"Content-Type": "application/json", "Accept": "text/event-stream", **headers}
     timeout_obj = aiohttp.ClientTimeout(total=timeout)
     try:
-        async with (
-            aiohttp.ClientSession(timeout=timeout_obj) as session,
-            session.post(url, json=payload, headers=request_headers) as response,
-        ):
+        session = await get_client_session()
+        async with session.post(
+            url, json=payload, headers=request_headers, timeout=timeout_obj
+        ) as response:
             if response.status >= 400:
                 raw = await response.text(encoding="utf-8", errors="replace")
                 raise ModelAPIError(
