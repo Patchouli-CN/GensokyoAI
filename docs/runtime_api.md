@@ -17,7 +17,7 @@
 ```json
 {
   "name": "GensokyoAI Runtime",
-  "package_version": "2026.5.13.0",
+  "package_version": "2026.6.25.0",
   "protocol": "json-lines-rpc",
   "protocol_version": "1.0.0",
   "protocol_major_version": 1,

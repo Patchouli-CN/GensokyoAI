@@ -52,7 +52,7 @@ vYYYY.M.D.N
 
 ```toml
 [project]
-version = "2026.5.13.0"
+version = "2026.6.25.0"
 ```
 
 用途：
@@ -77,9 +77,9 @@ Runtime 读取规则：
 示例：
 
 ```text
-pyproject.toml: version = "2026.5.13.0"
-Git tag: v2026.5.13.0
-Changelog: docs/changelog/v2026.5.13.0.md
+pyproject.toml: version = "2026.6.25.0"
+Git tag: v2026.6.25.0
+Changelog: docs/changelog/v2026.6.25.0.md
 ```
 
 ## 五、Runtime 协议版本
@@ -355,8 +355,8 @@ docs/
 
 首个正式 release 当前状态：
 
-- package version 当前见 [`pyproject.toml`](../pyproject.toml)，应为 `2026.5.13.0`。
+- package version 当前见 [`pyproject.toml`](../pyproject.toml)，应为 `2026.6.25.0`。
 - Runtime protocol version 当前见 [`rpc.py`](../GensokyoAI/runtime/rpc.py)，应为 `1.0.0`。
 - schema versions 当前见 [`schema_versions.py`](../GensokyoAI/core/schema_versions.py)，继续使用整数。
-- release changelog 为 [`docs/changelog/v2026.5.13.0.md`](changelog/v2026.5.13.0.md)。
-- Git tag 应为 `v2026.5.13.0`。
+- release changelog 为 [`docs/changelog/v2026.6.25.0.md`](changelog/v2026.6.25.0.md)。
+- Git tag 应为 `v2026.6.25.0`。
