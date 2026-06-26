@@ -1,9 +1,15 @@
-"""URL 安全校验工具：防止 SSRF 等通过用户可控 URL 访问内网或元数据服务。"""
+"""URL 安全校验工具：防止 SSRF 等通过用户可控 URL 访问内网或元数据服务。
+
+提供同步和异步两个版本：
+- validate_external_url(): 同步版本，用于配置校验等同步上下文
+- validate_external_url_async(): 异步版本，用于 runtime HTTP 等异步上下文，使用 aiohttp AsyncResolver
+"""
 
 from __future__ import annotations
 
 import ipaddress
 import socket
+from typing import Any
 from urllib.parse import urlparse
 
 
@@ -189,7 +195,7 @@ def validate_external_url(
 
 
 def is_safe_public_url(url: str) -> bool:
-    """安全返回 bool 的便捷封装。"""
+    """安全返回 bool 的便捷封装（同步版本）。"""
 
     try:
         validate_external_url(url)
@@ -198,8 +204,112 @@ def is_safe_public_url(url: str) -> bool:
         return False
 
 
+async def is_safe_public_url_async(
+    url: str, *, allow_private: bool = False, resolve_dns: bool = False
+) -> bool:
+    """安全返回 bool 的便捷封装（异步版本）。"""
+
+    try:
+        await validate_external_url_async(url, allow_private=allow_private, resolve_dns=resolve_dns)
+        return True
+    except UnsafeUrlError:
+        return False
+
+
+# 延迟导入，避免循环依赖
+_resolver: Any = None
+
+
+async def _get_resolver() -> Any:
+    """获取或创建异步 DNS 解析器（延迟初始化）。"""
+    global _resolver
+    if _resolver is None:
+        from aiohttp.resolver import AsyncResolver
+
+        _resolver = AsyncResolver()
+    return _resolver
+
+
+async def _close_resolver() -> None:
+    """关闭异步 DNS 解析器（用于清理）。"""
+    global _resolver
+    if _resolver is not None:
+        await _resolver.close()
+        _resolver = None
+
+
+async def validate_external_url_async(
+    url: str,
+    *,
+    allow_private: bool = False,
+    resolve_dns: bool = False,
+) -> None:
+    """异步版本：校验外部 URL 是否安全。
+
+    与同步版本行为一致，但使用 aiohttp AsyncResolver 进行异步 DNS 解析，
+    避免阻塞事件循环。适用于 runtime HTTP 等高并发场景。
+
+    Args:
+        url: 待校验 URL。
+        allow_private: 若为 True，则允许私有 IP（但仍禁止元数据和回环）。
+        resolve_dns: 是否解析域名并检查解析结果。默认 False；开启后可防御
+            "DNS Rebinding" 攻击（域名指向内网）。
+
+    Raises:
+        UnsafeUrlError: 校验失败。
+    """
+    if not isinstance(url, str) or not url:
+        raise UnsafeUrlError(str(url), "URL 不能为空")
+
+    # 去除首尾空白，防御简单绕过
+    url = url.strip()
+    parsed = urlparse(url)
+
+    scheme = parsed.scheme.lower()
+    if scheme not in {"http", "https"}:
+        raise UnsafeUrlError(url, f"不支持的协议: {scheme!r}")
+
+    hostname = parsed.hostname
+    if hostname is None:
+        raise UnsafeUrlError(url, "无法解析主机名")
+
+    hostname_lower = hostname.lower()
+    if hostname_lower in _ALWAYS_FORBIDDEN_HOSTNAMES:
+        raise UnsafeUrlError(url, f"禁止的主机名: {hostname!r}")
+
+    if not allow_private and (hostname_lower in _LOOPBACK_HOSTNAMES or _is_loopback_ip(hostname)):
+        raise UnsafeUrlError(url, f"禁止的回环主机名: {hostname!r}")
+
+    if _is_always_forbidden_ip(hostname):
+        raise UnsafeUrlError(url, f"禁止的 IP 地址: {hostname!r}")
+
+    if not allow_private and _is_private_ip(hostname):
+        raise UnsafeUrlError(url, f"禁止的私有 IP 地址: {hostname!r}")
+
+    # 异步 DNS 解析（使用 aiohttp AsyncResolver）
+    if resolve_dns and not _is_always_forbidden_ip(hostname):
+        resolver = await _get_resolver()
+        try:
+            # AsyncResolver.resolve 返回的是 [{"host": ip, "port": port, "family": family, ...}]
+            hosts = await resolver.resolve(hostname, 80)
+            addresses = {str(h["host"]) for h in hosts}
+            for addr in addresses:
+                if _is_always_forbidden_ip(addr):
+                    raise UnsafeUrlError(url, f"域名解析到禁止地址: {addr!r}")
+                if not allow_private and (_is_loopback_ip(addr) or _is_private_ip(addr)):
+                    raise UnsafeUrlError(url, f"域名解析到非安全地址: {addr!r}")
+        except UnsafeUrlError:
+            raise
+        except Exception as exc:
+            # DNS 解析失败时保守拒绝
+            raise UnsafeUrlError(url, f"无法解析域名或解析到非安全地址: {exc}") from None
+
+
 __all__ = [
     "UnsafeUrlError",
     "is_safe_public_url",
+    "is_safe_public_url_async",
     "validate_external_url",
+    "validate_external_url_async",
+    "_close_resolver",  # 用于清理
 ]

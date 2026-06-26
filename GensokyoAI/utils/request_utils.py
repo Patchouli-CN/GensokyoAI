@@ -69,11 +69,16 @@ def get_connector_info() -> dict[str, Any] | None:
 
 
 async def close_client_session() -> None:
-    """关闭全局 ClientSession，释放所有连接。
+    """关闭全局 ClientSession 和 DNS 解析器，释放所有资源。
 
     应在程序退出时调用，确保优雅关闭。
     """
     global _session, _connector
+
+    # 先关闭 URL 安全模块的异步 DNS 解析器
+    from .url_security import _close_resolver
+
+    await _close_resolver()
 
     if _session is not None and not _session.closed:
         await _session.close()
