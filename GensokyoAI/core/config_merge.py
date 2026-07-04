@@ -11,6 +11,7 @@ from .config_schema import (
     MemoryConfig,
     ModelConfig,
     ResourceControlConfig,
+    SceneConfig,
     SessionConfig,
     ThinkEngineConfig,
     ToolConfig,
@@ -65,6 +66,7 @@ class ConfigMerger:
         result.embedding = self._merge_embedding(base.embedding, override.embedding)
         result.memory = self._merge_memory(base.memory, override.memory)
         result.tool = self._merge_tool(base.tool, override.tool)
+        result.scene = self._merge_scene(base.scene, override.scene)
         result.session = self._merge_session(base.session, override.session)
         result.think_engine = self._merge_think_engine(base.think_engine, override.think_engine)
         result.initiative_timer = self._merge_initiative_timer(
@@ -477,6 +479,43 @@ class ConfigMerger:
                 "custom_tools_path", override.custom_tools_path or base.custom_tools_path
             ),
             web_search=self._merge_web_search_tool(base.web_search, override.web_search),
+        )
+
+    def _merge_scene(self, base: SceneConfig, override: SceneConfig) -> SceneConfig:
+        """合并场景配置。"""
+        provided = self._provided_fields.get(id(override))
+        default_path = Path("./scenes")
+
+        def choose(field_name: str, legacy_value: Any) -> Any:
+            if provided is not None:
+                return (
+                    getattr(override, field_name)
+                    if field_name in provided
+                    else getattr(base, field_name)
+                )
+            return legacy_value
+
+        return SceneConfig(
+            enabled=choose(
+                "enabled",
+                override.enabled if override.enabled != base.enabled else base.enabled,
+            ),
+            library_path=choose(
+                "library_path",
+                override.library_path
+                if override.library_path != default_path
+                else base.library_path,
+            ),
+            default_scene=choose(
+                "default_scene",
+                override.default_scene or base.default_scene,
+            ),
+            enforce_connectivity=choose(
+                "enforce_connectivity",
+                override.enforce_connectivity
+                if override.enforce_connectivity != base.enforce_connectivity
+                else base.enforce_connectivity,
+            ),
         )
 
     def _merge_session(self, base: SessionConfig, override: SessionConfig) -> SessionConfig:

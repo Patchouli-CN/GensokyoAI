@@ -14,6 +14,7 @@ from ...memory.working import WorkingMemoryManager
 from ...session.context import SessionContext
 from ...tools.build_service import ToolBuildContext, ToolBuildResult
 from ...tools.tool_builtin.memory_tool import set_event_bus
+from ...tools.tool_builtin.scene import set_event_bus as set_scene_event_bus
 from ...tools.tool_builtin.web_search import configure_web_search_tool
 from ...utils.content_security import detect_prompt_injection
 from ...utils.helpers import safe_get
@@ -25,6 +26,7 @@ from ..event_listeners import (
     MemoryServiceListeners,
     MetricsListeners,
     PersistenceListeners,
+    SceneServiceListeners,
 )
 from ..events import Event, SystemEvent
 from ..exceptions import AgentError
@@ -116,6 +118,11 @@ class Agent:
 
     def _init_session_system(self) -> None:
         self.session_manager = self.runtime_context.session_manager
+        self.scene_manager = self.runtime_context.scene_manager
+        # 把角色 begin_scene 指定的初始场景告知 SceneManager，用于会话起始场景解析
+        begin_scene = getattr(self.config.character, "begin_scene", None)
+        if begin_scene is not None:
+            self.scene_manager.set_character_begin_scene(begin_scene.scene)
 
     def _init_message_components(self) -> None:
         self._message_builder = self._lazy_components.message_builder
@@ -128,6 +135,7 @@ class Agent:
     def _init_event_listeners(self) -> None:
         self.core_listeners = CoreListeners(self, self.event_bus)
         self.memory_service_listeners = MemoryServiceListeners(self, self.event_bus)
+        self.scene_service_listeners = SceneServiceListeners(self, self.event_bus)
         self.metrics_listeners = MetricsListeners(self.event_bus)
         self.error_listeners = ErrorListeners(self.event_bus)
         self.persistence_listeners = PersistenceListeners(self, self.event_bus)
@@ -135,6 +143,7 @@ class Agent:
 
     def _inject_dependencies(self) -> None:
         set_event_bus(self.event_bus)
+        set_scene_event_bus(self.event_bus)
         configure_web_search_tool(self.config.tool)
 
     def _init_lifecycle(self) -> None:
@@ -586,6 +595,7 @@ class Agent:
         session = self.session_manager.create_session()
         self._working_memory = None
         self._semantic_memory = None
+        self.scene_manager.reset_for_session(None)
         self.event_bus.publish(
             Event(type=SystemEvent.SESSION_CREATED, source="agent", data={"session": session})
         )
@@ -655,7 +665,26 @@ class Agent:
                 self._on_generate_response,
             )
 
+        # 加载场景库并同步当前会话的场景（覆盖 create/resume/set_current_session 各路径）
+        if self.scene_manager.enabled:
+            await self.scene_manager.load_library()
+            await self._sync_scene_for_current_session()
+
         logger.info("Agent 已启动")
+
+    async def _sync_scene_for_current_session(self) -> None:
+        """根据当前会话 metadata 恢复当前场景，必要时落地默认场景。"""
+        if not self.scene_manager.enabled:
+            return
+        session = self.session_manager.get_current_session()
+        session_scene_id = None
+        if session is not None:
+            session_scene_id = session.metadata.get("current_scene_id")
+        resolved = await self.scene_manager.resolve_initial_scene(session_scene_id)
+        self.scene_manager.reset_for_session(resolved)
+        if session is not None and resolved and resolved != session_scene_id:
+            session.metadata["current_scene_id"] = resolved
+            self.session_manager.persistence.save_session(session)
 
     async def _build_tools(self) -> ToolBuildResult:
         """通过 ModelRegistryService + ToolBuildService 构建本轮工具 schema 与 instructions。"""
@@ -711,11 +740,28 @@ class Agent:
         except Exception as e:
             logger.error(f"后台调度主动定时器失败: {e}")
 
+    async def _prepend_scene_context(self, system_contexts: list[str]) -> list[str]:
+        """对话开始时把当前场景描述放到系统上下文最前面（每会话仅一次）。"""
+        if not self.scene_manager.enabled:
+            return system_contexts
+        try:
+            scene_context = await self.scene_manager.build_injection_context()
+        except Exception as e:
+            logger.error(f"注入场景上下文失败: {e}")
+            return system_contexts
+        if scene_context:
+            return [scene_context, *system_contexts]
+        return system_contexts
+
     async def _on_generate_response(self, event: Event) -> None:
         user_input = event.data.get("user_input", "")
-        system_contexts = event.data.get("system_contexts", [])
+        system_contexts = list(event.data.get("system_contexts", []) or [])
         # MessageBuilder 需要文本做检索/搜索提示；实际多模态内容已在工作记忆中
         text_input = self._extract_text_from_content(user_input)
+
+        # 对话开始时注入一次当前场景（新会话首轮 / resume 后首轮）；
+        # 之后不再每轮注入，模型遗忘时可主动调用 get_current_scene。
+        system_contexts = await self._prepend_scene_context(system_contexts)
 
         full_response = ""
         try:
@@ -820,6 +866,7 @@ class Agent:
             f"待表达意图摘要：{pending_summary}\n"
             f"说话前内部思考：{thought or '无'}"
         ]
+        system_contexts = await self._prepend_scene_context(system_contexts)
         messages = self.message_builder.build("", system_contexts)
         # 工作记忆末尾是助手自己的上一条回复，必须补一条 user 消息让模型继续生成下一句
         messages.append(

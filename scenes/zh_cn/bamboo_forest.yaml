@@ -1,0 +1,18 @@
+# 迷途竹林
+id: bamboo_forest
+name: 迷途竹林
+description: |
+  你正身处迷途竹林。漫山遍野的翠竹高耸入云，小径纵横交错却处处相似，
+  据说踏进来的人十有八九会迷失方向。竹叶沙沙作响，偶尔能听见远处永远亭的动静。
+  月光透过竹叶洒下斑驳的影子，静谧得能听见自己的心跳。
+atmosphere: 静谧、易迷失
+time_of_day: 月夜
+connected_scenes:
+  - human_village
+props:
+  - 高耸的翠竹
+  - 交错相似的小径
+  - 斑驳的月光
+metadata:
+  region: 幻想乡
+  landmark: 永远亭

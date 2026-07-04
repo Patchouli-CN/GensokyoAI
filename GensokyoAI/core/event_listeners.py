@@ -329,6 +329,122 @@ class MemoryServiceListeners:
         self.event_bus.respond(event, None)
 
 
+class SceneServiceListeners:
+    """场景服务监听器 - 响应场景工具请求，并在会话事件时同步当前场景。"""
+
+    def __init__(self, agent: Agent, event_bus: EventBus):
+        self.agent = agent
+        self.event_bus = event_bus
+        self._register()
+
+    def _register(self) -> None:
+        bus = self.event_bus
+        bus.subscribe(SystemEvent.SCENE_SWITCH_REQUESTED, self.on_scene_switch_request)
+        bus.subscribe(SystemEvent.SCENE_QUERY_CURRENT, self.on_scene_query_current)
+        bus.subscribe(SystemEvent.SESSION_CREATED, self.on_session_scene_sync)
+        bus.subscribe(SystemEvent.SESSION_RESUMED, self.on_session_scene_sync)
+        logger.debug("场景服务监听器已注册")
+
+    def _scene_manager(self):
+        manager = getattr(self.agent, "scene_manager", None)
+        if manager is None or not getattr(manager, "enabled", False):
+            return None
+        return manager
+
+    async def on_scene_switch_request(self, event: Event) -> None:
+        """处理场景切换请求：切换 + 持久化到会话 + 广播 SCENE_SWITCHED。"""
+        if not event.source.startswith("tool."):
+            return
+
+        manager = self._scene_manager()
+        if manager is None:
+            self.event_bus.respond(event, {"ok": False, "error": "场景功能未启用"})
+            return
+
+        scene_id = (event.data or {}).get("scene_id", "")
+        try:
+            scene = await manager.switch_scene(scene_id)
+        except Exception as e:
+            self.event_bus.respond(event, {"ok": False, "error": str(e)})
+            return
+
+        self._persist_current_scene(scene.id)
+        self.event_bus.respond(event, {"ok": True, "scene_id": scene.id, "name": scene.name})
+
+        # 广播场景切换，供前端提示当前场景
+        self.event_bus.publish(
+            Event(
+                type=SystemEvent.SCENE_SWITCHED,
+                source="scene_service",
+                data={
+                    "scene_id": scene.id,
+                    "name": scene.name,
+                    "description": scene.description,
+                    "render": scene.render(),
+                },
+            )
+        )
+
+    async def on_scene_query_current(self, event: Event) -> None:
+        """处理当前场景查询。"""
+        if not event.source.startswith("tool."):
+            return
+
+        manager = self._scene_manager()
+        if manager is None:
+            self.event_bus.respond(event, None)
+            return
+
+        try:
+            scene = await manager.get_current_scene()
+        except Exception as e:
+            logger.error(f"场景服务: 查询当前场景失败 - {e}")
+            self.event_bus.respond(event, None)
+            return
+
+        if scene is None:
+            self.event_bus.respond(event, None)
+            return
+
+        self.event_bus.respond(
+            event,
+            {"scene_id": scene.id, "name": scene.name, "description": scene.render()},
+        )
+
+    async def on_session_scene_sync(self, event: Event) -> None:
+        """会话创建/恢复时，从会话 metadata 恢复当前场景（或落地默认场景）。"""
+        manager = self._scene_manager()
+        if manager is None:
+            return
+
+        session = (event.data or {}).get("session")
+        session_scene_id = None
+        if session is not None:
+            session_scene_id = session.metadata.get("current_scene_id")
+
+        try:
+            resolved = await manager.resolve_initial_scene(session_scene_id)
+        except Exception as e:
+            logger.error(f"场景服务: 恢复初始场景失败 - {e}")
+            return
+
+        manager.reset_for_session(resolved)
+        # 若解析出的场景与会话记录不一致（例如首次落地默认场景），写回会话
+        if resolved and resolved != session_scene_id:
+            self._persist_current_scene(resolved)
+
+    def _persist_current_scene(self, scene_id: str) -> None:
+        """把当前场景 id 写入当前会话 metadata 并落盘。"""
+        try:
+            session = self.agent.session_manager.get_current_session()
+            if session is None:
+                return
+            session.metadata["current_scene_id"] = scene_id
+            self.agent.session_manager.persistence.save_session(session)
+        except Exception as e:
+            logger.error(f"场景服务: 持久化当前场景失败 - {e}")
+
+
 class MetricsListeners:
     """指标收集监听器"""
 

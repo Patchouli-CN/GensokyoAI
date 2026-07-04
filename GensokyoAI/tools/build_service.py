@@ -54,6 +54,7 @@ class ToolBuildService:
         "memory": ("remember", "recall", "update_memory"),
         "system": ("get_system_info",),
         "web_search": ("web_search",),
+        "scene": ("scene_switch", "get_current_scene"),
     }
 
     def __init__(self, registry: ToolRegistry):

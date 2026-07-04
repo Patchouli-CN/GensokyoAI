@@ -17,6 +17,7 @@ from .config_schema import (
     MemoryConfig,
     ModelConfig,
     ResourceControlConfig,
+    SceneConfig,
     SessionConfig,
     ThinkEngineConfig,
     TopicGenerationConfig,
@@ -189,6 +190,10 @@ class ConfigLoader(ConfigMerger):
                     self._provided_fields[id(config.tool.web_search.api)] = set(
                         tool_data["web_search"]["api"].keys()
                     )
+        if "scene" in data:
+            scene_data = data["scene"] or {}
+            config.scene = SceneConfig(**scene_data)
+            self._provided_fields[id(config.scene)] = set(scene_data.keys())
         if "session" in data:
             session_data = data["session"] or {}
             config.session = SessionConfig(**session_data)

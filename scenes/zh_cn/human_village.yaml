@@ -1,0 +1,19 @@
+# 人间之里
+id: human_village
+name: 人间之里
+description: |
+  你正身处人间之里。这里是幻想乡中人类聚居的村落，街道上店铺林立，
+  孩童在巷口追逐嬉戏，寺子屋里传来朗朗读书声。相比人妖混杂的野外，
+  这里是人类最安心的去处，妖怪一般不会轻易在光天化日之下现身。
+atmosphere: 热闹、有烟火气
+time_of_day: 白昼
+connected_scenes:
+  - hakurei_shrine
+  - bamboo_forest
+props:
+  - 林立的店铺
+  - 传出读书声的寺子屋
+  - 熙攘的街道
+metadata:
+  region: 幻想乡中部
+  landmark: 寺子屋

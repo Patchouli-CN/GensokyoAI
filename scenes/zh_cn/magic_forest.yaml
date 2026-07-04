@@ -1,0 +1,19 @@
+# 魔法森林
+id: magic_forest
+name: 魔法森林
+description: |
+  你正身处魔法森林。这里终年被浓雾笼罩，参天古木遮蔽了大半天光，
+  地面上密布着色彩斑斓却大多有毒的蘑菇，空气里弥漫着孢子与魔力的气息。
+  森林深处有几间隐居者的小屋，寻常人很少敢踏足此地。
+atmosphere: 幽暗潮湿，魔力浓郁
+time_of_day: 不见天日
+connected_scenes:
+  - hakurei_shrine
+  - scarlet_devil_mansion
+props:
+  - 发光的毒蘑菇
+  - 缠绕的藤蔓
+  - 弥漫的浓雾
+metadata:
+  region: 幻想乡
+  danger: 迷雾易迷路，蘑菇多有毒

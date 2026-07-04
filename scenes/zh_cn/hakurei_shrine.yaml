@@ -1,0 +1,19 @@
+# 博丽神社
+id: hakurei_shrine
+name: 博丽神社
+description: |
+  你正身处博丽神社。这座神社坐落在幻想乡的东端边界，是通往外界的结界所在。
+  石阶从山下一路蜿蜒而上，赛钱箱前几乎从不见香客，庭院里落满了红叶。
+  这里是幻想乡的人妖聚会之地，时常有人不请自来。
+atmosphere: 宁静中带着几分冷清
+time_of_day: 黄昏
+connected_scenes:
+  - magic_forest
+  - human_village
+props:
+  - 破旧的赛钱箱
+  - 随风摇动的绘马
+  - 石阶两旁的红叶
+metadata:
+  region: 幻想乡东部
+  owner: 博丽灵梦

@@ -14,6 +14,7 @@
 
 📖 [English README](README_en.md) | [中文 README](README.md)
 
+🚀 [Quickstart for Newcomers](./QUICKSTART.md) ·
 [User Guide](./docs/en/user_guide.md) ·
 [Project Design](./docs/en/project_design.md) ·
 [Runtime API Contract](./docs/en/runtime_api.md) ·
@@ -37,9 +38,9 @@ Core boundaries:
 
 ## Version Management & Changelog
 
-GensokyoAI release versions use calendar versioning. The latest release is `v2026.6.25.1`; the Python package version omits the `v` prefix: `2026.6.25.1`. The Runtime protocol uses independent semantic versioning, currently `1.0.0`. Client compatibility should primarily check `protocol_major_version`; persistent schema versions continue to use integers.
+GensokyoAI release versions use calendar versioning. The latest release is `v2026.7.4.0`; the Python package version omits the `v` prefix: `2026.7.4.0`. The Runtime protocol uses independent semantic versioning, currently `1.0.0`. Client compatibility should primarily check `protocol_major_version`; persistent schema versions continue to use integers.
 
-The [Changelog Template](./docs/en/changelog.md) is a release record template; the latest release notes are in [`docs/changelog/v2026.6.25.1.md`](./docs/en/changelog/v2026.6.25.1.md).
+The [Changelog Template](./docs/en/changelog.md) is a release record template; the latest release notes are in [`docs/changelog/v2026.7.4.0.md`](./docs/changelog/v2026.7.4.0.md).
 
 ## Runtime API
 
@@ -110,6 +111,12 @@ Memory management is not simply "stuff everything into context." When tool calli
 With silent thinking enabled, characters can review existing topics and organize thoughts during idle time. When the system judges the timing appropriate, they may also speak proactively. This makes characters feel less passive and more like they have their own inner world.
 
 With the initiative timer enabled, a character can, after a normal reply, only store a brief summary of something they want to say later and schedule a trigger time. When the timer fires, the system regenerates the actual proactive message based on the summary, current context, and pre-speech thinking—rather than saving a full line of dialogue that may become stale.
+
+### Characters Grounded in Real Scenes
+
+With the scene system enabled, the environment a character is in (the Hakurei Shrine, the Forest of Magic, the Scarlet Devil Mansion...) becomes persistent, structured state instead of something the character has to restate in every message. Characters open the conversation already situated in a scene, can switch scenes on their own as the story moves (`scene_switch`), and can look up where they are when they lose track (`get_current_scene`).
+
+Two direct benefits: the character's attention stays on personality and dialogue rather than on remembering their location—so even smaller models perform more consistently in-scene; and the current scene is persisted with the session, so resuming later keeps the character right where they left off. The scene library is globally shared and defined in YAML, with all characters drawing from the same set of Gensokyo locations. See the [Quickstart](./QUICKSTART.md) and the `scene` section of the [default config](./config/default.yaml).
 
 ### Better Session Management
 

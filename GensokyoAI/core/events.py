@@ -119,6 +119,11 @@ class SystemEvent(Enum):
     ACTION_DECIDED = "action.decided"  # ActionPlanner 决策完成
     ACTION_EXECUTED = "action.executed"  # ActionExecutor 执行完成
 
+    # 场景事件
+    SCENE_SWITCH_REQUESTED = "scene.switch_requested"  # 工具请求切换场景（内部 request/response）
+    SCENE_QUERY_CURRENT = "scene.query_current"  # 工具查询当前场景（内部 request/response）
+    SCENE_SWITCHED = "scene.switched"  # 场景切换成功后广播，供前端提示当前场景
+
 
 class Event(Struct):
     """事件"""

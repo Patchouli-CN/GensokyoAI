@@ -88,6 +88,13 @@ class ConsoleBackend(BaseBackend):
             ),
         )
 
+        # 订阅场景切换，提示当前场景
+        agent.event_bus.subscribe(
+            SystemEvent.SCENE_SWITCHED,
+            self._on_scene_switched,
+            priority=EventPriority.LOW,
+        )
+
         # 累积的提示词上下文
         self._prompt_context: list[str] = []
 
@@ -142,8 +149,9 @@ class ConsoleBackend(BaseBackend):
         is_resumed_session = current_session is not None and current_session.total_turns > 0
 
         # 模型主动开场（begin_scene=True）：优先走场景开场，否则回退 greeting
+        begin_scene = safe_get(self.agent.config, "character.begin_scene")
         if not is_resumed_session and self.agent.config.begin_scene:
-            if begin_scene := safe_get(self.agent.config, "character.begin_scene"):
+            if begin_scene is not None and begin_scene.has_content:
                 await self._send_begin_scene(begin_scene)
             elif greeting := safe_get(self.agent.config, "character.greeting"):
                 self._print_assistant_message(greeting)
@@ -153,15 +161,25 @@ class ConsoleBackend(BaseBackend):
         ):
             self._print_assistant_message(greeting)
 
-    async def _send_begin_scene(self, begin_scene: str) -> None:
-        """以场景消息触发角色开场，而非静态欢迎语。
+    async def _send_begin_scene(self, begin_scene) -> None:
+        """以「场景 + 开场动作」触发角色主动开场，而非静态欢迎语。
 
-        将 begin_scene 包装为一条带括号的用户视角场景描述，
-        通过 system_contexts 控制模型从角色视角自然叙述当前状态，
-        不假设有人拜访、不打招呼。
+        begin_scene.scene 指定的初始场景已由 SceneManager 在 agent.start() 时设为
+        当前场景，其完整环境描述会在这首轮自动注入上下文（每会话一次）；
+        本方法只需把 begin_scene.action（角色此刻在做什么）作为开场驱动。
         """
-        # 向用户展示场景（灰色小字，表示这不是人说的）
-        self.console.print(f"[dim]（场景：{begin_scene}）[/]")
+        action = (begin_scene.action or "").strip()
+
+        # 向用户展示当前场景与开场动作（灰色小字，表示这不是人说的）
+        scene = None
+        if self.agent.scene_manager.enabled:
+            scene = await self.agent.scene_manager.get_current_scene()
+        if scene is not None and action:
+            self.console.print(f"[dim]（场景：{scene.name} · {action}）[/]")
+        elif scene is not None:
+            self.console.print(f"[dim]（场景：{scene.name}）[/]")
+        elif action:
+            self.console.print(f"[dim]（场景：{action}）[/]")
 
         system_contexts = [
             "【角色开场场景】当前没有用户主动说话。你正在忙自己的事。"
@@ -170,6 +188,9 @@ class ConsoleBackend(BaseBackend):
             "保持你的性格和说话习惯。"
         ]
 
+        # 开场动作作为角色视角的当前状态；无动作时给一句中性提示
+        opening = f"（{action}）" if action else "（你正做着自己的事。）"
+
         # 直接走 agent 流式/非流式，不走 console send 的命令解析层
         if self._use_stream and self.agent.config.model.stream:
             self._streaming_done.clear()
@@ -177,7 +198,7 @@ class ConsoleBackend(BaseBackend):
             try:
                 full_response = ""
                 async for chunk in self.agent.send_stream(
-                    f"({begin_scene})",
+                    opening,
                     system_contexts=system_contexts,
                 ):
                     if self.agent.is_shutting_down:
@@ -191,7 +212,7 @@ class ConsoleBackend(BaseBackend):
                 self._streaming_done.set()
         else:
             response = await self.agent.send(
-                f"({begin_scene})",
+                opening,
                 system_contexts=system_contexts,
             )
             if response is not None:
@@ -624,6 +645,16 @@ class ConsoleBackend(BaseBackend):
         self.console.print(
             f"[{self.colors['assistant']}]{self._character_name}: {message.strip()}[/]"
         )
+        if self._waiting_for_input:
+            self.console.print(f"[{self.colors['user']}]你: [/]", end="")
+
+    async def _on_scene_switched(self, event: Event) -> None:
+        """场景切换后提示当前场景（灰色小字，风格同开场场景）。"""
+        name = event.data.get("name", "")
+        if not name:
+            return
+        await self._streaming_done.wait()
+        self.console.print(f"[dim]（当前场景：{name}）[/]")
         if self._waiting_for_input:
             self.console.print(f"[{self.colors['user']}]你: [/]", end="")
 

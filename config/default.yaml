@@ -260,6 +260,17 @@ resource_control:
   overflow_policy: "reject"          # reject / wait；reject 会快速返回结构化资源限制错误
 
 # 会话配置
+# 场景系统：把"角色所处环境"外置为常驻结构化状态，降低角色扮演的上下文负担。
+# 启用后，需在 tool.builtin_tools 里加入 "scene"，模型才能获得 scene_switch / get_current_scene 工具。
+# 场景库全局共享，从 library_path 目录加载 *.yaml；当前场景随会话持久化。
+# 场景描述仅在"对话开始"时注入一次（新会话首轮 / 恢复会话后首轮），
+# 之后不再每轮注入，模型遗忘时可主动调用 get_current_scene 查看。
+scene:
+  enabled: false # 默认关闭；改为 true 开启场景系统
+  library_path: ./scenes # 场景库目录（递归加载 *.yaml）
+  default_scene: null # 会话未记录场景时的默认起始场景 id，如 hakurei_shrine
+  enforce_connectivity: false # true 时切换必须走目标场景的 connected_scenes
+
 session:
   auto_save: true
   save_path: ./sessions

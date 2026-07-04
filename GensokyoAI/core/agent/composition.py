@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ...memory.episodic import EpisodicMemoryManager
 from ...runtime.resource_control import build_resource_gates
+from ...scene.manager import SceneManager
 from ...session.manager import SessionManager
 from ...tools.build_service import ToolBuildService
 from ...tools.executor import ToolExecutor
@@ -55,6 +56,7 @@ class AgentComposition:
             self.character_name,
             working_max_turns=self.config.memory.working_max_turns,
         )
+        scene_manager = SceneManager(self.config.scene)
 
         return AgentRuntimeContext(
             event_bus=event_bus,
@@ -68,6 +70,7 @@ class AgentComposition:
             external_tool_manager=external_tool_manager,
             model_registry_service=model_registry_service,
             session_manager=session_manager,
+            scene_manager=scene_manager,
         )
 
     def bootstrap(self) -> AgentBootstrapState:

@@ -9,6 +9,7 @@ from msgspec import Struct, field
 
 from ...memory.episodic import EpisodicMemoryManager
 from ...runtime.resource_control import ResourceGate
+from ...scene.manager import SceneManager
 from ...session.manager import SessionManager
 from ...tools.build_service import ToolBuildService
 from ...tools.executor import ToolExecutor
@@ -42,6 +43,7 @@ class AgentRuntimeContext(Struct):
     external_tool_manager: ExternalToolManager
     model_registry_service: ModelRegistryService
     session_manager: SessionManager
+    scene_manager: SceneManager
 
 
 class AgentLazyComponents(Struct):

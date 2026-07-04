@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from .config_schema import CharacterConfig
+from .config_schema import BeginScene, CharacterConfig
 from .config_validator import ConfigDiagnostic, ConfigValidationError
 
 
@@ -80,6 +80,7 @@ class CharacterValidator:
             warning_code="character.greeting.length_warning",
             warning_suggestion="建议保持开场白简洁，避免首次回复占用过多上下文。",
         )
+        self._validate_begin_scene(data.get("begin_scene"), diagnostics)
         self._validate_example_dialogue(data.get("example_dialogue"), diagnostics)
         self._validate_metadata(data.get("metadata"), diagnostics)
         return diagnostics
@@ -96,7 +97,7 @@ class CharacterValidator:
             return None
         system_prompt = data.get("system_prompt")
         greeting = data.get("greeting")
-        begin_scene = data.get("begin_scene")
+        begin_scene = self._normalize_begin_scene(data.get("begin_scene"))
         example_dialogue = data.get("example_dialogue")
         metadata = data.get("metadata")
         return {
@@ -104,7 +105,8 @@ class CharacterValidator:
             "name": data.get("name") if isinstance(data.get("name"), str) else fallback_id,
             "system_prompt_length": len(system_prompt) if isinstance(system_prompt, str) else 0,
             "greeting_length": len(greeting) if isinstance(greeting, str) else 0,
-            "has_begin_scene": isinstance(begin_scene, str) and bool(begin_scene.strip()),
+            "has_begin_scene": begin_scene is not None,
+            "begin_scene_id": begin_scene.scene if begin_scene else None,
             "example_count": len(example_dialogue) if isinstance(example_dialogue, list) else 0,
             "metadata": metadata if isinstance(metadata, dict) else {},
         }
@@ -124,7 +126,7 @@ class CharacterValidator:
             name=data["name"],
             system_prompt=data["system_prompt"],
             greeting=data.get("greeting", ""),
-            begin_scene=data.get("begin_scene"),
+            begin_scene=self._normalize_begin_scene(data.get("begin_scene")),
             example_dialogue=data.get("example_dialogue"),
             metadata=data.get("metadata", {}),
         )
@@ -201,6 +203,72 @@ class CharacterValidator:
                     code=warning_code,
                 )
             )
+
+    _BEGIN_SCENE_ALLOWED_FIELDS = {"scene", "action"}
+
+    def _validate_begin_scene(self, value: Any, diagnostics: list[ConfigDiagnostic]) -> None:
+        """校验 begin_scene：支持旧的纯字符串写法与新的 {scene, action} 结构。"""
+        if value is None:
+            return
+        # 旧写法：纯字符串（等价于只填 action）
+        if isinstance(value, str):
+            self._validate_string_field(
+                "begin_scene",
+                value,
+                diagnostics,
+                warning_length=self.GREETING_WARNING_LENGTH,
+                warning_code="character.begin_scene.length_warning",
+                warning_suggestion="建议保持开场描述简洁，避免首次回复占用过多上下文。",
+            )
+            return
+        # 新写法：结构化映射
+        if not isinstance(value, dict):
+            diagnostics.append(
+                self._error(
+                    "begin_scene",
+                    "Character field 'begin_scene' must be a string or an object with "
+                    "'scene'/'action'",
+                    "请写成一段开场描述字符串，或 {scene: 场景id, action: 开场动作}。",
+                    code="character.begin_scene.type",
+                )
+            )
+            return
+        for sub in sorted(set(value) - self._BEGIN_SCENE_ALLOWED_FIELDS):
+            diagnostics.append(
+                self._error(
+                    f"begin_scene.{sub}",
+                    f"Unknown begin_scene field '{sub}'",
+                    "begin_scene 仅支持 scene 与 action 两个字段。",
+                    code="character.begin_scene.field.unknown",
+                )
+            )
+        self._validate_string_field("begin_scene.scene", value.get("scene"), diagnostics)
+        self._validate_string_field(
+            "begin_scene.action",
+            value.get("action"),
+            diagnostics,
+            warning_length=self.GREETING_WARNING_LENGTH,
+            warning_code="character.begin_scene.length_warning",
+            warning_suggestion="建议保持开场动作简洁，避免首次回复占用过多上下文。",
+        )
+
+    @staticmethod
+    def _normalize_begin_scene(value: Any) -> BeginScene | None:
+        """把 begin_scene 归一化为 BeginScene；无内容时返回 None。"""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            text = value.strip()
+            return BeginScene(action=text) if text else None
+        if isinstance(value, dict):
+            scene = value.get("scene")
+            action = value.get("action")
+            begin = BeginScene(
+                scene=scene.strip() if isinstance(scene, str) and scene.strip() else None,
+                action=action.strip() if isinstance(action, str) else "",
+            )
+            return begin if begin.has_content else None
+        return None
 
     def _validate_example_dialogue(
         self,

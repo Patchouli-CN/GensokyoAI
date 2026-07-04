@@ -12,6 +12,7 @@ from .config_merge import ConfigMerger
 from .config_schema import (
     AppConfig,
     AuthConfig,
+    BeginScene,
     CharacterConfig,
     EmbeddingConfig,
     InitiativeTimerConfig,
@@ -19,6 +20,7 @@ from .config_schema import (
     MemoryConfig,
     ModelConfig,
     ResourceControlConfig,
+    SceneConfig,
     SessionConfig,
     ThinkEngineConfig,
     ToolConfig,
@@ -31,6 +33,7 @@ from .config_validator import ConfigDiagnostic, ConfigValidationError, ConfigVal
 __all__ = [
     "AppConfig",
     "AuthConfig",
+    "BeginScene",
     "CharacterConfig",
     "CharacterPackageOptions",
     "CharacterPackageService",
@@ -46,6 +49,7 @@ __all__ = [
     "MemoryConfig",
     "ModelConfig",
     "ResourceControlConfig",
+    "SceneConfig",
     "SessionConfig",
     "ThinkEngineConfig",
     "ToolConfig",

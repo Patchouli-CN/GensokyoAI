@@ -214,6 +214,23 @@ class ToolConfig(Struct):
     web_search: WebSearchToolConfig = field(default_factory=WebSearchToolConfig)
 
 
+class SceneConfig(Struct):
+    """场景配置。
+
+    场景库全局共享，从 library_path 目录加载 *.yaml。当前场景是会话级状态，
+    持久化在 SessionContext.metadata；场景上下文仅在对话开始时注入一次。
+    """
+
+    enabled: bool = False
+    library_path: Path = field(default_factory=lambda: Path("./scenes"))
+    default_scene: str | None = None  # 未从会话恢复到场景时的默认起始场景 id
+    enforce_connectivity: bool = False  # True 时切换必须走 connected_scenes
+
+    def __post_init__(self):
+        if not isinstance(self.library_path, Path):
+            object.__setattr__(self, "library_path", Path(self.library_path))
+
+
 class SessionConfig(Struct):
     """会话配置"""
 
@@ -247,13 +264,31 @@ class ResourceControlConfig(Struct):
     overflow_policy: Literal["reject", "wait"] = "reject"
 
 
+class BeginScene(Struct):
+    """角色开场设置。
+
+    - scene: 初始场景 id，交给 SceneManager 设为会话起始场景（含完整环境描述与持久化）。
+    - action: 开场时角色正在做的事，驱动模型以角色视角主动开口。
+
+    兼容旧的纯字符串写法：`begin_scene: "..."` 等价于只填 action、不指定 scene。
+    """
+
+    scene: str | None = None
+    action: str = ""
+
+    @property
+    def has_content(self) -> bool:
+        """是否包含可用于开场的信息。"""
+        return bool((self.scene and self.scene.strip()) or (self.action and self.action.strip()))
+
+
 class CharacterConfig(Struct):
     """角色配置"""
 
     name: str
     system_prompt: str
     greeting: str = ""
-    begin_scene: str | None = None
+    begin_scene: BeginScene | None = None
     example_dialogue: list[dict[str, str]] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -277,6 +312,7 @@ class AppConfig(Struct):
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     tool: ToolConfig = field(default_factory=ToolConfig)
+    scene: SceneConfig = field(default_factory=SceneConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
     think_engine: ThinkEngineConfig = field(default_factory=ThinkEngineConfig)
     initiative_timer: InitiativeTimerConfig = field(default_factory=InitiativeTimerConfig)

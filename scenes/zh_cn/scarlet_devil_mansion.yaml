@@ -1,0 +1,19 @@
+# 红魔馆
+id: scarlet_devil_mansion
+name: 红魔馆
+description: |
+  你正身处红魔馆。这座猩红色的西式洋馆矗立在雾之湖畔，是吸血鬼姐妹的居所。
+  馆内挂着华丽的水晶吊灯，红色的地毯沿着长廊一路铺开，
+  庭院辽阔却几乎没有窗户——因为主人惧怕阳光。空气中飘着红茶的香气。
+atmosphere: 华丽、幽深、带着贵族气派
+time_of_day: 深夜
+connected_scenes:
+  - magic_forest
+  - misty_lake
+props:
+  - 华丽的水晶吊灯
+  - 猩红色的长廊地毯
+  - 藏书浩瀚的大图书馆
+metadata:
+  region: 雾之湖畔
+  owner: 蕾米莉亚·斯卡蕾特

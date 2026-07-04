@@ -138,3 +138,4 @@
 - [`v2026.6.23.0.md`](changelog/v2026.6.23.0.md)：主动定时器后台化、ThinkEngine 职责统一、角色卡 metadata/example_dialogue 注入、角色扮演视角约束（中间版本，未打 tag）。
 - [`v2026.6.25.0.md`](changelog/v2026.6.25.0.md)：合并 6.23 所有变更的正式发布版本。
 - [`v2026.6.25.1.md`](changelog/v2026.6.25.1.md)：性能优化（HTTP 连接池、msgspec 序列化、角色配置缓存、分片锁）。
+- [`v2026.7.4.0.md`](changelog/v2026.7.4.0.md)：场景系统（SceneManager、scene_switch / get_current_scene 工具、会话持久化、SCENE_SWITCHED 事件），begin_scene 升级为「场景 + 开场动作」。

@@ -14,6 +14,7 @@ from .config_schema import (
     MemoryConfig,
     ModelConfig,
     ResourceControlConfig,
+    SceneConfig,
     SessionConfig,
     ThinkEngineConfig,
     TopicGenerationConfig,
@@ -221,6 +222,8 @@ class ConfigValidator:
             self._validate_memory_data(data.get("memory") or {}, diagnostics)
         if "tool" in data:
             self._validate_tool_data(data.get("tool") or {}, diagnostics)
+        if "scene" in data:
+            self._validate_scene_data(data.get("scene") or {}, diagnostics)
         if "session" in data:
             self._validate_session_data(data.get("session") or {}, diagnostics)
         if "think_engine" in data:
@@ -774,6 +777,23 @@ class ConfigValidator:
             code="config.tool.web_search.api.endpoint.unsafe",
         )
 
+    def _validate_scene_data(self, data: Any, diagnostics: list[ConfigDiagnostic]) -> None:
+        self._validate_object("scene", data, diagnostics)
+        if not isinstance(data, dict):
+            return
+        self._validate_unknown_fields(
+            "scene", data, self._struct_field_names(SceneConfig), diagnostics
+        )
+        default_scene = data.get("default_scene")
+        if default_scene is not None and not isinstance(default_scene, str):
+            diagnostics.append(
+                self._error(
+                    "scene.default_scene",
+                    "scene.default_scene 必须是字符串场景 id 或留空。",
+                    code="config.scene.default_scene_type",
+                )
+            )
+
     def _validate_session_data(self, data: Any, diagnostics: list[ConfigDiagnostic]) -> None:
         self._validate_object("session", data, diagnostics)
         if not isinstance(data, dict):
@@ -1264,6 +1284,7 @@ class ConfigValidator:
             "embedding",
             "memory",
             "tool",
+            "scene",
             "session",
             "think_engine",
             "initiative_timer",
