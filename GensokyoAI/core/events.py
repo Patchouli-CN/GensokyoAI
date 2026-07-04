@@ -45,7 +45,7 @@ class SystemEvent(Enum):
     MESSAGE_SENT = "message.sent"
     MESSAGE_STREAM_CHUNK = "message.stream.chunk"
 
-    # 🆕 响应生成事件（替代直接调用）
+    # 响应生成事件（替代直接调用）
     GENERATE_RESPONSE = "generate.response"  # 请求生成响应
     RESPONSE_STREAMING = "response.streaming"  # 流式响应中
     RESPONSE_COMPLETED = "response.completed"  # 响应完成
@@ -115,7 +115,7 @@ class SystemEvent(Enum):
     INITIATIVE_TIMER_TRIGGERED = "initiative_timer.triggered"
     INITIATIVE_TIMER_DISCARDED = "initiative_timer.discarded"
 
-    # 🆕 行动决策事件
+    # 行动决策事件
     ACTION_DECIDED = "action.decided"  # ActionPlanner 决策完成
     ACTION_EXECUTED = "action.executed"  # ActionExecutor 执行完成
 

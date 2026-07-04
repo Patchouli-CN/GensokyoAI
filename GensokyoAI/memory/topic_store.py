@@ -383,7 +383,7 @@ class TopicAwareStore:
         self,
         content: str,
         importance: float = 0.0,
-        emotional_valence: float = 0.0,  # 🆕
+        emotional_valence: float = 0.0,
         model_client: ModelClient | None = None,
         topic_name: str | None = None,
     ) -> Topic | None:
@@ -419,7 +419,7 @@ class TopicAwareStore:
                 name=topic_name,
                 summary=content[: self.topic_config.summary_max_length],
                 importance=importance,
-                emotional_valence=emotional_valence,  # 🆕
+                emotional_valence=emotional_valence,
             )
             topic.message_ids.append(memory.id)
             topic.message_count = 1
@@ -449,7 +449,7 @@ class TopicAwareStore:
                 if best_score >= 7.0:
                     topic = self._topics[best_id]
                     self._update_topic(topic, memory, importance, best_score, emotional_valence)
-                    self._refresh_topic(topic, boost=0.03)  # 🆕 刷新
+                    self._refresh_topic(topic, boost=0.03)  # 刷新
                     self._update_edges(topic.id, scores)
                     await self._save_async()
                     logger.debug(f"更新话题: {topic.name} (相关性: {best_score:.1f})")
@@ -463,7 +463,7 @@ class TopicAwareStore:
             name=fallback_name,
             summary=content[: self.topic_config.summary_max_length],
             importance=importance,
-            emotional_valence=emotional_valence,  # 🆕
+            emotional_valence=emotional_valence,
         )
         topic.message_ids.append(memory.id)
         topic.message_count = 1
@@ -491,7 +491,7 @@ class TopicAwareStore:
         topic.message_count += 1
         topic.importance += importance * (score / 10.0)
 
-        # 🆕 情感效价加权平均
+        # 情感效价加权平均
         old_weight = topic.message_count - 1
         new_weight = 1
         topic.emotional_valence = (

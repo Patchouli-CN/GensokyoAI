@@ -31,7 +31,7 @@ async def remember(
     content: str,
     topic: str = "",
     importance: int = 5,
-    emotional_valence: float = 0.0,  # 🆕 情感效价 -1.0到1.0
+    emotional_valence: float = 0.0,  # 情感效价 -1.0到1.0
 ) -> str:
     """
     记住重要的信息。当你了解到新的事实、产生情感波动或发现重要事件时主动调用。
@@ -62,7 +62,7 @@ async def remember(
         data={
             "content": content,
             "importance": normalized_importance,
-            "emotional_valence": emotional_valence,  # 🆕
+            "emotional_valence": emotional_valence,
             "topic_name": topic if topic else None,
         },
     )
@@ -124,7 +124,7 @@ async def update_memory(
     reason: str = "信息更新",
 ) -> str:
     """
-    🆕 更新已有的记忆（当发现旧信息过时或不准确时调用）
+    更新已有的记忆（当发现旧信息过时或不准确时调用）
 
     Args:
         topic: 要更新的话题名

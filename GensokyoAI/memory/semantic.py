@@ -21,7 +21,7 @@ class SemanticMemoryManager:
         self,
         config: MemoryConfig,
         character_id: str,
-        memory_path: Path,  # 🆕 直接传完整路径
+        memory_path: Path,  # 直接传完整路径
         model_client: ModelClient,
     ):
         self.config = config
@@ -29,7 +29,7 @@ class SemanticMemoryManager:
         self._model_client = model_client
         self._enabled = config.semantic_enabled
 
-        # 🆕 直接使用传入的路径
+        # 直接使用传入的路径
         store_path = memory_path / "topics.json"
         self._store = TopicAwareStore(
             store_path, max_topics=50, topic_config=config.topic_generation

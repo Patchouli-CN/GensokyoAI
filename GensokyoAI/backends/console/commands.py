@@ -51,7 +51,7 @@ async def cmd_new(ctx: CommandContext) -> CommandResult:
 @command(name="save", cmd_type=CommandType.SYSTEM, description="保存当前会话")
 async def cmd_save(ctx: CommandContext) -> CommandResult:
     """保存会话"""
-    # 🆕 强制同步保存
+    # 强制同步保存
     await ctx.agent_inst.save_coordinator.save_async(ctx.agent_inst.working_memory, force=True)
     return CommandResult.success("save", "会话已保存")
 
@@ -125,7 +125,7 @@ async def cmd_errors(ctx: CommandContext) -> CommandResult:
     else:
         backend.console.print("[dim]错误监听器未初始化[/]")
 
-    # 🆕 显示 EventBus 状态
+    # 显示 EventBus 状态
     if hasattr(agent, "event_bus"):
         stats = agent.event_bus.stats
         backend.console.print("\n[bold]EventBus 状态:[/]")

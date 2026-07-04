@@ -108,7 +108,7 @@ async def main():
             console.print(f"[red]✗ 会话不存在: {args.resume}[/]")
             return
     elif args.new_session:
-        # 🔧 --new-session 强制创建新会话，不复用
+        # --new-session 强制创建新会话，不复用
         session = agent.create_session()
         console.print(f"[green]✓ 已创建新会话: {session.session_id[:8]}...[/]")
     else:

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from .message_builder import MessageBuilder
     from .model_client import ModelClient
 
-# 🆕 模型可能意外输出的 XML 标签残留（如 <get_current_time>, </think> 等）
+# 模型可能意外输出的 XML 标签残留（如 <get_current_time>, </think> 等）
 _XML_TAG_PATTERN = re.compile(r"</?[a-z_]+[^>]*>")
 
 

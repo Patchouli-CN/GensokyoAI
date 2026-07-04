@@ -155,12 +155,12 @@ class MessageBuilder:
         """
         messages: list[dict[str, str]] = [{"role": "system", "content": self.system_prompt}]
 
-        # 🆕 1. 注入来自用户界面的系统级上下文（如 <attention>、<know>、<meta>）
+        # 1. 注入来自用户界面的系统级上下文（如 <attention>、<know>、<meta>）
         if system_contexts:
             for ctx in system_contexts:
                 messages.append({"role": "system", "content": ctx})
 
-        # 🆕 注入角色示例对话（few-shot），帮助模型理解角色风格
+        # 注入角色示例对话（few-shot），帮助模型理解角色风格
         # 限制最多 3 条，避免挤占上下文
         if self._example_dialogue:
             messages.append({"role": "system", "content": "【角色对话风格示例】"})

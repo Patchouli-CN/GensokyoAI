@@ -116,7 +116,7 @@ class ActionPlanner:
 
     async def _on_tool_completed(self, event: Event) -> None:
         """工具执行完成 - 不需要再触发 SPEAK"""
-        # 🔧 FIX: response_handler.process_stream 已经在工具调用后
+        # FIX: response_handler.process_stream 已经在工具调用后
         # 自动进行了第二次流式调用并生成了最终回复，
         # 这里不需要再发布 SPEAK 行动，否则会导致重复调用和空消息
         pass  # 什么都不做

@@ -194,7 +194,7 @@ class MemoryServiceListeners:
             self.event_bus.respond(event, None)
             return
 
-        # 🆕 立即响应，不等待存储完成，同时返回审核/追踪元数据
+        # 立即响应，不等待存储完成，同时返回审核/追踪元数据
         self.event_bus.respond(
             event,
             {

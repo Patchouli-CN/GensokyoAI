@@ -30,7 +30,7 @@ class SaveCoordinator:
         self._session_config = session_config
 
         # 状态
-        self._last_saved_content_hash: str = ""  # 🆕 用内容哈希去重
+        self._last_saved_content_hash: str = ""  # 用内容哈希去重
         self._save_pending = False
         self._last_saved_turn = 0
 
@@ -86,7 +86,7 @@ class SaveCoordinator:
         if current_turn <= self._last_saved_turn:
             return False
 
-        # 🆕 内容没变，不保存（更强的去重）
+        # 内容没变，不保存（更强的去重）
         current_hash = self._get_content_hash(working_memory)
         if current_hash == self._last_saved_content_hash:
             logger.debug("内容未变化，跳过保存")
