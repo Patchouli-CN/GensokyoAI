@@ -148,6 +148,36 @@ class SceneManagerTests(unittest.IsolatedAsyncioTestCase):
         manager.reset_for_session(None)
         self.assertIsNone(await manager.build_injection_context())
 
+    async def test_injection_lists_all_scene_ids_when_free_movement(self):
+        # 默认 enforce_connectivity=False：可自由飞行，注入应列出全部场景 id
+        manager = self._manager(default_scene="hakurei_shrine")
+        manager.reset_for_session("hakurei_shrine")
+        ctx = await manager.build_injection_context()
+        self.assertIsNotNone(ctx)
+        self.assertIn("可前往的场景", ctx)
+        # 全部 3 个场景 id 都应出现（含不与神社相邻的竹林）
+        self.assertIn("hakurei_shrine", ctx)
+        self.assertIn("magic_forest", ctx)
+        self.assertIn("bamboo_forest", ctx)
+
+    async def test_injection_lists_only_connected_when_enforced(self):
+        # enforce_connectivity=True：仅列相邻场景（神社只连魔法森林）
+        manager = self._manager(default_scene="hakurei_shrine", enforce_connectivity=True)
+        manager.reset_for_session("hakurei_shrine")
+        ctx = await manager.build_injection_context()
+        self.assertIsNotNone(ctx)
+        self.assertIn("magic_forest", ctx)
+        # 不相邻的竹林不应出现在可前往清单里
+        self.assertNotIn("bamboo_forest", ctx)
+
+    async def test_render_available_scenes_free_lists_every_scene(self):
+        manager = self._manager()
+        await manager.load_library()
+        current = await manager.get_scene("hakurei_shrine")
+        listing = await manager.render_available_scenes(current)
+        for sid in ("hakurei_shrine", "magic_forest", "bamboo_forest"):
+            self.assertIn(sid, listing)
+
 
 class BeginSceneNormalizationTests(unittest.TestCase):
     def _normalize(self, value):

@@ -189,15 +189,51 @@ class SceneManager:
 
     # ==================== 上下文注入 ====================
 
+    async def render_available_scenes(self, current_scene: Scene | None = None) -> str:
+        """渲染"可前往的场景"清单（带 id），让模型准确知道能切到哪些场景。
+
+        - enforce_connectivity=False（默认，可自由飞行往来）：列出全部场景，可任意前往。
+        - enforce_connectivity=True（仅限只能步行的角色）：只列出当前场景的相邻场景。
+        """
+        await self.load_library()
+        if not self._library:
+            return ""
+
+        if self.config.enforce_connectivity and current_scene is not None:
+            allowed_ids = current_scene.connected_scenes
+            scenes = [self._library[sid] for sid in allowed_ids if sid in self._library]
+            if not scenes:
+                return "【可前往的场景】当前场景没有相邻场景，暂时无法前往别处。"
+            listing = "、".join(f"{s.name}({s.id})" for s in scenes)
+            return (
+                "【可前往的场景】你只能步行前往与当前场景相邻的地点，"
+                f"用 scene_switch 切换：{listing}。"
+            )
+
+        # 自由往来：列出全部场景
+        listing = "、".join(f"{s.name}({s.id})" for s in self._library.values())
+        return (
+            "【可前往的场景】你可以自由前往幻想乡的任意地点，"
+            f"想移动时用 scene_switch 切换到对应 id：{listing}。"
+        )
+
+    async def render_scene_with_options(self, scene: Scene) -> str:
+        """组合"当前场景描述 + 可前往场景清单"，供首轮注入与 get_current_scene 复用。"""
+        parts = [scene.render()]
+        options = await self.render_available_scenes(scene)
+        if options:
+            parts.append(options)
+        return "\n".join(parts)
+
     async def build_injection_context(self) -> str | None:
-        """若本会话尚未注入过场景上下文，返回当前场景描述并置位；否则返回 None。"""
+        """若本会话尚未注入过场景上下文，返回当前场景描述+可前往清单并置位；否则返回 None。"""
         if not self._enabled or self._context_injected:
             return None
         scene = await self.get_current_scene()
         if scene is None:
             return None
         self._context_injected = True
-        return scene.render()
+        return await self.render_scene_with_options(scene)
 
     def mark_context_injected(self) -> None:
         """显式标记本会话已注入过场景上下文。"""

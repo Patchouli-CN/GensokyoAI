@@ -38,8 +38,11 @@ async def scene_switch(scene_id: str) -> str:
     切换你当前所处的场景。当剧情发展让你移动到另一个地点时主动调用，
     例如从博丽神社走到魔法森林。切换后系统会记住你的新位置。
 
+    只能使用上下文里【可前往的场景】清单中列出的场景 id（括号里的英文标识符），
+    不要凭空编造 id。如果不确定有哪些场景或自己在哪，先调用 get_current_scene 查看。
+
     Args:
-        scene_id: 目标场景的标识符（如 hakurei_shrine、magic_forest）
+        scene_id: 目标场景的标识符，必须取自【可前往的场景】清单，如 hakurei_shrine
     """
     event_bus = get_event_bus()
     if event_bus is None:
@@ -70,8 +73,8 @@ async def scene_switch(scene_id: str) -> str:
 @tool()
 async def get_current_scene() -> str:
     """
-    查看你当前所处的场景。当你不确定自己现在身处何地时调用，
-    系统会告诉你当前场景的名称和环境描述。
+    查看你当前所处的场景。当你不确定自己现在身处何地、或想知道能前往哪些地点时调用，
+    系统会告诉你当前场景的名称、环境描述，以及可前往的场景清单（含可用的 scene id）。
     """
     event_bus = get_event_bus()
     if event_bus is None:

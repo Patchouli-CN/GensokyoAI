@@ -406,9 +406,10 @@ class SceneServiceListeners:
             self.event_bus.respond(event, None)
             return
 
+        description = await manager.render_scene_with_options(scene)
         self.event_bus.respond(
             event,
-            {"scene_id": scene.id, "name": scene.name, "description": scene.render()},
+            {"scene_id": scene.id, "name": scene.name, "description": description},
         )
 
     async def on_session_scene_sync(self, event: Event) -> None:
