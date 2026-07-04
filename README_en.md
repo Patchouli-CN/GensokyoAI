@@ -66,6 +66,7 @@ Current Runtime RPC support includes:
 - `session.delete` / `session.export` / `session.rename` / `session.messages` / `session.replace_messages` / `session.regenerate_from` / `session.rollback`
 - `initiative_timer.current` / `initiative_timer.update` / `initiative_timer.cancel` / `initiative_timer.trigger`
 - `memory.list` / `memory.search` / `memory.get` / `memory.update` / `memory.delete` / `memory.graph`
+- `scene.current` / `scene.list` / `scene.get` / `scene.switch` / `scene.graph`
 - `dependency.status` / `dependency.install`
 - `external_tool.status`
 
@@ -462,6 +463,7 @@ Main capabilities currently exposed:
 - `session.rename`: renames a session; the title is saved to session `metadata.title` without changing the old session file structure.
 - `initiative_timer.current` / `initiative_timer.update` / `initiative_timer.cancel` / `initiative_timer.trigger`: view, edit, cancel, or immediately trigger AI initiative timer summaries.
 - `memory.list` / `memory.search` / `memory.get` / `memory.update` / `memory.delete` / `memory.graph`: manage current session semantic memory and topic graph.
+- `scene.current` / `scene.list` / `scene.get` / `scene.switch` / `scene.graph`: query and switch the current scene, list the scene library and connectivity graph—so frontends can orchestrate the stage programmatically.
 - `dependency.status` / `dependency.install`: query and install whitelist provider optional dependencies; installation actions are protected by Runtime resource gates.
 - `external_tool.status`: query external tool source status.
 

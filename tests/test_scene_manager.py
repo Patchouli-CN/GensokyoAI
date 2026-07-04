@@ -417,5 +417,147 @@ class SceneAgentIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.agent.scene_manager.current_scene_id, "hakurei_shrine")
 
 
+class SceneRuntimeRpcTests(unittest.IsolatedAsyncioTestCase):
+    """通过真实 RuntimeService + Agent 验证 scene.* RPC 方法全链路。"""
+
+    @classmethod
+    def setUpClass(cls):
+        from GensokyoAI.core.agent.providers import ProviderFactory
+        from GensokyoAI.core.agent.providers.base import BaseProvider
+        from GensokyoAI.core.agent.types import UnifiedResponse
+
+        class _SceneRpcProvider(BaseProvider):
+            async def chat(self, model, messages, tools=None, options=None, **kwargs):
+                return UnifiedResponse(model=model)
+
+            async def chat_stream(self, model, messages, tools=None, options=None, **kwargs):
+                if False:
+                    yield None
+
+        ProviderFactory.register("scene_rpc_test", _SceneRpcProvider)
+
+    async def asyncSetUp(self):
+        from unittest.mock import patch
+
+        import yaml
+
+        from GensokyoAI.core.agent import Agent
+        from GensokyoAI.core.config import AppConfig, CharacterConfig, ModelConfig, SessionConfig
+        from GensokyoAI.runtime.service import RuntimeService
+
+        self._tmp = tempfile.TemporaryDirectory()
+        base = Path(self._tmp.name)
+        self.library = base / "scenes"
+        self.library.mkdir()
+
+        for sid, name, connected in [
+            ("hakurei_shrine", "博丽神社", ["magic_forest"]),
+            ("magic_forest", "魔法森林", ["hakurei_shrine"]),
+        ]:
+            (self.library / f"{sid}.yaml").write_text(
+                yaml.safe_dump(
+                    {
+                        "id": sid,
+                        "name": name,
+                        "description": f"{name}的描述。",
+                        "connected_scenes": connected,
+                    },
+                    allow_unicode=True,
+                ),
+                encoding="utf-8",
+            )
+
+        config = AppConfig(
+            character=CharacterConfig(name="Reimu", system_prompt="你是灵梦。"),
+            model=ModelConfig(provider="scene_rpc_test", name="test-model"),
+            session=SessionConfig(save_path=base / "sessions"),
+            scene=SceneConfig(
+                enabled=True,
+                library_path=self.library,
+                default_scene="hakurei_shrine",
+            ),
+        )
+        with patch("GensokyoAI.core.agent.lifecycle.LifecycleManager.setup_signal_handlers"):
+            self.agent = Agent(config=config)
+        self.agent.create_session()
+        await self.agent.event_bus.start()
+        await self.agent.scene_manager.load_library()
+        await self.agent._sync_scene_for_current_session()
+
+        self.service = RuntimeService()
+        self.service.state.agent = self.agent
+
+    async def asyncTearDown(self):
+        await self.agent.event_bus.stop()
+        self._tmp.cleanup()
+
+    async def test_scene_methods_listed_in_runtime_info(self):
+        info = await self.service.handle("runtime.info")
+        for m in ("scene.current", "scene.list", "scene.get", "scene.switch", "scene.graph"):
+            self.assertIn(m, info["methods"])
+
+    async def test_scene_current(self):
+        payload = await self.service.handle("scene.current")
+        self.assertEqual(payload["id"], "hakurei_shrine")
+        self.assertEqual(payload["name"], "博丽神社")
+        self.assertIn("magic_forest", payload["connected_scenes"])
+
+    async def test_scene_list(self):
+        payload = await self.service.handle("scene.list")
+        ids = {s["id"] for s in payload}
+        self.assertEqual(ids, {"hakurei_shrine", "magic_forest"})
+
+    async def test_scene_get(self):
+        payload = await self.service.handle("scene.get", {"scene_id": "magic_forest"})
+        self.assertEqual(payload["name"], "魔法森林")
+
+    async def test_scene_get_unknown_returns_structured_error(self):
+        # 默认 structured_errors=True：客户端拿到结构化错误而非异常
+        payload = await self.service.handle("scene.get", {"scene_id": "nope"})
+        self.assertIn("error", payload)
+        # structured_errors=False 时才抛出
+        with self.assertRaises(ValueError):
+            await self.service.handle(
+                "scene.get", {"scene_id": "nope"}, structured_errors=False
+            )
+
+    async def test_scene_switch_persists_and_returns(self):
+        from GensokyoAI.core.events import SystemEvent
+
+        broadcasts: list[dict] = []
+        self.agent.event_bus.subscribe(
+            SystemEvent.SCENE_SWITCHED,
+            lambda event: broadcasts.append(event.data),
+        )
+
+        payload = await self.service.handle("scene.switch", {"scene_id": "magic_forest"})
+        self.assertTrue(payload["switched"])
+        self.assertEqual(payload["scene"]["id"], "magic_forest")
+        # 复用工具路径：状态、持久化、广播三者一致
+        self.assertEqual(self.agent.scene_manager.current_scene_id, "magic_forest")
+        session = self.agent.session_manager.get_current_session()
+        self.assertEqual(session.metadata.get("current_scene_id"), "magic_forest")
+        self.assertTrue(broadcasts)
+        self.assertEqual(broadcasts[-1]["scene_id"], "magic_forest")
+
+    async def test_scene_switch_unknown_returns_structured_error(self):
+        payload = await self.service.handle("scene.switch", {"scene_id": "nonexistent"})
+        self.assertIn("error", payload)
+        # 当前场景保持不变
+        self.assertEqual(self.agent.scene_manager.current_scene_id, "hakurei_shrine")
+        with self.assertRaises(ValueError):
+            await self.service.handle(
+                "scene.switch", {"scene_id": "nonexistent"}, structured_errors=False
+            )
+
+    async def test_scene_graph(self):
+        graph = await self.service.handle("scene.graph")
+        node_ids = {n["id"] for n in graph["nodes"]}
+        self.assertEqual(node_ids, {"hakurei_shrine", "magic_forest"})
+        self.assertEqual(graph["current_scene_id"], "hakurei_shrine")
+        # 神社 → 魔法森林 的连通边存在
+        self.assertIn({"from": "hakurei_shrine", "to": "magic_forest"}, graph["edges"])
+
+
 if __name__ == "__main__":
     unittest.main()

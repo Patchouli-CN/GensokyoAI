@@ -351,9 +351,15 @@ class SceneServiceListeners:
             return None
         return manager
 
+    _SCENE_REQUEST_SOURCES = ("tool.", "runtime.")
+
+    def _is_scene_request(self, event: Event) -> bool:
+        """场景请求来源白名单：模型工具（tool.*）或 Runtime RPC（runtime.*）。"""
+        return event.source.startswith(self._SCENE_REQUEST_SOURCES)
+
     async def on_scene_switch_request(self, event: Event) -> None:
         """处理场景切换请求：切换 + 持久化到会话 + 广播 SCENE_SWITCHED。"""
-        if not event.source.startswith("tool."):
+        if not self._is_scene_request(event):
             return
 
         manager = self._scene_manager()
@@ -387,7 +393,7 @@ class SceneServiceListeners:
 
     async def on_scene_query_current(self, event: Event) -> None:
         """处理当前场景查询。"""
-        if not event.source.startswith("tool."):
+        if not self._is_scene_request(event):
             return
 
         manager = self._scene_manager()

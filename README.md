@@ -66,6 +66,7 @@ GensokyoAI 提供前端无关的 Runtime 边界。机器可读版本、能力、
 - `session.delete` / `session.export` / `session.rename` / `session.messages` / `session.replace_messages` / `session.regenerate_from` / `session.rollback`
 - `initiative_timer.current` / `initiative_timer.update` / `initiative_timer.cancel` / `initiative_timer.trigger`
 - `memory.list` / `memory.search` / `memory.get` / `memory.update` / `memory.delete` / `memory.graph`
+- `scene.current` / `scene.list` / `scene.get` / `scene.switch` / `scene.graph`
 - `dependency.status` / `dependency.install`
 - `external_tool.status`
 
@@ -465,6 +466,7 @@ GensokyoAI 提供前端无关的 Runtime 服务边界，当前可通过 [`bridge
 - `session.rename`：重命名会话，标题保存到会话 `metadata.title` 中，不改变旧会话文件结构。
 - `initiative_timer.current` / `initiative_timer.update` / `initiative_timer.cancel` / `initiative_timer.trigger`：查看、编辑、取消或立即触发 AI 主动定时器摘要。
 - `memory.list` / `memory.search` / `memory.get` / `memory.update` / `memory.delete` / `memory.graph`：管理当前会话语义记忆与话题图。
+- `scene.current` / `scene.list` / `scene.get` / `scene.switch` / `scene.graph`：查询、切换当前场景，列出场景库与连通图，供前端程序化编排舞台。
 - `dependency.status` / `dependency.install`：查询和安装白名单内 Provider 可选依赖；安装动作受 Runtime 资源闸门保护。
 - `external_tool.status`：查询外部工具来源状态。
 

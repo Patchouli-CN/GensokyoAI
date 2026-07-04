@@ -1034,6 +1034,95 @@ class RuntimeService:
             "edge_count": len(graph.get("edges", [])),
         }
 
+    # ==================== 场景（Scene）====================
+
+    def _require_scene_manager(self) -> Any:
+        """Return the enabled scene manager, or raise if scenes are disabled."""
+        agent = self._require_agent()
+        manager = getattr(agent, "scene_manager", None)
+        if manager is None or not getattr(manager, "enabled", False):
+            raise RuntimeError("Scene system is not enabled")
+        return manager
+
+    @staticmethod
+    def _scene_payload(scene: Any) -> dict[str, Any]:
+        """Serialize a Scene into a stable, client-facing structure."""
+        return {
+            "id": scene.id,
+            "name": scene.name,
+            "description": scene.description,
+            "atmosphere": scene.atmosphere,
+            "time_of_day": scene.time_of_day,
+            "connected_scenes": list(scene.connected_scenes),
+            "props": list(scene.props),
+            "metadata": dict(scene.metadata),
+        }
+
+    async def scene_current(self) -> dict[str, Any] | None:
+        """Return the current scene of the active session, or None."""
+        manager = self._require_scene_manager()
+        scene = await manager.get_current_scene()
+        return self._scene_payload(scene) if scene else None
+
+    async def scene_list(self) -> list[dict[str, Any]]:
+        """List every scene in the shared scene library."""
+        manager = self._require_scene_manager()
+        scenes = await manager.list_scenes()
+        return [self._scene_payload(scene) for scene in scenes]
+
+    async def scene_get(self, scene_id: str) -> dict[str, Any]:
+        """Return a single scene definition by id."""
+        if not scene_id:
+            raise ValueError("Scene id is required")
+        manager = self._require_scene_manager()
+        scene = await manager.get_scene(scene_id)
+        if scene is None:
+            raise ValueError(f"Scene does not exist: {scene_id}")
+        return self._scene_payload(scene)
+
+    async def scene_switch(self, scene_id: str) -> dict[str, Any]:
+        """Switch the current scene from the frontend/integration side.
+
+        Reuses the same SCENE_SWITCH_REQUESTED path as the model tool, so the
+        switch is validated, persisted to the session, and broadcast via
+        SCENE_SWITCHED identically.
+        """
+        if not scene_id:
+            raise ValueError("Scene id is required")
+        self._require_scene_manager()
+        agent = self._require_agent()
+        request_event = Event(
+            type=SystemEvent.SCENE_SWITCH_REQUESTED,
+            source="runtime.scene_switch",
+            data={"scene_id": scene_id},
+        )
+        result = await agent.event_bus.request(request_event, timeout=10.0)
+        if not isinstance(result, dict) or not result.get("ok"):
+            error = (result or {}).get("error") if isinstance(result, dict) else None
+            raise ValueError(error or "Failed to switch scene")
+        return {"switched": True, "scene": await self.scene_current()}
+
+    async def scene_graph(self) -> dict[str, Any]:
+        """Return the scene connectivity graph for visualization."""
+        manager = self._require_scene_manager()
+        scenes = await manager.list_scenes()
+        valid_ids = {scene.id for scene in scenes}
+        nodes = [{"id": scene.id, "name": scene.name} for scene in scenes]
+        edges = [
+            {"from": scene.id, "to": target}
+            for scene in scenes
+            for target in scene.connected_scenes
+            if target in valid_ids
+        ]
+        current = await manager.get_current_scene()
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "current_scene_id": current.id if current else None,
+            "enforce_connectivity": bool(manager.config.enforce_connectivity),
+            "generated_at": utc_now().isoformat(),
+        }
+
     async def create_event_subscription(
         self,
         event_types: list[str] | None = None,

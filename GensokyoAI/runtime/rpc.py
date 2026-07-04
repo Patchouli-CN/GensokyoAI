@@ -97,6 +97,11 @@ RPC_METHOD_SPECS: tuple[RpcMethodSpec, ...] = (
     RpcMethodSpec("memory.update", "memory_update"),
     RpcMethodSpec("memory.delete", "memory_delete"),
     RpcMethodSpec("memory.graph", "memory_graph"),
+    RpcMethodSpec("scene.current", "scene_current"),
+    RpcMethodSpec("scene.list", "scene_list"),
+    RpcMethodSpec("scene.get", "scene_get"),
+    RpcMethodSpec("scene.switch", "scene_switch"),
+    RpcMethodSpec("scene.graph", "scene_graph"),
     RpcMethodSpec("init", "init", legacy=True, replacement="agent.init", remove_after="2.0.0"),
     RpcMethodSpec(
         "send_message",
