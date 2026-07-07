@@ -517,9 +517,7 @@ class SceneRuntimeRpcTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("error", payload)
         # structured_errors=False 时才抛出
         with self.assertRaises(ValueError):
-            await self.service.handle(
-                "scene.get", {"scene_id": "nope"}, structured_errors=False
-            )
+            await self.service.handle("scene.get", {"scene_id": "nope"}, structured_errors=False)
 
     async def test_scene_switch_persists_and_returns(self):
         from GensokyoAI.core.events import SystemEvent
