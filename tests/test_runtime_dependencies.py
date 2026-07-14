@@ -37,6 +37,9 @@ from GensokyoAI.runtime.dependencies import (
     packages_for_providers,
 )
 from GensokyoAI.runtime.rpc import (
+    RUNTIME_BREAKING_CHANGES,
+    RUNTIME_PROTOCOL_MAJOR_VERSION,
+    RUNTIME_PROTOCOL_VERSION,
     RpcMethodNotFoundError,
     dispatch_rpc,
     legacy_rpc_methods,
@@ -479,10 +482,21 @@ class PackagingConfigurationTests(unittest.TestCase):
         requirements = self._requirements_entries()
 
         self.assertIn("aiohttp>=3.9", requirements)
+        self.assertIn("ayafileio>=1.4.6", requirements)
+        self.assertIn("ddgs>=9.14.4", requirements)
         self.assertNotIn("ollama", requirements)
         self.assertNotIn("openai", requirements)
         self.assertNotIn("anthropic", requirements)
         self.assertNotIn("google-genai", requirements)
+
+    def test_release_package_version_and_core_dependencies_are_consistent(self):
+        pyproject = self._load_pyproject()
+        project = pyproject["project"]
+        requirements = set(self._requirements_entries())
+
+        self.assertEqual(project["version"], "2026.7.14.0")
+        self.assertEqual(package_version(), "2026.7.14.0")
+        self.assertEqual(set(project["dependencies"]), requirements)
 
     def test_pyproject_declares_default_all_and_dev_dependency_groups(self):
         pyproject = self._load_pyproject()
@@ -551,19 +565,39 @@ class RuntimeModelRpcTests(unittest.TestCase):
 
 class RuntimeRpcDispatchTests(unittest.TestCase):
     def test_rpc_method_lists_are_owned_by_runtime_rpc_module(self):
-        self.assertIn("runtime.info", rpc_methods())
-        self.assertIn("dependency.status", rpc_methods())
-        self.assertIn("model.list", rpc_methods())
-        self.assertIn("model.info", rpc_methods())
-        self.assertIn("agent.send_message_stream", rpc_methods())
-        self.assertIn("session.current", rpc_methods())
-        self.assertIn("session.delete", rpc_methods())
-        self.assertIn("session.export", rpc_methods())
-        self.assertIn("session.rename", rpc_methods())
-        self.assertIn("session.messages", rpc_methods())
-        self.assertIn("session.replace_messages", rpc_methods())
-        self.assertIn("session.regenerate_from", rpc_methods())
-        self.assertIn("session.rollback", rpc_methods())
+        methods = rpc_methods()
+        added_since_v2026_5_13_0 = {
+            "session.messages",
+            "session.replace_messages",
+            "session.regenerate_from",
+            "initiative_timer.current",
+            "initiative_timer.update",
+            "initiative_timer.cancel",
+            "initiative_timer.trigger",
+            "initiative_timer.hesitation",
+            "initiative_timer.hesitation.set",
+            "scene.current",
+            "scene.list",
+            "scene.get",
+            "scene.switch",
+            "scene.graph",
+        }
+
+        self.assertEqual(len(added_since_v2026_5_13_0), 14)
+        self.assertTrue(added_since_v2026_5_13_0.issubset(methods))
+        self.assertIn("runtime.info", methods)
+        self.assertIn("dependency.status", methods)
+        self.assertIn("model.list", methods)
+        self.assertIn("model.info", methods)
+        self.assertIn("agent.send_message_stream", methods)
+        self.assertIn("session.current", methods)
+        self.assertIn("session.delete", methods)
+        self.assertIn("session.export", methods)
+        self.assertIn("session.rename", methods)
+        self.assertIn("session.messages", methods)
+        self.assertIn("session.replace_messages", methods)
+        self.assertIn("session.regenerate_from", methods)
+        self.assertIn("session.rollback", methods)
         self.assertNotIn("init", rpc_methods())
         self.assertIn("init", legacy_rpc_methods())
         self.assertIn("install_dependencies", legacy_rpc_methods())
@@ -584,8 +618,13 @@ class RuntimeRpcDispatchTests(unittest.TestCase):
 
         info = asyncio.run(run())
 
-        self.assertEqual(info["protocol_version"], "1.0.0")
+        self.assertEqual(RUNTIME_PROTOCOL_VERSION, "1.1.0")
+        self.assertEqual(RUNTIME_PROTOCOL_MAJOR_VERSION, 1)
+        self.assertEqual(RUNTIME_BREAKING_CHANGES, ())
+        self.assertEqual(info["protocol_version"], "1.1.0")
         self.assertEqual(info["protocol_major_version"], 1)
+        self.assertEqual(info["package_version"], "2026.7.14.0")
+        self.assertEqual(info["schema_versions"]["memory"], 2)
         self.assertIn("agent.streaming", info["capabilities"])
         self.assertIn("runtime.events", info["capabilities"])
         self.assertIn("memory.management", info["capabilities"])

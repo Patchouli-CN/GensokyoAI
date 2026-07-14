@@ -37,14 +37,14 @@ vYYYY.M.D.N
 
 | 位置 | 是否带 `v` | 示例 | 说明 |
 | --- | --- | --- | --- |
-| Python package version | 不带 | `2026.5.13.0` | 写入 [`pyproject.toml`](../pyproject.toml) |
-| Git tag | 带 | `v2026.5.13.0` | 发布 tag |
-| changelog 文件名 | 带 | `docs/changelog/v2026.5.13.0.md` | 对外更新日志 |
-| changelog 标题 | 带 | `# GensokyoAI v2026.5.13.0 更新日志` | 普通用户阅读 |
-| UI 展示版本 | 建议带 | `v2026.5.13.0` | 用户更容易识别 |
-| Runtime protocol version | 不带 | `1.0.0` | Runtime API 独立协议版本，JSON 字段值不带 `v` |
+| Python package version | 不带 | `2026.7.14.0` | 写入 [`pyproject.toml`](../pyproject.toml) |
+| Git tag | 带 | `v2026.7.14.0` | 发布 tag |
+| changelog 文件名 | 带 | `docs/changelog/v2026.7.14.0.md` | 对外更新日志 |
+| changelog 标题 | 带 | `# GensokyoAI v2026.7.14.0 更新日志` | 普通用户阅读 |
+| UI 展示版本 | 建议带 | `v2026.7.14.0` | 用户更容易识别 |
+| Runtime protocol version | 不带 | `1.1.0` | Runtime API 独立协议版本，JSON 字段值不带 `v` |
 
-注意：[`pyproject.toml`](../pyproject.toml) 中的 Python 包版本应遵循 PEP 440，不能写 `v2026.5.13.0`，应写 `2026.5.13.0`。
+注意：[`pyproject.toml`](../pyproject.toml) 中的 Python 包版本应遵循 PEP 440，不能写 `v2026.7.14.0`，应写 `2026.7.14.0`。
 
 ## 四、项目 / 包版本
 
@@ -52,7 +52,7 @@ vYYYY.M.D.N
 
 ```toml
 [project]
-version = "2026.6.25.0"
+version = "2026.7.14.0"
 ```
 
 用途：
@@ -77,9 +77,9 @@ Runtime 读取规则：
 示例：
 
 ```text
-pyproject.toml: version = "2026.6.25.0"
-Git tag: v2026.6.25.0
-Changelog: docs/changelog/v2026.6.25.0.md
+pyproject.toml: version = "2026.7.14.0"
+Git tag: v2026.7.14.0
+Changelog: docs/changelog/v2026.7.14.0.md
 ```
 
 ## 五、Runtime 协议版本
@@ -87,7 +87,7 @@ Changelog: docs/changelog/v2026.6.25.0.md
 Runtime 协议版本写在 [`rpc.py`](../GensokyoAI/runtime/rpc.py)：
 
 ```python
-RUNTIME_PROTOCOL_VERSION = "1.0.0"
+RUNTIME_PROTOCOL_VERSION = "1.1.0"
 RUNTIME_PROTOCOL_MAJOR_VERSION = 1
 ```
 
@@ -127,7 +127,7 @@ RUNTIME_PROTOCOL_MAJOR_VERSION = 1
 ```python
 CONFIG_SCHEMA_VERSION = 1
 SESSION_SCHEMA_VERSION = 1
-MEMORY_SCHEMA_VERSION = 1
+MEMORY_SCHEMA_VERSION = 2
 SESSION_EXPORT_SCHEMA_VERSION = 1
 CHARACTER_PACKAGE_SCHEMA_VERSION = 1
 ```
@@ -340,23 +340,23 @@ docs/
 
 | 类型 | 格式 | 示例 | 写入位置 |
 | --- | --- | --- | --- |
-| package version | `YYYY.M.D.N` | `2026.5.13.0` | [`pyproject.toml`](../pyproject.toml) |
-| Git tag | `vYYYY.M.D.N` | `v2026.5.13.0` | Git tag |
-| changelog | `vYYYY.M.D.N` | [`docs/changelog/v2026.5.13.0.md`](changelog) | [`docs/changelog`](changelog) |
-| Runtime protocol version | 独立语义版本 | `1.0.0` | [`rpc.py`](../GensokyoAI/runtime/rpc.py) |
+| package version | `YYYY.M.D.N` | `2026.7.14.0` | [`pyproject.toml`](../pyproject.toml) |
+| Git tag | `vYYYY.M.D.N` | `v2026.7.14.0` | Git tag |
+| changelog | `vYYYY.M.D.N` | [`docs/changelog/v2026.7.14.0.md`](changelog/v2026.7.14.0.md) | [`docs/changelog`](changelog) |
+| Runtime protocol version | 独立语义版本 | `1.1.0` | [`rpc.py`](../GensokyoAI/runtime/rpc.py) |
 | Runtime protocol major | integer | `1` | [`rpc.py`](../GensokyoAI/runtime/rpc.py) |
 | config schema | integer | `1` | [`schema_versions.py`](../GensokyoAI/core/schema_versions.py) |
 | session schema | integer | `1` | [`schema_versions.py`](../GensokyoAI/core/schema_versions.py) |
-| memory schema | integer | `1` | [`schema_versions.py`](../GensokyoAI/core/schema_versions.py) |
+| memory schema | integer | `2` | [`schema_versions.py`](../GensokyoAI/core/schema_versions.py) |
 | session export schema | integer | `1` | [`schema_versions.py`](../GensokyoAI/core/schema_versions.py) |
 | character package schema | integer 或 `None` | `1` | [`schema_versions.py`](../GensokyoAI/core/schema_versions.py) |
 
 ## 十一、当前状态
 
-首个正式 release 当前状态：
+`v2026.5.13.0` 是此前唯一正式 release；当前累计正式发布状态：
 
-- package version 当前见 [`pyproject.toml`](../pyproject.toml)，应为 `2026.6.25.0`。
-- Runtime protocol version 当前见 [`rpc.py`](../GensokyoAI/runtime/rpc.py)，应为 `1.0.0`。
-- schema versions 当前见 [`schema_versions.py`](../GensokyoAI/core/schema_versions.py)，继续使用整数。
-- release changelog 为 [`docs/changelog/v2026.6.25.0.md`](changelog/v2026.6.25.0.md)。
-- Git tag 应为 `v2026.6.25.0`。
+- package version 当前见 [`pyproject.toml`](../pyproject.toml)，应为 `2026.7.14.0`。
+- Runtime protocol version 当前见 [`rpc.py`](../GensokyoAI/runtime/rpc.py)，应为 `1.1.0`，major 为 `1`。
+- schema versions 当前见 [`schema_versions.py`](../GensokyoAI/core/schema_versions.py)：memory 为 `2`，其余公开 schema 为 `1`。
+- release changelog 为 [`docs/changelog/v2026.7.14.0.md`](changelog/v2026.7.14.0.md)。
+- 对应 Git tag 为 `v2026.7.14.0`；发布准备阶段不创建 tag。

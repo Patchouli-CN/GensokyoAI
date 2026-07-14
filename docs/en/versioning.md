@@ -37,14 +37,14 @@ Examples:
 
 | Location | With `v` | Example | Note |
 | --- | --- | --- | --- |
-| Python package version | No | `2026.5.13.0` | Written in [`pyproject.toml`](../pyproject.toml) |
-| Git tag | Yes | `v2026.5.13.0` | Release tag |
-| Changelog filename | Yes | `docs/changelog/v2026.5.13.0.md` | Public release notes |
-| Changelog title | Yes | `# GensokyoAI v2026.5.13.0 Changelog` | For ordinary users |
-| UI display | Recommended | `v2026.5.13.0` | Easier for users to recognize |
-| Runtime protocol version | No | `1.0.0` | Independent protocol version for Runtime API; JSON field value has no `v` |
+| Python package version | No | `2026.7.14.0` | Written in [`pyproject.toml`](../pyproject.toml) |
+| Git tag | Yes | `v2026.7.14.0` | Release tag |
+| Changelog filename | Yes | `docs/en/changelog/v2026.7.14.0.md` | Public release notes |
+| Changelog title | Yes | `# GensokyoAI v2026.7.14.0 Changelog` | For ordinary users |
+| UI display | Recommended | `v2026.7.14.0` | Easier for users to recognize |
+| Runtime protocol version | No | `1.1.0` | Independent protocol version for Runtime API; JSON field value has no `v` |
 
-Note: the Python package version in [`pyproject.toml`](../pyproject.toml) must follow PEP 440, so it cannot be `v2026.5.13.0`; it should be `2026.5.13.0`.
+Note: the Python package version in [`pyproject.toml`](../pyproject.toml) must follow PEP 440, so it cannot be `v2026.7.14.0`; it should be `2026.7.14.0`.
 
 ## 4. Project / Package Version
 
@@ -52,7 +52,7 @@ The project / package version is written in [`pyproject.toml`](../pyproject.toml
 
 ```toml
 [project]
-version = "2026.5.13.0"
+version = "2026.7.14.0"
 ```
 
 Uses:
@@ -77,9 +77,9 @@ Runtime reading rules:
 Example:
 
 ```text
-pyproject.toml: version = "2026.5.13.0"
-Git tag: v2026.5.13.0
-Changelog: docs/changelog/v2026.5.13.0.md
+pyproject.toml: version = "2026.7.14.0"
+Git tag: v2026.7.14.0
+Changelog: docs/en/changelog/v2026.7.14.0.md
 ```
 
 ## 5. Runtime Protocol Version
@@ -87,7 +87,7 @@ Changelog: docs/changelog/v2026.5.13.0.md
 The Runtime protocol version is written in [`rpc.py`](../GensokyoAI/runtime/rpc.py):
 
 ```python
-RUNTIME_PROTOCOL_VERSION = "1.0.0"
+RUNTIME_PROTOCOL_VERSION = "1.1.0"
 RUNTIME_PROTOCOL_MAJOR_VERSION = 1
 ```
 
@@ -127,7 +127,7 @@ Persistent schema versions are written in [`schema_versions.py`](../GensokyoAI/c
 ```python
 CONFIG_SCHEMA_VERSION = 1
 SESSION_SCHEMA_VERSION = 1
-MEMORY_SCHEMA_VERSION = 1
+MEMORY_SCHEMA_VERSION = 2
 SESSION_EXPORT_SCHEMA_VERSION = 1
 CHARACTER_PACKAGE_SCHEMA_VERSION = 1
 ```
@@ -340,23 +340,23 @@ Before each release, check in order:
 
 | Type | Format | Example | Written Location |
 | --- | --- | --- | --- |
-| package version | `YYYY.M.D.N` | `2026.5.13.0` | [`pyproject.toml`](../pyproject.toml) |
-| Git tag | `vYYYY.M.D.N` | `v2026.5.13.0` | Git tag |
-| changelog | `vYYYY.M.D.N` | [`docs/changelog/v2026.5.13.0.md`](changelog) | [`docs/changelog`](changelog) |
-| Runtime protocol version | independent semantic version | `1.0.0` | [`rpc.py`](../GensokyoAI/runtime/rpc.py) |
+| package version | `YYYY.M.D.N` | `2026.7.14.0` | [`pyproject.toml`](../pyproject.toml) |
+| Git tag | `vYYYY.M.D.N` | `v2026.7.14.0` | Git tag |
+| changelog | `vYYYY.M.D.N` | [`docs/en/changelog/v2026.7.14.0.md`](changelog/v2026.7.14.0.md) | [`docs/en/changelog`](changelog) |
+| Runtime protocol version | independent semantic version | `1.1.0` | [`rpc.py`](../GensokyoAI/runtime/rpc.py) |
 | Runtime protocol major | integer | `1` | [`rpc.py`](../GensokyoAI/runtime/rpc.py) |
 | config schema | integer | `1` | [`schema_versions.py`](../GensokyoAI/core/schema_versions.py) |
 | session schema | integer | `1` | [`schema_versions.py`](../GensokyoAI/core/schema_versions.py) |
-| memory schema | integer | `1` | [`schema_versions.py`](../GensokyoAI/core/schema_versions.py) |
+| memory schema | integer | `2` | [`schema_versions.py`](../GensokyoAI/core/schema_versions.py) |
 | session export schema | integer | `1` | [`schema_versions.py`](../GensokyoAI/core/schema_versions.py) |
 | character package schema | integer or `None` | `1` | [`schema_versions.py`](../GensokyoAI/core/schema_versions.py) |
 
 ## 11. Current Status
 
-First official release current status:
+`v2026.5.13.0` was the only previous official release. Current cumulative official release status:
 
-- Current package version is in [`pyproject.toml`](../pyproject.toml), should be `2026.5.13.0`.
-- Current Runtime protocol version is in [`rpc.py`](../GensokyoAI/runtime/rpc.py), should be `1.0.0`.
-- Current schema versions are in [`schema_versions.py`](../GensokyoAI/core/schema_versions.py), continuing to use integers.
-- Release changelog is [`docs/changelog/v2026.5.13.0.md`](changelog/v2026.5.13.0.md).
-- Git tag should be `v2026.5.13.0`.
+- Current package version is in [`pyproject.toml`](../pyproject.toml) and is `2026.7.14.0`.
+- Current Runtime protocol version is in [`rpc.py`](../GensokyoAI/runtime/rpc.py) and is `1.1.0`, with major `1`.
+- Current schema versions are in [`schema_versions.py`](../GensokyoAI/core/schema_versions.py): memory is `2`; all other public schemas are `1`.
+- Release changelog is [`docs/en/changelog/v2026.7.14.0.md`](changelog/v2026.7.14.0.md).
+- The corresponding Git tag is `v2026.7.14.0`; release preparation does not create the tag.

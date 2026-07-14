@@ -10,9 +10,9 @@ For version format, where to use `v` and where not, and the difference between R
 
 Brief rules:
 
-- Public versions and changelog use `vYYYY.M.D.N`; the first version is `v2026.5.13.0`.
-- Package version in [`pyproject.toml`](../pyproject.toml) has no `v`; the first version is `2026.5.13.0`.
-- Runtime protocol version uses independent semantic versioning without `v`; the first version is `1.0.0`; client compatibility prioritizes `protocol_major_version`.
+- Public versions and changelog use `vYYYY.M.D.N`; the current official release is `v2026.7.14.0`, and the only previous official release was `v2026.5.13.0`.
+- Package version in [`pyproject.toml`](../pyproject.toml) has no `v`; the current version is `2026.7.14.0`.
+- Runtime protocol version uses independent semantic versioning without `v`; it is currently `1.1.0` with major `1`; client compatibility prioritizes `protocol_major_version`.
 - Schema versions continue to use integers, e.g. `1`, `2`, `3`.
 
 ## Usage
@@ -128,10 +128,15 @@ Use one or two sentences to explain the most important changes in this version, 
 
 ---
 
-## Current Project Version Record Starting Point
+## Current Project Version Records
 
-Official release records start continuous recording from `v2026.5.13.0`. This file is used as a template; specific version records are in the `docs/changelog/` directory:
+Official release records start at `v2026.5.13.0`. It was the only previous official release; the 6.x and `v2026.7.4.0` files are unpublished development snapshots or candidate notes and must not be treated as official versions:
 
-- [`v2026.5.13.0.md`](../changelog/v2026.5.13.0.md): first public Alpha release.
-- [`v2026.6.21.0.md`](../changelog/v2026.6.21.0.md): HTTP/WebSocket entry migration, default search switched to DuckDuckGo, initiative timer prompt optimization.
-- [`v2026.6.22.0.md`](../changelog/v2026.6.22.0.md): security update (Runtime authentication hardening, path traversal prevention, SSRF protection, Prompt Injection detection), character scene opening (begin_scene).
+- [`v2026.7.14.0.md`](changelog/v2026.7.14.0.md): cumulative official release since the sole official baseline `v2026.5.13.0`.
+- [`v2026.5.13.0.md`](changelog/v2026.5.13.0.md): the only previous official release and first public Alpha baseline.
+- [`v2026.6.21.0.md`](../changelog/v2026.6.21.0.md): unpublished development snapshot covering HTTP/WebSocket migration, DDG search, and initiative timers.
+- [`v2026.6.22.0.md`](../changelog/v2026.6.22.0.md): unpublished development snapshot covering security and character openings.
+- [`v2026.6.23.0.md`](../changelog/v2026.6.23.0.md): unpublished development snapshot covering background timers and character data.
+- [`v2026.6.25.0.md`](../changelog/v2026.6.25.0.md): unpublished candidate note.
+- [`v2026.6.25.1.md`](../changelog/v2026.6.25.1.md): unpublished performance-development snapshot.
+- [`v2026.7.4.0.md`](../changelog/v2026.7.4.0.md): unpublished candidate note for the scene system.

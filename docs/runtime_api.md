@@ -4,7 +4,8 @@
 
 ## 版本与兼容性
 
-- 当前协议版本：`1.0.0`
+- 当前 package 版本：`2026.7.14.0`
+- 当前协议版本：`1.1.0`
 - 当前协议主版本：`1`
 - 兼容性策略：同一主版本内可以新增字段和方法；删除字段、修改语义或改变错误结构需要进入 breaking changes。
 - 客户端应优先调用 `runtime.info`，再根据 `protocol_version`、`capabilities`、`methods`、`legacy_methods` 与 `method_specs` 决定可用功能。
@@ -17,12 +18,12 @@
 ```json
 {
   "name": "GensokyoAI Runtime",
-  "package_version": "2026.6.25.0",
+  "package_version": "2026.7.14.0",
   "protocol": "json-lines-rpc",
-  "protocol_version": "1.0.0",
+  "protocol_version": "1.1.0",
   "protocol_major_version": 1,
-  "capabilities": ["agent.lifecycle", "agent.messaging", "agent.streaming", "character.discovery", "character.validation", "character_package.management", "dependency.management", "external_tool.status", "initiative_timer.management", "memory.management", "memory.search", "memory.graph", "model.discovery", "config.validation", "migration.diagnostics", "resource_control.runtime_gates", "runtime.events", "runtime.health", "runtime.versioning", "session.management"],
-  "methods": ["runtime.info", "runtime.health", "runtime.shutdown", "config.validate", "character.validate", "character_package.validate", "character_package.preview", "character_package.import", "character_package.export", "agent.init", "agent.send_message", "agent.send_message_stream", "character.list", "model.list", "model.info", "session.create", "session.list", "session.current", "session.resume", "session.delete", "session.export", "session.rename", "session.rollback", "dependency.status", "dependency.install", "external_tool.status", "initiative_timer.current", "initiative_timer.update", "initiative_timer.cancel", "initiative_timer.trigger", "memory.list", "memory.search", "memory.get", "memory.update", "memory.delete", "memory.graph"],
+  "capabilities": ["agent.lifecycle", "agent.messaging", "agent.streaming", "character.discovery", "character.validation", "character_package.management", "dependency.management", "external_tool.status", "memory.management", "memory.search", "memory.graph", "model.discovery", "config.validation", "migration.diagnostics", "resource_control.runtime_gates", "runtime.events", "runtime.health", "runtime.versioning", "session.management", "initiative_timer.management"],
+  "methods": ["runtime.info", "runtime.health", "runtime.shutdown", "config.validate", "character.validate", "character_package.validate", "character_package.preview", "character_package.import", "character_package.export", "agent.init", "agent.send_message", "agent.send_message_stream", "character.list", "model.list", "model.info", "session.create", "session.list", "session.current", "session.resume", "session.delete", "session.export", "session.rename", "session.messages", "session.replace_messages", "session.regenerate_from", "session.rollback", "dependency.status", "dependency.install", "external_tool.status", "initiative_timer.current", "initiative_timer.update", "initiative_timer.cancel", "initiative_timer.trigger", "initiative_timer.hesitation", "initiative_timer.hesitation.set", "memory.list", "memory.search", "memory.get", "memory.update", "memory.delete", "memory.graph", "scene.current", "scene.list", "scene.get", "scene.switch", "scene.graph"],
   "legacy_methods": ["init", "send_message", "send_message_stream", "list_characters", "create_session", "list_sessions", "current_session", "resume_session", "delete_session", "export_session", "rename_session", "rollback_session", "shutdown", "dependency_status", "install_dependencies", "external_tool_status"],
   "method_specs": [
     {"method": "runtime.info", "handler": "info", "legacy": false, "namespace": "runtime", "deprecated": false, "replacement": null, "remove_after": null},
@@ -31,7 +32,7 @@
   "schema_versions": {
     "config": 1,
     "session": 1,
-    "memory": 1,
+    "memory": 2,
     "session_export": 1,
     "character_package": 1
   },
@@ -81,8 +82,9 @@
 - `session.create`、`session.list`、`session.current`、`session.resume`、`session.delete`、`session.export`、`session.rename`、`session.messages`、`session.replace_messages`、`session.regenerate_from`、`session.rollback`
 - `dependency.status`、`dependency.install`
 - `external_tool.status`
-- `initiative_timer.current`、`initiative_timer.update`、`initiative_timer.cancel`、`initiative_timer.trigger`
+- `initiative_timer.current`、`initiative_timer.update`、`initiative_timer.cancel`、`initiative_timer.trigger`、`initiative_timer.hesitation`、`initiative_timer.hesitation.set`
 - `memory.list`、`memory.search`、`memory.get`、`memory.update`、`memory.delete`、`memory.graph`
+- `scene.current`、`scene.list`、`scene.get`、`scene.switch`、`scene.graph`
 
 Legacy 兼容方法仍可用但已废弃：`init`、`send_message`、`send_message_stream`、`list_characters`、`create_session`、`list_sessions`、`current_session`、`resume_session`、`delete_session`、`export_session`、`rename_session`、`rollback_session`、`shutdown`、`dependency_status`、`install_dependencies`、`external_tool_status`。新客户端应使用 `method_specs[].replacement` 迁移到命名空间方法。
 
@@ -130,7 +132,7 @@ Legacy 兼容方法仍可用但已废弃：`init`、`send_message`、`send_messa
 - `from_schema_version` / `to_schema_version`：迁移前后 schema version；无版本旧格式为 `null`。
 - `format`：迁移后的目标格式名。
 - `path`：被迁移文件路径。
-- `backup_path`：迁移前备份路径；memory topic store 当前没有备份时为 `null`。
+- `backup_path`：迁移前备份路径；memory schema 1→2 自动迁移会在改写前创建 `.bak` 备份，失败时应保留原文件与备份并依据 diagnostics 修复或回退。
 - `message`：用户可读摘要。
 - `diagnostics`：结构化诊断列表；失败时包含稳定 `code`、`severity`、`message` 和修复建议。
 - `migrated_at`：迁移诊断记录时间。

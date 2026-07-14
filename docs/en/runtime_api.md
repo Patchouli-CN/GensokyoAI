@@ -4,7 +4,8 @@ This document describes the stable JSON RPC contract exposed by the GensokyoAI R
 
 ## Versioning and Compatibility
 
-- Current protocol version: `1.0.0`
+- Current package version: `2026.7.14.0`
+- Current protocol version: `1.1.0`
 - Current protocol major version: `1`
 - Compatibility policy: within the same major version, new fields and methods may be added; removing fields, changing semantics, or changing error structures requires a breaking change.
 - Clients should call `runtime.info` first, then decide available features based on `protocol_version`, `capabilities`, `methods`, `legacy_methods`, and `method_specs`.
@@ -17,12 +18,12 @@ This document describes the stable JSON RPC contract exposed by the GensokyoAI R
 ```json
 {
   "name": "GensokyoAI Runtime",
-  "package_version": "2026.5.13.0",
+  "package_version": "2026.7.14.0",
   "protocol": "json-lines-rpc",
-  "protocol_version": "1.0.0",
+  "protocol_version": "1.1.0",
   "protocol_major_version": 1,
-  "capabilities": ["agent.lifecycle", "agent.messaging", "agent.streaming", "character.discovery", "character.validation", "character_package.management", "dependency.management", "external_tool.status", "initiative_timer.management", "memory.management", "memory.search", "memory.graph", "model.discovery", "config.validation", "migration.diagnostics", "resource_control.runtime_gates", "runtime.events", "runtime.health", "runtime.versioning", "session.management"],
-  "methods": ["runtime.info", "runtime.health", "runtime.shutdown", "config.validate", "character.validate", "character_package.validate", "character_package.preview", "character_package.import", "character_package.export", "agent.init", "agent.send_message", "agent.send_message_stream", "character.list", "model.list", "model.info", "session.create", "session.list", "session.current", "session.resume", "session.delete", "session.export", "session.rename", "session.rollback", "dependency.status", "dependency.install", "external_tool.status", "initiative_timer.current", "initiative_timer.update", "initiative_timer.cancel", "initiative_timer.trigger", "memory.list", "memory.search", "memory.get", "memory.update", "memory.delete", "memory.graph"],
+  "capabilities": ["agent.lifecycle", "agent.messaging", "agent.streaming", "character.discovery", "character.validation", "character_package.management", "dependency.management", "external_tool.status", "memory.management", "memory.search", "memory.graph", "model.discovery", "config.validation", "migration.diagnostics", "resource_control.runtime_gates", "runtime.events", "runtime.health", "runtime.versioning", "session.management", "initiative_timer.management"],
+  "methods": ["runtime.info", "runtime.health", "runtime.shutdown", "config.validate", "character.validate", "character_package.validate", "character_package.preview", "character_package.import", "character_package.export", "agent.init", "agent.send_message", "agent.send_message_stream", "character.list", "model.list", "model.info", "session.create", "session.list", "session.current", "session.resume", "session.delete", "session.export", "session.rename", "session.messages", "session.replace_messages", "session.regenerate_from", "session.rollback", "dependency.status", "dependency.install", "external_tool.status", "initiative_timer.current", "initiative_timer.update", "initiative_timer.cancel", "initiative_timer.trigger", "initiative_timer.hesitation", "initiative_timer.hesitation.set", "memory.list", "memory.search", "memory.get", "memory.update", "memory.delete", "memory.graph", "scene.current", "scene.list", "scene.get", "scene.switch", "scene.graph"],
   "legacy_methods": ["init", "send_message", "send_message_stream", "list_characters", "create_session", "list_sessions", "current_session", "resume_session", "delete_session", "export_session", "rename_session", "rollback_session", "shutdown", "dependency_status", "install_dependencies", "external_tool_status"],
   "method_specs": [
     {"method": "runtime.info", "handler": "info", "legacy": false, "namespace": "runtime", "deprecated": false, "replacement": null, "remove_after": null},
@@ -31,7 +32,7 @@ This document describes the stable JSON RPC contract exposed by the GensokyoAI R
   "schema_versions": {
     "config": 1,
     "session": 1,
-    "memory": 1,
+    "memory": 2,
     "session_export": 1,
     "character_package": 1
   },
@@ -81,8 +82,9 @@ Non-legacy methods grouped by current namespace:
 - `session.create`, `session.list`, `session.current`, `session.resume`, `session.delete`, `session.export`, `session.rename`, `session.messages`, `session.replace_messages`, `session.regenerate_from`, `session.rollback`
 - `dependency.status`, `dependency.install`
 - `external_tool.status`
-- `initiative_timer.current`, `initiative_timer.update`, `initiative_timer.cancel`, `initiative_timer.trigger`
+- `initiative_timer.current`, `initiative_timer.update`, `initiative_timer.cancel`, `initiative_timer.trigger`, `initiative_timer.hesitation`, `initiative_timer.hesitation.set`
 - `memory.list`, `memory.search`, `memory.get`, `memory.update`, `memory.delete`, `memory.graph`
+- `scene.current`, `scene.list`, `scene.get`, `scene.switch`, `scene.graph`
 
 Legacy compatibility methods remain available but are deprecated: `init`, `send_message`, `send_message_stream`, `list_characters`, `create_session`, `list_sessions`, `current_session`, `resume_session`, `delete_session`, `export_session`, `rename_session`, `rollback_session`, `shutdown`, `dependency_status`, `install_dependencies`, `external_tool_status`. New clients should migrate to namespaced methods according to `method_specs[].replacement`.
 
@@ -130,7 +132,7 @@ Migration diagnostic field descriptions:
 - `from_schema_version` / `to_schema_version`: schema version before and after migration; old unversioned formats are `null`.
 - `format`: target format name after migration.
 - `path`: path of the migrated file.
-- `backup_path`: pre-migration backup path; `null` for memory topic store when no backup is created.
+- `backup_path`: pre-migration backup path; automatic memory schema 1→2 migration creates a `.bak` before rewriting. On failure, keep both source and backup, then repair or roll back according to diagnostics.
 - `message`: human-readable summary.
 - `diagnostics`: structured diagnostics list; includes stable `code`, `severity`, `message`, and repair suggestions on failure.
 - `migrated_at`: migration diagnostic record time.

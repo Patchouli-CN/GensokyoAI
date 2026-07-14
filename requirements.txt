@@ -17,6 +17,9 @@ aioconsole       # 异步控制台输入
 # ===== 自研高性能库 =====
 ayafileio>=1.4.6 # 真异步文件 I/O
 
+# ===== 默认搜索 =====
+ddgs>=9.14.4     # DuckDuckGo 搜索
+
 # ===== LLM Provider（按需安装，不在最小依赖中启用）=====
 # ollama          # pip install -e .[default] 或 pip install -e .[ollama]
 # openai          # pip install -e .[openai] / .[deepseek] / .[openrouter] / .[openai_responses]
