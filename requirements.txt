@@ -15,7 +15,7 @@ pyyaml           # YAML 解析
 aioconsole       # 异步控制台输入
 
 # ===== 自研高性能库 =====
-ayafileio>=1.4.6 # 真异步文件 I/O
+ayafileio>=1.4.8 # 真异步文件 I/O
 
 # ===== 默认搜索 =====
 ddgs>=9.14.4     # DuckDuckGo 搜索
