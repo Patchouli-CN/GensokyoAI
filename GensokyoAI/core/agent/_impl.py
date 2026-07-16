@@ -13,8 +13,6 @@ from ...memory.semantic import SemanticMemoryManager
 from ...memory.working import WorkingMemoryManager
 from ...session.context import SessionContext
 from ...tools.build_service import ToolBuildContext, ToolBuildResult
-from ...tools.tool_builtin.memory_tool import set_event_bus
-from ...tools.tool_builtin.scene import set_event_bus as set_scene_event_bus
 from ...tools.tool_builtin.web_search import configure_web_search_tool
 from ...utils.content_security import detect_prompt_injection
 from ...utils.helpers import safe_get
@@ -142,8 +140,8 @@ class Agent:
         logger.debug("所有事件监听器已注册")
 
     def _inject_dependencies(self) -> None:
-        set_event_bus(self.event_bus)
-        set_scene_event_bus(self.event_bus)
+        # 事件总线不再全局注入：ToolExecutor 在每次调用工具时按调用注入
+        # （见 tools/tool_context.py），使多个 Agent 实例互不覆盖。
         configure_web_search_tool(self.config.tool)
 
     def _init_lifecycle(self) -> None:

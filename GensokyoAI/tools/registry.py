@@ -38,8 +38,14 @@ class ToolRegistry:
     def register(self, func: Callable, name: str | None = None) -> None:
         """注册工具（非装饰器方式）"""
 
-        decorated = tool(name=name)(func)
-        self._tools[decorated.name] = decorated
+        # tool() 装饰器返回原函数（用于装饰器场景），真正的 ToolDefinition
+        # 被登记进全局注册表，这里回取它，避免误用函数对象。
+        tool(name=name)(func)
+        tool_name = name or func.__name__
+        definition = get_tool(tool_name)
+        if definition is None:
+            raise ValueError(f"工具注册失败: {tool_name}")
+        self._tools[tool_name] = definition
 
     def register_module(self, module_path: Path) -> None:
         """注册模块中的所有工具"""

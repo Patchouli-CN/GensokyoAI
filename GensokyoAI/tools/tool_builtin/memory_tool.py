@@ -2,28 +2,11 @@
 
 """记忆工具 - 通过事件总线操作记忆（异步非阻塞）"""
 
-from typing import TYPE_CHECKING
-
 from ...core.events import Event, SystemEvent
 from ...utils.logger import logger
 from ..base import tool
-
-if TYPE_CHECKING:
-    from ...core.events import EventBus
-
-
-_event_bus: EventBus | None = None
-
-
-def set_event_bus(event_bus: EventBus) -> None:
-    """注入事件总线"""
-    global _event_bus
-    _event_bus = event_bus
-
-
-def get_event_bus() -> EventBus | None:
-    """获取事件总线"""
-    return _event_bus
+from ..tool_context import current_event_bus as get_event_bus
+from ..tool_context import set_event_bus as set_event_bus  # 遗留兼容再导出
 
 
 @tool()

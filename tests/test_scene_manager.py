@@ -385,6 +385,7 @@ class SceneAgentIntegrationTests(unittest.IsolatedAsyncioTestCase):
     async def test_scene_switch_tool_flow_broadcasts_and_persists(self):
         from GensokyoAI.core.events import SystemEvent
         from GensokyoAI.tools.tool_builtin.scene import get_current_scene, scene_switch
+        from GensokyoAI.tools.tool_context import bind_event_bus
 
         broadcasts: list[dict] = []
         self.agent.event_bus.subscribe(
@@ -392,26 +393,30 @@ class SceneAgentIntegrationTests(unittest.IsolatedAsyncioTestCase):
             lambda event: broadcasts.append(event.data),
         )
 
-        result = await scene_switch("magic_forest")
-        self.assertIn("魔法森林", result)
+        # 事件总线现由 ToolExecutor 按调用注入；直接调用工具需显式绑定。
+        with bind_event_bus(self.agent.event_bus):
+            result = await scene_switch("magic_forest")
+            self.assertIn("魔法森林", result)
 
-        # 状态更新
-        self.assertEqual(self.agent.scene_manager.current_scene_id, "magic_forest")
-        # 持久化到会话
-        session = self.agent.session_manager.get_current_session()
-        self.assertEqual(session.metadata.get("current_scene_id"), "magic_forest")
-        # 广播事件
-        self.assertTrue(broadcasts)
-        self.assertEqual(broadcasts[-1]["scene_id"], "magic_forest")
+            # 状态更新
+            self.assertEqual(self.agent.scene_manager.current_scene_id, "magic_forest")
+            # 持久化到会话
+            session = self.agent.session_manager.get_current_session()
+            self.assertEqual(session.metadata.get("current_scene_id"), "magic_forest")
+            # 广播事件
+            self.assertTrue(broadcasts)
+            self.assertEqual(broadcasts[-1]["scene_id"], "magic_forest")
 
-        # get_current_scene 工具能读回
-        current = await get_current_scene()
-        self.assertIn("魔法森林", current)
+            # get_current_scene 工具能读回
+            current = await get_current_scene()
+            self.assertIn("魔法森林", current)
 
     async def test_scene_switch_invalid_returns_error_message(self):
         from GensokyoAI.tools.tool_builtin.scene import scene_switch
+        from GensokyoAI.tools.tool_context import bind_event_bus
 
-        result = await scene_switch("nonexistent")
+        with bind_event_bus(self.agent.event_bus):
+            result = await scene_switch("nonexistent")
         self.assertIn("不存在", result)
         # 当前场景不变
         self.assertEqual(self.agent.scene_manager.current_scene_id, "hakurei_shrine")

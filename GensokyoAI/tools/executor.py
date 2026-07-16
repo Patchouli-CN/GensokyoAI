@@ -18,6 +18,7 @@ from ..utils.logger import logger
 from .errors import ToolError, ToolExecutionError
 from .external_manager import ExternalToolManager, is_external_tool_name
 from .registry import ToolRegistry
+from .tool_context import bind_event_bus
 
 if TYPE_CHECKING:
     from ..core.events import EventBus
@@ -106,10 +107,13 @@ class ToolExecutor:
                     f"tool:{name}",
                 ),
             ):
-                if tool_def.is_async:
-                    result = await tool_def.func(**arguments)
-                else:
-                    result = await asyncio.to_thread(tool_def.func, **arguments)
+                # 按调用注入事件总线：内置工具（memory/scene）通过 tool_context
+                # 读取当前事件总线，替代模块级全局单例，使多个 Agent 互不覆盖。
+                with bind_event_bus(self._event_bus):
+                    if tool_def.is_async:
+                        result = await tool_def.func(**arguments)
+                    else:
+                        result = await asyncio.to_thread(tool_def.func, **arguments)
 
             result = self._serialize_tool_result(result)
 
