@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Literal
 
 from msgspec import Struct
@@ -18,6 +19,11 @@ from .config_schema import (
     SessionConfig,
     ThinkEngineConfig,
     TopicGenerationConfig,
+    WorldActorConfig,
+    WorldConfig,
+    WorldDirectorConfig,
+    WorldPersistenceConfig,
+    WorldTranscriptConfig,
 )
 from .schema_versions import CONFIG_SCHEMA_VERSION
 
@@ -232,6 +238,8 @@ class ConfigValidator:
             self._validate_initiative_timer_data(data.get("initiative_timer") or {}, diagnostics)
         if "resource_control" in data:
             self._validate_resource_control_data(data.get("resource_control") or {}, diagnostics)
+        if "world" in data:
+            self._validate_world_data(data.get("world") or {}, diagnostics)
         self._validate_deprecated_fields(data, diagnostics)
         return diagnostics
 
@@ -794,6 +802,181 @@ class ConfigValidator:
                 )
             )
 
+    def _validate_world_data(self, data: Any, diagnostics: list[ConfigDiagnostic]) -> None:
+        """校验 world 节结构。不读取角色文件/场景库——那些在初始化阶段做。"""
+        self._validate_object("world", data, diagnostics)
+        if not isinstance(data, dict):
+            return
+        self._validate_unknown_fields(
+            "world", data, self._struct_field_names(WorldConfig), diagnostics
+        )
+
+        enabled = bool(data.get("enabled", False))
+        actors = data.get("actors")
+        seen_ids: set[str] = set()
+        enabled_count = 0
+
+        if actors is not None and not isinstance(actors, list):
+            diagnostics.append(
+                self._error(
+                    "world.actors",
+                    "world.actors 必须是角色配置列表。",
+                    code="config.world.actors_type",
+                )
+            )
+        elif isinstance(actors, list):
+            for index, actor in enumerate(actors):
+                enabled_count += self._validate_world_actor(index, actor, seen_ids, diagnostics)
+
+        # 仅在 world 启用时强校验 roster 完整性，避免关闭态误报
+        if enabled and enabled_count == 0:
+            diagnostics.append(
+                self._error(
+                    "world.actors",
+                    "world.enabled 为 true 时至少需要一个 enabled 的 actor。",
+                    code="config.world.no_enabled_actor",
+                )
+            )
+
+        protagonist = data.get("protagonist")
+        if isinstance(protagonist, str) and protagonist != "__user__":
+            if protagonist not in seen_ids:
+                diagnostics.append(
+                    self._error(
+                        "world.protagonist",
+                        "world.protagonist 必须是 '__user__' 或 actors 中某个 id。",
+                        code="config.world.protagonist_unknown",
+                    )
+                )
+        elif protagonist is not None and not isinstance(protagonist, str):
+            diagnostics.append(
+                self._error(
+                    "world.protagonist",
+                    "world.protagonist 必须是字符串。",
+                    code="config.world.protagonist_type",
+                )
+            )
+
+        self._validate_world_director(data.get("director"), diagnostics)
+        self._validate_world_transcript(data.get("transcript"), diagnostics)
+        if isinstance(data.get("persistence"), dict):
+            self._validate_unknown_fields(
+                "world.persistence",
+                data["persistence"],
+                self._struct_field_names(WorldPersistenceConfig),
+                diagnostics,
+            )
+
+    def _validate_world_actor(
+        self,
+        index: int,
+        actor: Any,
+        seen_ids: set[str],
+        diagnostics: list[ConfigDiagnostic],
+    ) -> int:
+        """校验单个 actor，返回其计入 enabled 的数量（0/1）。"""
+        path = f"world.actors[{index}]"
+        if not isinstance(actor, dict):
+            diagnostics.append(
+                self._error(path, f"{path} 必须是对象。", code="config.world.actor_type")
+            )
+            return 0
+        self._validate_unknown_fields(
+            path, actor, self._struct_field_names(WorldActorConfig), diagnostics
+        )
+
+        actor_id = actor.get("id")
+        if not isinstance(actor_id, str) or not actor_id.strip():
+            diagnostics.append(
+                self._error(
+                    f"{path}.id", f"{path}.id 必须是非空字符串。", code="config.world.actor_id"
+                )
+            )
+        elif actor_id in seen_ids:
+            diagnostics.append(
+                self._error(
+                    f"{path}.id",
+                    f"actor id '{actor_id}' 重复，roster 内必须唯一。",
+                    code="config.world.actor_id_duplicate",
+                )
+            )
+        else:
+            seen_ids.add(actor_id)
+
+        char_file = actor.get("character_file")
+        if char_file is not None and not isinstance(char_file, (str, Path)):
+            diagnostics.append(
+                self._error(
+                    f"{path}.character_file",
+                    f"{path}.character_file 必须是字符串路径。",
+                    code="config.world.actor_character_file_type",
+                )
+            )
+
+        return 1 if actor.get("enabled", True) else 0
+
+    def _validate_world_director(self, data: Any, diagnostics: list[ConfigDiagnostic]) -> None:
+        if data is None:
+            return
+        if not isinstance(data, dict):
+            diagnostics.append(
+                self._error(
+                    "world.director",
+                    "world.director 必须是对象。",
+                    code="config.world.director_type",
+                )
+            )
+            return
+        self._validate_unknown_fields(
+            "world.director", data, self._struct_field_names(WorldDirectorConfig), diagnostics
+        )
+        self._validate_numeric_range(
+            "world.director.temperature", data.get("temperature"), diagnostics, minimum=0.0
+        )
+        self._validate_numeric_range(
+            "world.director.max_tokens", data.get("max_tokens"), diagnostics, minimum=1
+        )
+        self._validate_numeric_range(
+            "world.director.max_auto_turns", data.get("max_auto_turns"), diagnostics, minimum=1
+        )
+        self._validate_numeric_range(
+            "world.director.max_same_actor_turns",
+            data.get("max_same_actor_turns"),
+            diagnostics,
+            minimum=1,
+        )
+        self._validate_enum(
+            "world.director.fallback_action",
+            data.get("fallback_action"),
+            {"wait_user", "continue"},
+            diagnostics,
+        )
+
+    def _validate_world_transcript(self, data: Any, diagnostics: list[ConfigDiagnostic]) -> None:
+        if data is None:
+            return
+        if not isinstance(data, dict):
+            diagnostics.append(
+                self._error(
+                    "world.transcript",
+                    "world.transcript 必须是对象。",
+                    code="config.world.transcript_type",
+                )
+            )
+            return
+        self._validate_unknown_fields(
+            "world.transcript", data, self._struct_field_names(WorldTranscriptConfig), diagnostics
+        )
+        self._validate_numeric_range(
+            "world.transcript.context_entries", data.get("context_entries"), diagnostics, minimum=1
+        )
+        self._validate_numeric_range(
+            "world.transcript.max_entries_per_scene",
+            data.get("max_entries_per_scene"),
+            diagnostics,
+            minimum=1,
+        )
+
     def _validate_session_data(self, data: Any, diagnostics: list[ConfigDiagnostic]) -> None:
         self._validate_object("session", data, diagnostics)
         if not isinstance(data, dict):
@@ -1289,6 +1472,7 @@ class ConfigValidator:
             "think_engine",
             "initiative_timer",
             "resource_control",
+            "world",
             "character",
             "character_file",
         }

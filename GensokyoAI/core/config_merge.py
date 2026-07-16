@@ -77,6 +77,8 @@ class ConfigMerger:
             base.resource_control,
             override.resource_control,
         )
+        # world 为整节覆盖：actors 列表无法逐字段合并，用户提供则整体优先。
+        result.world = choose("world", override.world if override.world.enabled else base.world)
         result.character = override.character or base.character
         result.character_file = override.character_file or base.character_file
 

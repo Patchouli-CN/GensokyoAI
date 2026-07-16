@@ -1,0 +1,68 @@
+# GensokyoWorld 多角色示例配置
+# ================================
+# 单模型扮演整台戏：魔理沙带用户闯红魔馆，主人蕾米莉亚在馆内等着。
+# 由导演（Director）根据剧情决定每轮谁发言、何时切人、何时把话筒交还用户，
+# 而不是固定轮流。启用后请用 --world 或 Runtime world.* RPC 驱动。
+#
+# 用法示例：
+#   python -m GensokyoAI.cli.main --config config/world_example.yaml
+#
+# 场景系统需一并开启，World 依赖场景库判断"谁在哪、能否切换"。
+
+log_level: INFO
+log_console: false
+
+# World 依赖场景库
+scene:
+  enabled: true
+  library_path: ./scenes
+  default_scene: magic_forest
+
+# 复用主聊天模型；导演调用也走同一个 ModelClient（共享大脑，成本可控）
+model:
+  provider: "openai"
+  name: "gpt-4o"
+  api_key: ""            # 运行时从 GENSOKYOAI_API_KEY 读取
+  base_url: null
+  stream: true
+  temperature: 0.7
+
+# 语义记忆需要 embedding provider；此示例默认关闭，避免无 embedding 时启动报错
+memory:
+  semantic_enabled: false
+
+world:
+  enabled: true
+  id: gensokyo
+  # 主角是魔理沙 → AI 主动开场；改成 __user__ 则等用户先开口
+  protagonist: marisa
+  user_initial_scene: magic_forest
+
+  actors:
+    - id: marisa
+      character_file: characters/zh_cn/KirisameMarisa.yaml
+      initial_scene: magic_forest
+      enabled: true
+    - id: remilia
+      character_file: characters/zh_cn/RemiliaScarlet.yaml
+      initial_scene: scarlet_devil_mansion
+      enabled: true
+
+  director:
+    enabled: true
+    temperature: 0.2
+    max_tokens: 384
+    max_auto_turns: 4         # 角色之间最多连聊 4 轮就交还用户
+    max_same_actor_turns: 2   # 同一角色最多连说 2 轮
+    fallback_action: wait_user
+
+  transcript:
+    context_entries: 24
+    max_entries_per_scene: 500
+
+  persistence:
+    enabled: true
+    save_path: ./sessions/worlds
+
+  project_perspective_memories: true   # 同一世界事件各记各视角：魔理沙记尴尬、蕾米记有人擅闯
+  user_follows_current_actor: true     # 魔理沙切到红魔馆时，用户跟着一起进去

@@ -264,6 +264,63 @@ class ResourceControlConfig(Struct):
     overflow_policy: Literal["reject", "wait"] = "reject"
 
 
+class WorldActorConfig(Struct):
+    """World 中一个角色（Actor）的装配配置。"""
+
+    id: str  # 稳定 ASCII/roster id，与角色显示名分离
+    character_file: Path | None = None
+    initial_scene: str | None = None
+    enabled: bool = True
+
+    def __post_init__(self):
+        if self.character_file is not None and not isinstance(self.character_file, Path):
+            object.__setattr__(self, "character_file", Path(self.character_file))
+
+
+class WorldDirectorConfig(Struct):
+    """导演决策配置。"""
+
+    enabled: bool = True
+    temperature: float = 0.2
+    max_tokens: int = 384
+    max_auto_turns: int = 4  # 一段自动表演最多连续多少轮后强制交还用户
+    max_same_actor_turns: int = 2  # 同一角色最多连续发言轮数
+    fallback_action: Literal["wait_user", "continue"] = "wait_user"
+
+
+class WorldTranscriptConfig(Struct):
+    """共享剧本配置。"""
+
+    context_entries: int = 24  # 每轮注入模型的最近共享剧本条数
+    max_entries_per_scene: int = 500  # 每个场景分片保留上限
+
+
+class WorldPersistenceConfig(Struct):
+    """World 会话持久化配置。"""
+
+    enabled: bool = True
+    save_path: Path = field(default_factory=lambda: Path("./sessions/worlds"))
+
+    def __post_init__(self):
+        if not isinstance(self.save_path, Path):
+            object.__setattr__(self, "save_path", Path(self.save_path))
+
+
+class WorldConfig(Struct):
+    """多角色 World 编排配置。默认关闭，不影响单角色模式。"""
+
+    enabled: bool = False
+    id: str = "gensokyo"
+    protagonist: str = "__user__"  # "__user__" 或 roster 中某个 actor id
+    user_initial_scene: str | None = None
+    actors: list[WorldActorConfig] = field(default_factory=list)
+    director: WorldDirectorConfig = field(default_factory=WorldDirectorConfig)
+    transcript: WorldTranscriptConfig = field(default_factory=WorldTranscriptConfig)
+    persistence: WorldPersistenceConfig = field(default_factory=WorldPersistenceConfig)
+    project_perspective_memories: bool = True  # 是否为在场角色各写各视角记忆
+    user_follows_current_actor: bool = True  # 当前演员切场景时用户是否跟随
+
+
 class BeginScene(Struct):
     """角色开场设置。
 
@@ -317,6 +374,7 @@ class AppConfig(Struct):
     think_engine: ThinkEngineConfig = field(default_factory=ThinkEngineConfig)
     initiative_timer: InitiativeTimerConfig = field(default_factory=InitiativeTimerConfig)
     resource_control: ResourceControlConfig = field(default_factory=ResourceControlConfig)
+    world: WorldConfig = field(default_factory=WorldConfig)
 
     # 角色开场模式：True=模型主动（场景开场），False=用户主动（静态greeting）
     begin_scene: bool = True

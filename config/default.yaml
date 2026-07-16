@@ -275,3 +275,28 @@ session:
   auto_save: true
   save_path: ./sessions
   max_sessions: 100
+
+# 多角色 World 编排（GensokyoWorld）：单模型演一整台戏，由导演决定每轮谁发言。
+# 默认关闭；单角色模式完全不受影响。启用需 enabled: true 并配置 actors。
+# 完整示例见 config/world_example.yaml。
+world:
+  enabled: false            # 总开关；false 时走单角色模式
+  id: gensokyo              # World 标识，用于会话与记忆按世界隔离
+  protagonist: __user__     # "__user__"=用户先说；或某个 actor id=该角色主动开场
+  user_initial_scene: null  # 用户起始场景 id；null 时随 protagonist 或 scene.default_scene
+  actors: []                # 角色花名册，见 world_example.yaml
+  director:
+    enabled: true
+    temperature: 0.2
+    max_tokens: 384
+    max_auto_turns: 4       # 一段自动表演最多连续轮数，到顶强制交还用户，防烧 token
+    max_same_actor_turns: 2 # 同一角色最多连续发言轮数
+    fallback_action: wait_user  # 决策非法/解析失败时的兜底：wait_user / continue
+  transcript:
+    context_entries: 24     # 每轮注入模型的最近共享剧本条数
+    max_entries_per_scene: 500
+  persistence:
+    enabled: true
+    save_path: ./sessions/worlds
+  project_perspective_memories: true  # 表演段落结束后为在场角色各写各视角记忆
+  user_follows_current_actor: true    # 当前演员切场景时用户是否跟随

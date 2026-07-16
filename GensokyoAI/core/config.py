@@ -27,6 +27,11 @@ from .config_schema import (
     TopicGenerationConfig,
     WebSearchAPIConfig,
     WebSearchToolConfig,
+    WorldActorConfig,
+    WorldConfig,
+    WorldDirectorConfig,
+    WorldPersistenceConfig,
+    WorldTranscriptConfig,
 )
 from .config_validator import ConfigDiagnostic, ConfigValidationError, ConfigValidator
 
@@ -56,5 +61,10 @@ __all__ = [
     "TopicGenerationConfig",
     "WebSearchAPIConfig",
     "WebSearchToolConfig",
+    "WorldActorConfig",
+    "WorldConfig",
+    "WorldDirectorConfig",
+    "WorldPersistenceConfig",
+    "WorldTranscriptConfig",
     "apply_env_overrides",
 ]

@@ -21,12 +21,20 @@ from .config_schema import (
     SessionConfig,
     ThinkEngineConfig,
     TopicGenerationConfig,
+    WorldActorConfig,
+    WorldConfig,
+    WorldDirectorConfig,
+    WorldPersistenceConfig,
+    WorldTranscriptConfig,
 )
 from .config_validator import ConfigDiagnostic, ConfigValidator
 
 # 角色配置缓存（LRU 简化版）：path -> (mtime, config)
 _character_config_cache: dict[Path, tuple[float, CharacterConfig]] = {}
 _CONFIG_CACHE_MAX_SIZE = 32
+
+# world 节中需要展开为子 Struct 的嵌套键，不直接作为 WorldConfig 的标量 kwargs。
+_WORLD_NESTED_KEYS = frozenset({"actors", "director", "transcript", "persistence"})
 
 
 class ConfigLoader(ConfigMerger):
@@ -214,7 +222,37 @@ class ConfigLoader(ConfigMerger):
             config.resource_control = ResourceControlConfig(**resource_control_data)
             self._provided_fields[id(config.resource_control)] = set(resource_control_data.keys())
 
+        if "world" in data:
+            world_data = data["world"] or {}
+            config.world = self._dict_to_world_config(world_data)
+            self._provided_fields[id(config.world)] = set(world_data.keys())
+
         return config
+
+    def _dict_to_world_config(self, data: dict[str, Any]) -> WorldConfig:
+        """构造 WorldConfig，逐层展开 actors 列表与 director/transcript/persistence 子节。"""
+        world_kwargs = {k: v for k, v in data.items() if k not in _WORLD_NESTED_KEYS}
+
+        actors_data = data.get("actors")
+        if isinstance(actors_data, list):
+            world_kwargs["actors"] = [
+                WorldActorConfig(**actor) if isinstance(actor, dict) else actor
+                for actor in actors_data
+            ]
+
+        director_data = data.get("director")
+        if isinstance(director_data, dict):
+            world_kwargs["director"] = WorldDirectorConfig(**director_data)
+
+        transcript_data = data.get("transcript")
+        if isinstance(transcript_data, dict):
+            world_kwargs["transcript"] = WorldTranscriptConfig(**transcript_data)
+
+        persistence_data = data.get("persistence")
+        if isinstance(persistence_data, dict):
+            world_kwargs["persistence"] = WorldPersistenceConfig(**persistence_data)
+
+        return WorldConfig(**world_kwargs)
 
     @staticmethod
     def _normalize_config_aliases(data: dict[str, Any]) -> dict[str, Any]:
