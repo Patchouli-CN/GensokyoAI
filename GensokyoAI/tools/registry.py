@@ -35,12 +35,12 @@ class ToolRegistry:
 
         self._tools.update(list_tools())
 
-    def register(self, func: Callable, name: str | None = None) -> None:
+    def register(self, func: Callable, name: str | None = None, parallel_safe: bool = True) -> None:
         """注册工具（非装饰器方式）"""
 
         # tool() 装饰器返回原函数（用于装饰器场景），真正的 ToolDefinition
         # 被登记进全局注册表，这里回取它，避免误用函数对象。
-        tool(name=name)(func)
+        tool(name=name, parallel_safe=parallel_safe)(func)
         tool_name = name or func.__name__
         definition = get_tool(tool_name)
         if definition is None:

@@ -35,7 +35,7 @@ from .initiative_timer import InitiativeTimerManager
 from .lifecycle import LifecycleManager
 from .message_builder import MessageBuilder
 from .response_handler import ResponseHandler
-from .runtime_context import AgentLazyComponents
+from .runtime_context import AgentDependencies, AgentLazyComponents
 from .save_coordinator import SaveCoordinator
 from .think_engine import ThinkEngine
 from .types import ProviderCapability, StreamChunk, UnifiedMessage
@@ -51,7 +51,11 @@ class Agent:
         config: AppConfig | None = None,
         config_file: Path | None = None,
         character_file: Path | None = None,
+        dependencies: AgentDependencies | None = None,
     ) -> None:
+        # 可选依赖注入：多角色（World）模式下共享 ModelClient / resource_gates
+        # 与稳定 actor_id / world_id；单角色模式为 None，保持自建行为。
+        self._dependencies = dependencies
         self._init_config(config, config_file, character_file)
         self._init_infrastructure()
         self._init_core_components()
@@ -97,7 +101,9 @@ class Agent:
         self.character_name = safe_get(self.config, "character.name", "default")
 
     def _init_memory_system(self) -> None:
-        bootstrap = AgentComposition(self.config, self.character_name).bootstrap()
+        bootstrap = AgentComposition(
+            self.config, self.character_name, self._dependencies
+        ).bootstrap()
         self.runtime_context = bootstrap.runtime_context
         self._lazy_components: AgentLazyComponents = bootstrap.lazy_components
         context = self.runtime_context
@@ -106,6 +112,9 @@ class Agent:
         self._model_client = context.model_client
         self.episodic_memory = context.episodic_memory
         self._semantic_memory: SemanticMemoryManager | None = None
+        # 对外暴露 Actor 身份，供 World 编排与前端识别；单角色模式为默认值。
+        self.actor_id = context.actor_id
+        self.world_id = context.world_id
 
     def _init_tool_system(self) -> None:
         self.tool_registry = self.runtime_context.tool_registry

@@ -15,6 +15,7 @@ from ...tools.build_service import ToolBuildService
 from ...tools.executor import ToolExecutor
 from ...tools.external_manager import ExternalToolManager
 from ...tools.registry import ToolRegistry
+from ...tools.tool_context import SINGLE_ACTOR_ID
 from ..events import EventBus
 from .model_client import ModelClient
 from .model_registry import ModelRegistryService
@@ -27,6 +28,21 @@ if TYPE_CHECKING:
     from .response_handler import ResponseHandler
     from .save_coordinator import SaveCoordinator
     from .think_engine import ThinkEngine
+
+
+class AgentDependencies(Struct):
+    """可选的外部注入依赖，用于让多个 Actor 共享大脑。
+
+    全部字段可空；为 None 时 :class:`AgentComposition` 保持当前自建行为。
+    多角色（World）模式下由 World 装配时注入共享 ``model_client`` /
+    ``resource_gates`` 与稳定的 ``actor_id`` / ``world_id``；事件总线、
+    Session/Memory/Scene manager 仍由每个 Actor 独立创建。
+    """
+
+    model_client: ModelClient | None = None
+    resource_gates: dict[str, ResourceGate] | None = None
+    actor_id: str | None = None
+    world_id: str | None = None
 
 
 class AgentRuntimeContext(Struct):
@@ -44,6 +60,9 @@ class AgentRuntimeContext(Struct):
     model_registry_service: ModelRegistryService
     session_manager: SessionManager
     scene_manager: SceneManager
+    # Actor 身份：单角色模式为 SINGLE_ACTOR_ID / None。
+    actor_id: str = SINGLE_ACTOR_ID
+    world_id: str | None = None
 
 
 class AgentLazyComponents(Struct):

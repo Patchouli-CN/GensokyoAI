@@ -15,7 +15,7 @@ from ..tool_context import current_event_bus as get_event_bus
 from ..tool_context import set_event_bus as set_event_bus  # 遗留兼容再导出
 
 
-@tool()
+@tool(parallel_safe=False)  # 写状态：切换当前场景，同一 Actor 内串行
 async def scene_switch(scene_id: str) -> str:
     """
     切换你当前所处的场景。当剧情发展让你移动到另一个地点时主动调用，

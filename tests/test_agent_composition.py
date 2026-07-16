@@ -7,14 +7,16 @@ from unittest.mock import patch
 
 from GensokyoAI.core.agent import Agent
 from GensokyoAI.core.agent.composition import AgentComposition
+from GensokyoAI.core.agent.model_client import ModelClient
 from GensokyoAI.core.agent.providers import ProviderFactory
 from GensokyoAI.core.agent.providers.base import BaseProvider
-from GensokyoAI.core.agent.runtime_context import AgentRuntimeContext
+from GensokyoAI.core.agent.runtime_context import AgentDependencies, AgentRuntimeContext
 from GensokyoAI.core.agent.types import UnifiedResponse
 from GensokyoAI.core.config import AppConfig, CharacterConfig, ModelConfig, SessionConfig
 from GensokyoAI.core.events import SystemEvent
 from GensokyoAI.memory.semantic import SemanticMemoryManager
 from GensokyoAI.memory.working import WorkingMemoryManager
+from GensokyoAI.runtime.resource_control import build_resource_gates
 from GensokyoAI.session.manager import SessionManager
 from GensokyoAI.tools.executor import ToolExecutor
 from GensokyoAI.tools.registry import ToolRegistry
@@ -116,6 +118,69 @@ class AgentCompositionTests(unittest.TestCase):
             self.assertEqual(started_event.type, SystemEvent.AGENT_STARTED)
             self.assertEqual(started_event.source, "agent")
             self.assertEqual(started_event.data["character"], "Reimu")
+
+    def test_actor_id_defaults_to_character_name_without_deps(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            context = AgentComposition(self._make_config(tmp), "Reimu").build()
+
+            self.assertEqual(context.actor_id, "Reimu")
+            self.assertIsNone(context.world_id)
+
+    def test_composition_reuses_injected_model_client_and_gates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._make_config(tmp)
+            shared_client = ModelClient(config.model)
+            shared_gates = build_resource_gates(config.resource_control)
+            deps = AgentDependencies(
+                model_client=shared_client,
+                resource_gates=shared_gates,
+                actor_id="marisa",
+                world_id="gensokyo",
+            )
+
+            context = AgentComposition(config, "KirisameMarisa", deps).build()
+
+            # 共享 ModelClient / gates 被复用，而非自建
+            self.assertIs(context.model_client, shared_client)
+            self.assertIs(context.resource_gates, shared_gates)
+            self.assertIs(context.tool_executor._resource_gates, shared_gates)
+            # 稳定 actor 身份优先于角色显示名
+            self.assertEqual(context.actor_id, "marisa")
+            self.assertEqual(context.world_id, "gensokyo")
+            self.assertEqual(context.tool_executor._actor_id, "marisa")
+            self.assertEqual(context.tool_executor._world_id, "gensokyo")
+
+    def test_two_actors_share_model_client_but_isolate_bus_and_memory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._make_config(tmp)
+            shared_client = ModelClient(config.model)
+            shared_gates = build_resource_gates(config.resource_control)
+
+            ctx_a = AgentComposition(
+                config,
+                "KirisameMarisa",
+                AgentDependencies(
+                    model_client=shared_client, resource_gates=shared_gates, actor_id="marisa"
+                ),
+            ).build()
+            ctx_b = AgentComposition(
+                config,
+                "PatchouliKnowledge",
+                AgentDependencies(
+                    model_client=shared_client, resource_gates=shared_gates, actor_id="patchouli"
+                ),
+            ).build()
+
+            # 共享大脑：同一个 ModelClient 对象
+            self.assertIs(ctx_a.model_client, ctx_b.model_client)
+            # 私有状态：事件总线 / 会话 / 场景各自独立，绝不串台
+            self.assertIsNot(ctx_a.event_bus, ctx_b.event_bus)
+            self.assertIsNot(ctx_a.session_manager, ctx_b.session_manager)
+            self.assertIsNot(ctx_a.scene_manager, ctx_b.scene_manager)
+            self.assertIsNot(ctx_a.tool_executor, ctx_b.tool_executor)
+            # actor 身份区分
+            self.assertEqual(ctx_a.actor_id, "marisa")
+            self.assertEqual(ctx_b.actor_id, "patchouli")
 
 
 if __name__ == "__main__":

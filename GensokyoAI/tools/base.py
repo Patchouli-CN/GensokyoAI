@@ -39,6 +39,10 @@ class ToolDefinition(Struct):
     parameters: dict[str, ToolParameter]
     func: Callable
     is_async: bool = False
+    # 并行安全：只读工具为 True，可与同批其他工具并发执行；
+    # 写状态工具（记忆写入、scene_switch 等）为 False，同一 Actor 内按调用顺序串行，
+    # 避免并发修改 Actor 私有状态导致竞态。
+    parallel_safe: bool = True
 
     def to_openai_schema(self, strict: bool = False) -> dict:
         """转换为 OpenAI 工具格式
@@ -93,8 +97,17 @@ class ToolDefinition(Struct):
 _TOOL_REGISTRY: dict[str, ToolDefinition] = {}
 
 
-def tool(name: str | None = None, description: str | None = None) -> Callable:
-    """工具装饰器"""
+def tool(
+    name: str | None = None,
+    description: str | None = None,
+    parallel_safe: bool = True,
+) -> Callable:
+    """工具装饰器
+
+    Args:
+        parallel_safe: 是否可与同批其他工具并发执行。写状态工具（记忆写入、
+            scene_switch 等）应设为 False，由 ToolExecutor 按调用顺序串行，避免竞态。
+    """
 
     def decorator(func: Callable) -> Callable:
         tool_name = name or func.__name__
@@ -135,6 +148,7 @@ def tool(name: str | None = None, description: str | None = None) -> Callable:
             parameters=parameters,
             func=func,
             is_async=is_async,
+            parallel_safe=parallel_safe,
         )
 
         return func

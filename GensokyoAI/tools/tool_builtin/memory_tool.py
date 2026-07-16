@@ -9,7 +9,7 @@ from ..tool_context import current_event_bus as get_event_bus
 from ..tool_context import set_event_bus as set_event_bus  # 遗留兼容再导出
 
 
-@tool()
+@tool(parallel_safe=False)  # 写状态：记忆写入，同一 Actor 内串行
 async def remember(
     content: str,
     topic: str = "",
@@ -100,7 +100,7 @@ async def recall(
     return f"「关于 '{keyword}' …我好像没什么印象…」"
 
 
-@tool()
+@tool(parallel_safe=False)  # 写状态：更新记忆，同一 Actor 内串行
 async def update_memory(
     topic: str,
     new_content: str,

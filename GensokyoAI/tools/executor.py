@@ -18,7 +18,7 @@ from ..utils.logger import logger
 from .errors import ToolError, ToolExecutionError
 from .external_manager import ExternalToolManager, is_external_tool_name
 from .registry import ToolRegistry
-from .tool_context import bind_event_bus
+from .tool_context import SINGLE_ACTOR_ID, ToolRuntimeContext, bind_tool_context
 
 if TYPE_CHECKING:
     from ..core.events import EventBus
@@ -33,11 +33,17 @@ class ToolExecutor:
         event_bus: EventBus | None = None,
         external_tool_manager: ExternalToolManager | None = None,
         resource_gates: dict[str, ResourceGate] | None = None,
+        actor_id: str = SINGLE_ACTOR_ID,
+        world_id: str | None = None,
     ):
         self._registry = registry or ToolRegistry()
         self._event_bus = event_bus
         self._external_tool_manager = external_tool_manager
         self._resource_gates = resource_gates or {}
+        # Actor 身份：单角色模式为 SINGLE_ACTOR_ID / world_id=None，
+        # 多角色模式由 World 装配时按 roster 注入稳定 id。
+        self._actor_id = actor_id
+        self._world_id = world_id
 
     def set_event_bus(self, event_bus: EventBus) -> None:
         """注入事件总线"""
@@ -107,9 +113,16 @@ class ToolExecutor:
                     f"tool:{name}",
                 ),
             ):
-                # 按调用注入事件总线：内置工具（memory/scene）通过 tool_context
-                # 读取当前事件总线，替代模块级全局单例，使多个 Agent 互不覆盖。
-                with bind_event_bus(self._event_bus):
+                # 按调用注入运行时上下文：内置工具（memory/scene）通过 tool_context
+                # 读取当前 Actor 的事件总线与身份，替代模块级全局单例，
+                # 使多个 Agent / Actor 互不覆盖。
+                with bind_tool_context(
+                    ToolRuntimeContext(
+                        event_bus=self._event_bus,
+                        actor_id=self._actor_id,
+                        world_id=self._world_id,
+                    )
+                ):
                     if tool_def.is_async:
                         result = await tool_def.func(**arguments)
                     else:
@@ -346,11 +359,46 @@ class ToolExecutor:
             payload["details"] = details
         self._publish_tool_event("progress", name, payload)
 
+    def _is_parallel_safe(self, name: str | None) -> bool:
+        """判断某工具是否可并发执行。
+
+        写状态工具（记忆写入、scene_switch 等）声明 ``parallel_safe=False``，需串行；
+        本地注册表查不到的工具（含外部工具）保守视为并行安全，保持既有行为。
+        """
+        if not name or not isinstance(name, str):
+            return True
+        tool_def = self._registry.get(name)
+        return tool_def.parallel_safe if tool_def is not None else True
+
     async def execute_batch(self, tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """批量执行工具调用（并行）"""
-        tasks = [self.execute(tc) for tc in tool_calls]
-        results = await asyncio.gather(*tasks)
-        return results
+        """批量执行工具调用。
+
+        纯查询工具（``parallel_safe=True``）并发执行；写状态工具
+        （``parallel_safe=False``）按调用顺序串行，避免同一 Actor 私有状态被并发修改
+        导致竞态。返回结果顺序与入参一致（按 tool_call_id 对齐）。
+        """
+        results: list[dict[str, Any] | None] = [None] * len(tool_calls)
+        parallel_indices: list[int] = []
+        serial_indices: list[int] = []
+        for i, tc in enumerate(tool_calls):
+            if self._is_parallel_safe(tc.get("name")):
+                parallel_indices.append(i)
+            else:
+                serial_indices.append(i)
+
+        # 并行组：并发执行
+        if parallel_indices:
+            parallel_results = await asyncio.gather(
+                *(self.execute(tool_calls[i]) for i in parallel_indices)
+            )
+            for i, res in zip(parallel_indices, parallel_results, strict=True):
+                results[i] = res
+
+        # 串行组：按原始调用顺序逐个执行，保证写状态不并发
+        for i in serial_indices:
+            results[i] = await self.execute(tool_calls[i])
+
+        return [r for r in results if r is not None]
 
     def execute_sync(self, tool_call: dict[str, Any]) -> dict[str, Any]:
         """同步执行（兼容非异步环境）"""
