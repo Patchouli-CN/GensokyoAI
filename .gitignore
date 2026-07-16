@@ -29,6 +29,13 @@ GENSOKYOAI2.log
 推送草稿.txt
 
 
+# 测试 / 覆盖率产物
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/
+
 # 备份
 
 *.bak
