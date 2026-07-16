@@ -59,8 +59,8 @@ GensokyoAI - 幻想乡 AI 角色扮演引擎
 快速开始
 --------
 
-1. 安装依赖：
-   pip install ollama msgspec rich loguru ayafileio pyyaml
+1. 安装依赖（推荐 uv；也可 pip 安装可选 Provider extra）：
+   uv sync --extra ollama          # 或 pip install "GensokyoAI[ollama]"
 
 2. 确保 Ollama 运行并下载模型：
    ollama pull qwen3.5:9b
@@ -71,7 +71,7 @@ GensokyoAI - 幻想乡 AI 角色扮演引擎
    greeting: "开场白"
 
 4. 启动对话：
-   python main_v2.py --character characters/my_role.yaml --new-session
+   python -m GensokyoAI.cli.main --character characters/my_role.yaml --new-session
 
 
 命令行参数
@@ -137,7 +137,11 @@ https://github.com/Patchouli-CN/GensokyoAI
 
 """
 
-__version__ = "0.1.0"
+from .core.version import package_version
+
+# 版本号统一由 core.version.package_version() 解析（安装元数据优先，源码树回退 pyproject.toml），
+# 与 Runtime 元数据同源，避免此处硬编码与 pyproject.toml 漂移。
+__version__ = package_version()
 __author__ = "Patchouli-CN"
 __license__ = "Apache-2.0"
 __email__ = "3072252442@qq.com"
