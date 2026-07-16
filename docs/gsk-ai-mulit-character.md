@@ -1,0 +1,460 @@
+# GensokyoWorld 多角色智能导演实现计划
+
+## Context
+
+现有 GensokyoAI 已具备单角色扮演所需的核心能力：`Agent` 演员、独立会话与记忆、`SceneManager` 场景、工具调用、`ThinkEngine` / `InitiativeTimer` 主动对话、Runtime RPC 和流式前端边界。目标是完整实现 [docs/multi_character_design.md](d:/python_play/GensokyoAI/docs/multi_character_design.md) 中的 `GensokyoWorld`：不是按顺序轮流说话的 group chat，而是由 `Director` 根据剧情、在场角色与戏剧时机决定 `continue / switch / wait_user`，用一个模型扮演整台戏。
+
+代码勘察发现草案需修正一处关键假设：多个 `Agent` **不能直接共享同一个 EventBus**。现有 `ActionPlanner` 都订阅 `MESSAGE_RECEIVED` 且没有 actor 过滤；memory/scene 工具也使用模块级 EventBus，直接共享会串台。最终架构因此采用：
+
+- **共享一个 `ModelClient`**（单模型、统一限流与 Provider 连接）；
+- **每个 Actor 独立 EventBus / SessionManager / WorkingMemory / SemanticMemory / ThinkEngine**（避免串台，保证私有状态）；
+- **World 自有 EventBus + 串行调度锁**（统一导演、舞台、主动发言和前端事件）；
+- **主动定时器归属于“对话主循环”而非固定归属于 Agent**：单角色模式由 Agent 充当主循环，多角色模式由 GensokyoWorld 充当主循环；
+- 使用显式 actor-aware 工具执行上下文，移除多 Agent 对模块级全局 EventBus 的依赖。
+
+旧的单角色 `Agent`、`agent.*` / `scene.*` RPC、角色卡和会话格式必须保持兼容；`world.enabled` 默认关闭。
+
+### 核心设计原则（贯穿全程，勿违背）
+
+> 洞察：概念上「单角色 = 只有一个角色的 World」。但**行为层不能直接合并**——否则单角色会为多角色机制白白付费。
+
+1. **Actor 与模式无关**（✅ 已在 1a/1b 落地）：同一个 `Agent` 既能独立跑，也能被 World 注入依赖当演员。这是唯一真正共享的东西。
+2. **单角色永不为多角色机制付费**：单 actor 场景**不启用 Director**（导演对 1 个角色只能 continue/wait_user，白白多一次 LLM 往返、翻倍 token），**不走 SharedTranscript/记忆投影**那套更绕的数据流，**不进 World 状态机**。
+3. **编排层做成共享抽象，而非两份拷贝**：单角色 Agent 是主循环、多角色 World 是主循环，但主动定时器/回合机制通过 §7 的 `DialogueLoop` 协议共享，避免复制粘贴——这才是消除「又搞单角色又搞多角色」重复感的正解。
+4. 已发布的 `agent.*` / `scene.*` / CLI / session 格式保持不动，World 是其**之上**的增量层。
+5. **对话的真相源是 Agent，不是 World**（用户 2026-07-16 决策，落法一）：working memory / session / 语义记忆继续挂在 `Agent` 上；World 只在其上叠加 SharedTranscript、WorldStage、记忆投影等**多角色专属**编排状态。**明确排除「落法二」**——不把对话数据模型从 Agent 搬进 World（那是大手术、动已发布路径、单人零收益）。World 记忆隔离通过给 Actor 的 `Agent` 注入 world 作用域的记忆根实现（延续 1a 的 `AgentDependencies`），而非把记忆搬走。
+
+### 实施前与交付约束（硬性）
+
+1. 写代码前先执行 `git status`，确认工作树状态；不得覆盖用户已有改动。
+2. 工作树干净时执行 `git pull --ff-only` 检查上游：
+   - 有更新：先快进到最新上游，重新读取本计划涉及的关键文件并校正接线点，再开始实现；
+   - 无更新：基于当前 HEAD 实现；
+   - 无法 fast-forward、出现冲突、或工作树已有用户改动：停止并报告，不擅自 merge/reset/stash。
+3. 实现完成后必须更新 changelog 与相关中英文文档，并运行完整验证。
+4. **不执行 git commit、不执行 git push**；最终只报告改动文件、验证结果和建议提交信息，提交由用户亲自完成。
+
+---
+
+## 1. 基础依赖注入与工具上下文隔离
+
+### 1.1 Agent 共享 ModelClient，但不共享 Actor EventBus
+
+> ✅ **状态：已实现（阶段 1a）**。改动集中在 `AgentDependencies` 注入路径，单角色模式零行为变化。
+
+已修改：
+- `GensokyoAI/core/agent/composition.py`
+- `GensokyoAI/core/agent/runtime_context.py`
+- `GensokyoAI/core/agent/_impl.py`
+- `GensokyoAI/core/agent/__init__.py`（导出 `AgentDependencies`）
+- `tests/test_agent_composition.py`
+
+已实现：
+- 新增 `AgentDependencies`（`runtime_context.py`，msgspec Struct，字段 `model_client / resource_gates / actor_id / world_id` 全可空），`AgentComposition.__init__` 接受可选 `deps`；未传时保持当前自建行为。
+- `EventBus`、`ToolExecutor`、Session/Memory/Scene manager 仍由每个 Actor 独立创建；`resource_gates` / `model_client` 可由 `deps` 注入共享。
+- `AgentRuntimeContext` 增加 `actor_id`（默认 `SINGLE_ACTOR_ID`，`deps.actor_id` 优先，否则取 `character_name`）与 `world_id`；`Agent` 暴露 `self.actor_id` / `self.world_id`，构造支持 `dependencies=` 透传。
+- 回归测试已验证：两个 Actor 的 `model_client is` 同一对象，而 `event_bus / session_manager / scene_manager / tool_executor` 均不同。
+
+> ⚠️ 实施笔记：共享 `ModelClient` 在构造时绑定了一个 `event_bus`（`composition.py`），其 `MODEL_CALL_TIMING / MODEL_AUTH` 等模型层事件会全部汇到该 bus。多角色装配时应把共享 `ModelClient` 显式绑 **World bus**，Actor 私有 bus 不承载模型层事件。
+
+### 1.2 用 ContextVar 替代工具模块全局状态
+
+> ✅ **ContextVar 隔离部分已实现**（事件总线解耦在先前 commit `4f2b0a2` 落地为 `tools/tool_context.py`，阶段 1a 又将其从「仅 event_bus」升级为完整 `ToolRuntimeContext`）。
+> ⏳ **状态型工具串行化部分（`parallel_safe` + `execute_batch` 串行）未做，属阶段 1b。**
+
+实际落地文件名为 **`GensokyoAI/tools/tool_context.py`**（非计划最初写的 `tools/context.py`）。
+
+已修改：
+- `GensokyoAI/tools/tool_context.py`（已含 `ToolRuntimeContext` / `bind_tool_context` / `current_tool_context` / `current_event_bus`）
+- `GensokyoAI/tools/executor.py`
+- `GensokyoAI/tools/tool_builtin/memory_tool.py`、`scene.py`（从 ContextVar 读，保留 `set_event_bus` 兼容薄壳）
+
+核心类型（已实现，字段顺序以 event_bus 为首，带默认值）：
+```python
+class ToolRuntimeContext(Struct):
+    event_bus: EventBus | None = None
+    actor_id: str = SINGLE_ACTOR_ID   # 单角色默认 "__single__"
+    world_id: str | None = None
+```
+
+已实现：
+- `ContextVar[ToolRuntimeContext | None]`；`ToolExecutor.execute()` 调用工具前 `bind_tool_context(...)`，finally 中 `reset(token)` 恢复。
+- memory/scene 工具通过 `current_event_bus`（`get_event_bus` 别名）取总线；`set_event_bus()` 保留为遗留兼容。
+- 已验证 `asyncio.gather` 为每个 Task 复制上下文，并发工具调用与多 Actor 天然隔离（`tests/test_tool_context.py`）。
+
+**阶段 1b（✅ 已完成）**：
+- `GensokyoAI/tools/base.py`：`ToolDefinition` / `tool()` 装饰器增加 `parallel_safe: bool = True`。
+- `remember` / `update_memory` / `scene_switch` 标记 `parallel_safe=False`。
+- `ToolExecutor.execute_batch()`：只读工具并发（`asyncio.gather`），写状态工具按调用顺序串行；结果按入参顺序对齐。`ToolRegistry.register()` 也支持 `parallel_safe`。
+- `tests/test_tool_context.py` 新增 `ToolBatchParallelSafetyTests`：验证并行工具重叠执行、串行工具并发度恒为 1 且保序、混合批结果按 tool_call_id 对齐。
+
+---
+
+## 2. World 配置、类型与持久化格式
+
+### 2.1 配置链
+
+> ✅ **状态：已实现（阶段 2.1）**。11 个测试覆盖解析/校验/合并/示例文件加载。
+
+已修改：
+- ✅ `config_schema.py`（`WorldActorConfig` / `WorldDirectorConfig` / `WorldTranscriptConfig` / `WorldPersistenceConfig` / `WorldConfig`；`AppConfig.world` 字段）
+- ✅ `config_loader.py`（`_dict_to_world_config` 逐层展开 actors 列表与 director/transcript/persistence 子节；`_WORLD_NESTED_KEYS`）
+- ✅ `config_merge.py`（world 整节覆盖，actors 列表不逐字段合并）
+- ✅ `config_validator.py`（`_validate_world_data` + actor/director/transcript 子校验；`world` 加入已知顶层字段）
+- ✅ `config.py`（再导出 World 配置类）
+- ✅ `config/default.yaml`（文档化的 `world:` 节，默认 `enabled: false`）
+- ✅ 新增 `config/world_example.yaml`（魔理沙 + 蕾米莉亚「红魔馆」双角色可运行示例）
+
+校验已实现：actor id 唯一、`enabled` 时至少一个 enabled actor、protagonist 为 `__user__` 或 roster id、director 枚举/范围、未知字段、Path 字段类型。**不在校验阶段读取角色文件/场景库**（留待初始化返回结构化 diagnostics）。
+
+新增 schema：
+```python
+WorldActorConfig:
+  id: str
+  character_file: Path
+  initial_scene: str | None
+  enabled: bool = True
+
+WorldDirectorConfig:
+  enabled: bool = True
+  temperature: float = 0.2
+  max_tokens: int = 384
+  max_auto_turns: int = 4
+  max_same_actor_turns: int = 2
+  fallback_action: Literal["wait_user", "continue"] = "wait_user"
+
+WorldTranscriptConfig:
+  context_entries: int = 24
+  max_entries_per_scene: int = 500
+
+WorldPersistenceConfig:
+  enabled: bool = True
+  save_path: Path = Path("./sessions/worlds")
+
+WorldConfig:
+  enabled: bool = False
+  id: str = "gensokyo"
+  protagonist: str = "__user__"
+  user_initial_scene: str | None
+  actors: list[WorldActorConfig]
+  director: WorldDirectorConfig
+  transcript: WorldTranscriptConfig
+  persistence: WorldPersistenceConfig
+  project_perspective_memories: bool = True
+  user_follows_current_actor: bool = True
+```
+
+校验：actor id 唯一、至少一个 enabled actor、protagonist 必须为 `__user__` 或 roster id、文件字段为字符串/Path、范围与枚举合法；不在 config validation 阶段读取文件/场景库，初始化时返回结构化 diagnostics。
+
+### 2.2 World 核心类型
+
+> ✅ **状态：已实现（阶段 2.2）**。纯数据层，无外部耦合，11 个单元测试覆盖。`persistence.py` 归入 2.3 待做。
+
+新增包：`GensokyoAI/world/`
+- ✅ `types.py`（`DirectorAction` / `SpeakerKind` StrEnum、`TranscriptEntry`、`DirectorDecision`、`WorldStateSnapshot`、常量 `USER_OCCUPANT_ID`）
+- ✅ `stage.py`（`WorldStage`：`move` / `move_together` / `scene_of` / `characters_in` / `visible_actor_ids`，`asyncio.Lock` 原子移动）
+- ✅ `transcript.py`（`SharedTranscript`：按 scene_id 分片，`add` / `history` / `render_for_scene` / `counts` / 按场景截断上限）
+- ✅ `__init__.py`（导出以上类型）
+- ⏳ `persistence.py`（阶段 2.3 待做）
+
+测试：`tests/test_world_data_layer.py` —— 在场过滤、用户跟随原子移动、100 并发移动自洽、场景分片防穿帮、system 事件渲染、history limit、超限截断。
+
+核心类型：
+- `WorldStage`: `locations: dict[occupant_id, scene_id]`，用户使用常量 `__user__`；提供 `move()`、`scene_of()`、`characters_in()`、`visible_actor_ids()`，内部用 `asyncio.Lock` 保证场景移动原子性。
+- `TranscriptEntry`: id、scene_id、speaker_kind (`user|character|system`)、speaker_id/name、content、timestamp、metadata。
+- `SharedTranscript`: **按 scene_id 分片**，append/render/history/trim；角色仅看到当前场景最近 N 条，共享剧本不写进 Actor 私有 working memory。
+- `DirectorAction`: `continue | switch | wait_user`。
+- `DirectorDecision`: action、next_actor_id、reason、confidence、fallback_applied。
+- `WorldTurn` / `WorldStreamEvent`: actor identity、scene、content/chunk、director decision、turn index。
+- `WorldStateSnapshot`: world/session id、roster、stage、current_actor、waiting_for_user、transcript counts、initiative queue。
+
+### 2.3 World session 与世界内角色记忆
+
+新增 `WORLD_SESSION_SCHEMA_VERSION = 1`（`core/schema_versions.py`）和独立 `WorldPersistence`：
+- World 会话路径 `sessions/worlds/<sanitized-world-id>/<world-session-id>.json`，复用 `sanitize_path_id`、原子 JSON/msgspec 写法。
+- 保存：world session metadata、stage locations、current actor、protagonist、按场景 transcript、director counters、World 主循环主动定时器状态。
+- 支持 create/list/resume/delete/export；新格式独立 version，不修改现有单角色 session schema，不迁移旧会话。
+
+**World 模式的角色长期记忆必须按世界隔离**：
+```text
+memory/world_<world_id>/<character_name>/
+  topics.json
+  ...
+```
+- 同一个角色在不同 world 中拥有不同人生与关系，绝不串记忆。
+- 同一个 world 的多个 world session 默认延续该角色在该世界里的长期语义记忆；短期 working memory/共享 transcript 仍按 world session 隔离。
+- `AgentComposition` / `SemanticMemoryManager` 增加显式 `memory_namespace` / `memory_root` 注入；单角色模式保持现有 `sessions/<character>/memory/<session_id>` 行为，World 模式使用上述世界分区，不通过字符串拼接偷改 character_name。
+- World bundle 保存角色私有 session/working-state 引用；恢复时校验 roster 与角色卡。缺失角色返回 diagnostics，可选择禁用缺失 actor，而不是静默串角色。
+
+---
+
+## 3. Agent 的 World-turn 桥接（不污染私有 working memory）
+
+修改：
+- `GensokyoAI/core/agent/_impl.py`
+- `GensokyoAI/core/agent/action_planner.py`
+- `GensokyoAI/core/event_listeners.py`
+- `GensokyoAI/core/agent/message_builder.py`
+- `GensokyoAI/core/agent/response_handler.py`
+
+新增 World 专用调用入口（命名可按周边风格）：
+```python
+Agent.send_world_turn(trigger_text, system_contexts, *, record_trigger=False)
+Agent.send_world_turn_stream(...)
+```
+
+实现：
+- `_publish_message_received()` 增加 metadata：`world_turn=True`、`actor_id`、`record_in_working_memory=False`。
+- `CoreListeners.on_message_received()` 在该标志为 false 时不把共享触发文本写入 Actor 私有 working memory；ActionPlanner 仍能用 trigger_text 触发 SPEAK 与语义记忆检索。
+- Actor 自己生成的回复仍写入其私有 working memory，保持角色自身延续性；World 同时把可见回复追加到当前场景的 SharedTranscript。
+- World 每轮通过 `system_contexts` 注入：当前场景、在场角色、当前场景共享剧本、明确的当前演员身份、禁止替其他角色代言的规则。
+- 修正工具 continuation：`MessageBuilder.build_continuation()` 必须保留本轮 world/system contexts，否则 Actor 调工具后会丢失舞台与共享剧本。
+
+---
+
+## 4. Director：智能选角，不是轮流
+
+新增：
+- `GensokyoAI/world/director.py`
+
+Director 复用共享 `ModelClient.chat()` 和现有 ThinkEngine 的 JSON schema/解析降级模式。
+
+输入：
+- phase：`after_user | after_actor | initiative`
+- 当前场景与环境
+- 当前在场 actor（id、显示名、角色简介/metadata，不注入完整私有 prompt）
+- 当前 actor
+- 当前场景最近 shared transcript
+- 连续自动发言计数、同角色连续发言计数
+- 当前对话主循环的 initiative timer 状态与待表达世界意图
+
+输出严格 schema：
+```json
+{
+  "action": "continue|switch|wait_user",
+  "next_character": "actor_id|null",
+  "reason": "...",
+  "confidence": 0.0
+}
+```
+
+验证/降级：
+- `switch` 目标必须 enabled、在用户当前场景、且不是用户；否则拒绝并按 config fallback。
+- `continue` 必须有 current actor 且其仍在场。
+- 达到 `max_auto_turns` 必须强制 `wait_user`；达到 `max_same_actor_turns` 不允许 continue。
+- JSON 解析失败、模型超时、空 roster → `wait_user`，绝不死循环。
+- 每次选择发布 World 事件，debug 模式可见 reason，正常用户只看到演出。
+
+演员尾信号优化不作为正确性的依赖：先实现可靠的独立 Director 调用；再增加可选 `director.strategy="separate|actor_hint"`。`actor_hint` 只提供建议，World 仍校验，解析失败自动回退独立 Director；隐藏信号不得泄漏到流式正文。
+
+---
+
+## 5. GensokyoWorld 主类与状态机
+
+新增：
+- `GensokyoAI/world/world.py`
+- `GensokyoAI/world/events.py`（或扩展 `SystemEvent`，推荐 World 自有枚举/载荷再桥接 Runtime）
+- `GensokyoAI/world/memory_projector.py`
+- `GensokyoAI/world/initiative.py`
+
+### 5.1 初始化
+
+`GensokyoWorld.create(config)`：
+1. 创建 World resource gates、共享 ModelClient、World EventBus、WorldPersistence。
+2. 加载共享 Scene library（复用 `SceneManager.load_library/get_scene/render_scene_with_options`，但不使用其单一 current_scene 作为多角色真相源）。
+3. 为每个 actor 加载角色卡，创建独立 Agent（共享 ModelClient，独立 EventBus/Session/Memory）。
+4. 创建或恢复各 Actor 私有 session；把 actor_id → Agent 注册到 roster。
+5. 初始化 WorldStage（actor 与 `__user__` 位置）、SharedTranscript、Director，以及归属于 World 对话主循环的 InitiativeTimer。
+6. 订阅每个 Actor EventBus 的 `SCENE_SWITCHED`；订阅回调通过闭包绑定 actor_id，更新 WorldStage 并桥接到 World EventBus。Actor 自身不启动独立主动定时器，避免多个角色各自抢占世界主循环。
+
+### 5.2 开场
+
+- protagonist 是 actor id：将用户放到该 actor 的 begin_scene/initial_scene，调用该 Actor 的 world-turn 入口，以 begin_scene.action 主动开场；追加 shared transcript；Director 决定继续、切人或等用户。
+- protagonist 是 `__user__`：只布置 stage，进入 `waiting_for_user=True`，不生成虚假欢迎词。
+- begin_scene.scene > actor initial_scene > world user_initial_scene > scene.default_scene；冲突时产生日志 diagnostics。
+
+### 5.3 用户回合
+
+`world.send_message(user_input)` / stream：
+1. 取得 world turn lock；用户消息优先于 World 主循环的主动定时器，取消或重新规划尚未触发的世界主动意图。
+2. 把用户消息追加到用户当前场景 transcript。
+3. Director `after_user` 从**同场 enabled actors**中选择首个响应者（无合适角色可 wait_user）。
+4. 选中 Actor 用 private memory + scene + shared transcript 生成回复；正文标注 actor id/name 流给前端。
+5. 回复追加 shared transcript；调用 Director `after_actor`。
+6. 按 decision 循环 continue/switch；达到边界或 wait_user 结束，释放锁。
+
+### 5.4 场景切换
+
+- Actor 的 `scene_switch` 仍走其独立 SceneServiceListener，World 监听其 `SCENE_SWITCHED`：更新 `WorldStage[actor_id]`；若 actor 是当前演员且 `user_follows_current_actor=True`，原子移动 `__user__`。
+- World 广播带 `actor_id/from_scene/to_scene/user_moved` 的事件；Runtime/console 使用 World 事件，而非猜单 Agent current scene。
+- Director 每次决策前重新计算同场 roster，移动后绝不选择已离场角色。
+- 前端可通过 `world.move` 明确移动用户或角色；权限/参数校验在 World 层完成。
+
+---
+
+## 6. 共享剧本与私有记忆数据流
+
+### SharedTranscript
+- 只记录舞台上可被看到/听到的用户与角色正文、公开动作、公开场景事件。
+- 不记录 Director reason、模型 reasoning、ThinkEngine 内心思考、私有记忆工具结果。
+- 按场景分片，从第一版即防穿帮；角色移动后只注入新场景 transcript，必要时附一条“刚从 X 来到 Y”的公开过渡事件。
+
+### Actor 私有记忆
+- Actor 自己的回复继续进入其 working memory；shared transcript 不复制到所有 working memory。
+- 新增 `WorldMemoryProjector`：在一次自动表演段落结束（wait_user）或重要场景事件后，用一次批量结构化模型调用，为当前场景参与者生成各自视角的摘要、importance、emotional_valence。
+- 投影结果调用各 Actor 现有 `semantic_memory.add_async()`；失败时使用确定性的公开事实摘要，不能阻塞用户回复。
+- 只给亲历/在场角色写入；不在场角色不会知道该场景发生的事。
+
+---
+
+## 7. 主动定时器属于“对话主循环”
+
+### 7.1 抽象边界
+
+新增对话主循环协议（建议 `GensokyoAI/core/dialogue_loop.py`）：
+```python
+class DialogueLoop(Protocol):
+    async def plan_initiative_after_turn(...) -> InitiativePlan | None: ...
+    async def trigger_initiative(plan: InitiativePlan) -> Any: ...
+    async def cancel_initiative(reason: str) -> bool: ...
+```
+
+主动定时器从“Agent 的固有部件”提升为“当前对话主循环的调度器”：
+- **单角色模式**：`Agent` 是对话主循环；行为与当前版本一致，由该角色决定并生成主动发言。
+- **多角色模式**：`GensokyoWorld` 是对话主循环；整个世界只有一个主动定时器。Actor 是演员，不各自占有主循环，也不各自创建 timer。
+
+修改：
+- `GensokyoAI/core/agent/initiative_timer.py`：提取可复用的纯调度器/状态机，使其依赖 `plan_callback` 与 `trigger_callback`，而不是绑定单个 Agent/角色。
+- `GensokyoAI/core/agent/_impl.py`：实现单角色 DialogueLoop 适配器；增加 `manage_initiative_timer: bool=True`，World Actor 设为 false。
+- 新增 `GensokyoAI/world/initiative.py`：实现 World DialogueLoop 的计划与触发逻辑。
+
+### 7.2 World 主循环主动计划
+
+每次一个完整 World 自动表演段落结束并进入 `wait_user` 后，World 统一做一次 initiative planning：
+- 输入当前场景 shared transcript、在场演员状态摘要、最近 Director 决策、沉默时长策略。
+- 输出 `InitiativePlan`：`should_schedule`、delay、世界级意图摘要、reason、enthusiasm；此时**不提前锁死发言角色**，因为到点时场景/在场角色可能已变化。
+- 用户在定时器到期前发言时，World 主循环取消旧 plan，并在该轮表演结束后重新规划。
+
+定时器到期：
+1. 获取 world turn lock；若用户请求/表演正在进行则按配置延后，不并发抢话。
+2. Director phase=`initiative` 基于**触发当下**的场景、在场角色和意图摘要，决定 `switch/continue/wait_user` 以及谁开口。
+3. 选中的 Actor 通过同一个 World actor-turn 状态机生成主动消息；追加 transcript，继续 Director 调度；仍受 `max_auto_turns` / `max_same_actor_turns` 熔断。
+4. Director 判断此刻无人适合说话时可 discard 或重新安排，不为“定时器到点”强行台词。
+
+这样主动定时器承担的是“世界何时再次推动剧情”，Director 承担“到那个时机谁最适合开口”，符合多角色世界是主循环的设计理念。
+
+---
+
+## 8. Runtime RPC、流式协议与 Console
+
+### 8.1 Runtime
+
+修改：
+- `GensokyoAI/runtime/service.py`
+- `GensokyoAI/runtime/rpc.py`
+- `GensokyoAI/runtime/event_contract.py`
+- `GensokyoAI/backends/web_server/http_adapter.py`
+- `bridge_main.py`（若只走通用 dispatch 无需专改）
+
+`RuntimeState` 新增 `world: GensokyoWorld | None`，保留 `agent`；单角色与 world 模式互斥启动但 API 同时可发现。
+
+新增 RPC：
+- `world.init`
+- `world.start`
+- `world.send_message`
+- `world.send_message_stream`
+- `world.state`
+- `world.roster`
+- `world.transcript`
+- `world.move`
+- `world.session.create/list/resume/delete/export`
+- `world.shutdown`
+
+`runtime.info` 新增 capability `world.orchestration`、methods/specs；协议仅增量，不改 major。
+
+流式事件必须包含：
+```json
+{"type":"world.actor.started","actor_id":"marisa","actor_name":"雾雨魔理沙","scene_id":"..."}
+{"type":"world.actor.chunk","actor_id":"marisa","content":"..."}
+{"type":"world.actor.completed",...}
+{"type":"world.director.decision","action":"switch","next_actor_id":"patchouli"}
+{"type":"world.waiting_user"}
+```
+WebSocket 为 `world.send_message_stream` 增加与 agent stream 同等的 task/cancel/backpressure 支持。
+
+### 8.2 Console
+
+新增：
+- `GensokyoAI/backends/console/world_backend.py`
+- CLI 增加 `--world`（或 config world.enabled 自动选择）
+
+行为：
+- 动态显示当前发言者 `魔理沙:` / `帕秋莉:`，不再用固定 `_character_name`。
+- 显示 World 场景移动、Director 切人（正常模式不显示内部 reason）、主动发言和等待用户状态。
+- 复用 Rich 样式、命令系统；新增 `/world`、`/roster`、`/stage`、`/transcript`，单角色 console 不变。
+
+---
+
+## 9. 实施顺序（每阶段可独立验证，最终一次性交付完整功能）
+
+0. **同步上游**：`git status` → 工作树干净后 `git pull --ff-only`；如有更新，基于最新代码重新核对全部接线点；不 commit/push。
+1. **隔离基础**：
+   - ✅ **1a（已完成）**：`AgentDependencies` 共享 ModelClient/gates 注入 + `ToolRuntimeContext` ContextVar（actor_id/world_id）+ Actor 身份暴露；单角色全回归绿。
+   - ✅ **1b（已完成）**：状态型工具 `parallel_safe` 元数据 + `execute_batch` 对同一 Actor 状态型工具串行、只读工具并发。
+2. **World 数据层**：配置、types、WorldStage、scene-partitioned SharedTranscript、WorldPersistence。
+3. **Actor bridge**：world-turn 调用、trigger 不入私有 memory、tool continuation 保留 world contexts。
+4. **Director 与主状态机**：用户/角色开场、after_user/after_actor 智能调度、边界与 fallback。
+5. **场景联动**：Actor scene_switch → WorldStage + 用户跟随 + 在场过滤。
+6. **私有记忆投影**：各视角摘要批量生成与后台写入。
+7. **主循环主动定时器**：提取 DialogueLoop 抽象；单角色由 Agent 持有 timer，World 模式关闭 Actor timer 并由 World 唯一持有，复用 World turn loop。
+8. **持久化恢复**：world bundle + actor session 关联 + export/delete/security。
+9. **Runtime / WebSocket / Console**：world.* RPC、流式 actor 事件、前端命令。
+10. **文档与完整验收**：更新草案状态、README 中英、QUICKSTART、runtime_api、default/world example、changelog/version。
+
+---
+
+## 10. 测试矩阵与验收
+
+### 单元测试
+- WorldStage：移动、同场过滤、用户跟随、并发原子性。
+- SharedTranscript：按场景隔离、限制条数、渲染 speaker、私有字段不泄漏。
+- Director：合法 continue/switch/wait、非法/离场 actor 降级、JSON 失败、超时、自动轮数熔断。
+- ToolRuntimeContext：两个 Actor 并发工具调用命中各自 EventBus；ContextVar 恢复；状态工具串行。
+- WorldPersistence：round-trip、损坏文件、路径净化、版本/缺失 actor diagnostics。
+- World memory namespace：同 world 跨 session 延续、不同 world 同角色完全隔离；路径严格为 `memory/world_<world_id>/<character_name>`（均净化）。
+- DialogueLoop/InitiativeTimer：单角色兼容原行为；World Actor 不创建 timer；整个 World 只有一个 timer；用户输入取消并重规划；到点后才由 Director 选角。
+
+### 集成测试（fake Provider，可脚本化决策）
+1. **红魔馆偷书完整戏**：魔理沙开场 → 移动红魔馆 → 用户问主人 → Director 在合适时机 switch 帕秋莉 → 帕秋莉看到共享剧本并以自己人设接话。
+2. 证明不是 round-robin：Director 连续选择当前角色、跳过某角色、wait_user 均可；顺序由剧情决策而非 roster 顺序。
+3. 不在场角色绝不被选中；移动后可被选中。
+4. 魔理沙/帕秋莉共享同一个 ModelClient，但私有 memory/session 不互相可见。
+5. 工具调用后仍保留共享剧本与当前场景。
+6. `scene_switch` 更新 Actor + 用户位置并广播正确 world event。
+7. protagonist actor 主动开场；protagonist=`__user__` 不自动说话。
+8. World 主循环 timer 到期后才由 Director 从当下在场角色中选角；用户先发言会取消旧计划；Actor 无独立 timer，因此不存在多个角色 timer 抢话。
+9. 保存并恢复后 roster、stage、transcript、current actor、World timer、actor sessions 一致；同 world 角色长期记忆延续，不同 world 不串。
+
+### Runtime / E2E
+- `runtime.info` 声明全部 world methods/capability；结构化错误稳定。
+- HTTP JSON RPC、WebSocket world stream、cancel stream、事件订阅均覆盖。
+- Console fake provider smoke test验证动态角色名前缀与切换。
+- 旧 `agent.*`、`scene.*`、单角色 CLI 全回归。
+
+### 最终命令
+- 先跑 world 定向 tests。
+- 执行项目标准 `./normalize_code.cmd`（ruff format、ruff check、pyright、pytest）。
+- 实际用两个角色卡 + 测试 Provider 驱动一段红魔馆对话，观察流式 actor 事件、Director decision、场景切换、持久化文件。
+- 如用户配置了真实模型，再运行一次可选真实 E2E；真实 API 失败不影响离线自动测试结论。
+
+---
+
+## 11. 防护与明确取舍
+
+- World 全回合持有单一 `asyncio.Lock`，不允许两个用户请求/主动消息同时推进戏；状态型工具另有 stage lock。
+- `max_auto_turns`、`max_same_actor_turns`、Director timeout/fallback 是硬熔断，避免演员无限互聊烧 token。
+- Director 永远只看公开角色摘要与共享剧本，不读取其他 Actor 私有记忆。
+- 每个 Actor 独立 EventBus 是必须调整；不照草案原文共享 EventBus。
+- `SceneManager` 继续保持单 Agent 语义；多角色位置由 WorldStage 管，不破坏现有 scene.*。
+- 独立 Director 调用是默认可靠路径；演员尾信号作为可选优化，不牺牲流式正文正确性。
+- 不支持第一版多模型/实时并发抢话；这是草案明确的非目标，不影响“智能时机选角”的核心价值。
