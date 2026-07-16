@@ -170,10 +170,13 @@ WorldConfig:
 
 ### 2.3 World session 与世界内角色记忆
 
+> ✅ **状态：已实现（阶段 2.3）**。新增独立 World 存档格式、安全读写与恢复诊断，并完成 world 作用域长期语义记忆根注入；阶段 2.3 定向测试 29 例、全量 458 passed（另有 3 subtests）全绿。
+
 新增 `WORLD_SESSION_SCHEMA_VERSION = 1`（`core/schema_versions.py`）和独立 `WorldPersistence`：
 - World 会话路径 `sessions/worlds/<sanitized-world-id>/<world-session-id>.json`，复用 `sanitize_path_id`、原子 JSON/msgspec 写法。
 - 保存：world session metadata、stage locations、current actor、protagonist、按场景 transcript、director counters、World 主循环主动定时器状态。
 - 支持 create/list/resume/delete/export；新格式独立 version，不修改现有单角色 session schema，不迁移旧会话。
+- 已实现 msgspec JSON、原子替换、`.bak`、备份恢复、损坏文件 quarantine、format/schema/world/session 身份校验，以及缺失/新增 actor 的结构化 diagnostics。完整 World/Actor 恢复编排仍按实施顺序留到阶段 8。
 
 **World 模式的角色长期记忆必须按世界隔离**：
 ```text
@@ -183,7 +186,7 @@ memory/world_<world_id>/<character_name>/
 ```
 - 同一个角色在不同 world 中拥有不同人生与关系，绝不串记忆。
 - 同一个 world 的多个 world session 默认延续该角色在该世界里的长期语义记忆；短期 working memory/共享 transcript 仍按 world session 隔离。
-- `AgentComposition` / `SemanticMemoryManager` 增加显式 `memory_namespace` / `memory_root` 注入；单角色模式保持现有 `sessions/<character>/memory/<session_id>` 行为，World 模式使用上述世界分区，不通过字符串拼接偷改 character_name。
+- `AgentDependencies` / `AgentRuntimeContext` 已增加显式 `semantic_memory_root` 注入，`AgentComposition` 原样透传，`Agent.semantic_memory` 按是否注入选择路径；单角色模式保持现有 `sessions/<character>/memory/<session_id>` 行为，World 模式使用上述世界分区，不通过字符串拼接偷改 character_name。
 - World bundle 保存角色私有 session/working-state 引用；恢复时校验 roster 与角色卡。缺失角色返回 diagnostics，可选择禁用缺失 actor，而不是静默串角色。
 
 ---

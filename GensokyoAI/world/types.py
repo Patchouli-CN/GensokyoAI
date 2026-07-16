@@ -72,3 +72,47 @@ class WorldStateSnapshot(Struct):
     roster: dict[str, str] = field(default_factory=dict)
     # scene_id -> 该场景剧本条数
     transcript_counts: dict[str, int] = field(default_factory=dict)
+
+
+class WorldSessionRecord(Struct):
+    """可独立持久化的 World 会话记录。
+
+    Director 与 World initiative 尚未落地，因此对应状态先使用可序列化映射保留扩展
+    边界；后续阶段由实际组件负责与其强类型状态互转，不在本数据层猜测业务字段。
+    """
+
+    world_id: str
+    session_id: str
+    created_at: float = field(default_factory=time.time)
+    updated_at: float = field(default_factory=time.time)
+    protagonist: str = USER_OCCUPANT_ID
+    current_actor_id: str | None = None
+    waiting_for_user: bool = True
+    metadata: dict[str, Any] = field(default_factory=dict)
+    roster: dict[str, str] = field(default_factory=dict)
+    # actor_id -> 该 Actor 的私有 session_id；完整恢复编排在阶段 8 接入。
+    actor_sessions: dict[str, str] = field(default_factory=dict)
+    stage: dict[str, str] = field(default_factory=dict)
+    transcript: dict[str, list[TranscriptEntry]] = field(default_factory=dict)
+    director_state: dict[str, Any] = field(default_factory=dict)
+    initiative_state: dict[str, Any] = field(default_factory=dict)
+
+    def touch(self) -> None:
+        """更新最后修改时间。"""
+        self.updated_at = time.time()
+
+
+class WorldPersistenceDiagnostic(Struct, frozen=True):
+    """恢复 World 存档时返回的结构化诊断。"""
+
+    code: str
+    severity: str
+    message: str
+    actor_id: str | None = None
+
+
+class WorldLoadResult(Struct):
+    """World 存档及其 roster 兼容性诊断。"""
+
+    record: WorldSessionRecord
+    diagnostics: list[WorldPersistenceDiagnostic] = field(default_factory=list)

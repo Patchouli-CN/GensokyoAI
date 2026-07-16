@@ -79,6 +79,7 @@ class AgentComposition:
         return AgentRuntimeContext(
             event_bus=event_bus,
             memory_base_path=memory_base_path,
+            semantic_memory_root=self.deps.semantic_memory_root,
             resource_gates=resource_gates,
             model_client=model_client,
             episodic_memory=episodic_memory,

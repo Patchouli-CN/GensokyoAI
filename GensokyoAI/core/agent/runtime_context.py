@@ -35,14 +35,16 @@ class AgentDependencies(Struct):
 
     全部字段可空；为 None 时 :class:`AgentComposition` 保持当前自建行为。
     多角色（World）模式下由 World 装配时注入共享 ``model_client`` /
-    ``resource_gates`` 与稳定的 ``actor_id`` / ``world_id``；事件总线、
-    Session/Memory/Scene manager 仍由每个 Actor 独立创建。
+    ``resource_gates``、稳定的 ``actor_id`` / ``world_id`` 与世界级
+    ``semantic_memory_root``；事件总线、Session/Memory/Scene manager 仍由每个
+    Actor 独立创建。
     """
 
     model_client: ModelClient | None = None
     resource_gates: dict[str, ResourceGate] | None = None
     actor_id: str | None = None
     world_id: str | None = None
+    semantic_memory_root: Path | None = None
 
 
 class AgentRuntimeContext(Struct):
@@ -50,6 +52,7 @@ class AgentRuntimeContext(Struct):
 
     event_bus: EventBus
     memory_base_path: Path
+    semantic_memory_root: Path | None
     resource_gates: dict[str, ResourceGate]
     model_client: ModelClient
     episodic_memory: EpisodicMemoryManager

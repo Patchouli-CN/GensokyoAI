@@ -20,6 +20,7 @@ from GensokyoAI.runtime.resource_control import build_resource_gates
 from GensokyoAI.session.manager import SessionManager
 from GensokyoAI.tools.executor import ToolExecutor
 from GensokyoAI.tools.registry import ToolRegistry
+from GensokyoAI.world import build_world_memory_root
 
 
 class _CompositionProvider(BaseProvider):
@@ -181,6 +182,52 @@ class AgentCompositionTests(unittest.TestCase):
             # actor 身份区分
             self.assertEqual(ctx_a.actor_id, "marisa")
             self.assertEqual(ctx_b.actor_id, "patchouli")
+
+    def test_single_actor_semantic_memory_keeps_session_scoped_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("GensokyoAI.core.agent.lifecycle.LifecycleManager.setup_signal_handlers"):
+                agent = Agent(config=self._make_config(tmp))
+            session = agent.create_session()
+
+            memory = agent.semantic_memory
+
+            self.assertEqual(
+                memory.store.path,
+                Path(tmp) / "Reimu" / "memory" / session.session_id / "topics.json",
+            )
+
+    def test_world_semantic_memory_uses_injected_root_across_sessions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._make_config(tmp)
+            memory_root = build_world_memory_root(Path(tmp), "gensokyo", "Reimu")
+            dependencies = AgentDependencies(
+                actor_id="reimu",
+                world_id="gensokyo",
+                semantic_memory_root=memory_root,
+            )
+            with patch("GensokyoAI.core.agent.lifecycle.LifecycleManager.setup_signal_handlers"):
+                agent = Agent(config=config, dependencies=dependencies)
+
+            agent.create_session()
+            first_memory = agent.semantic_memory
+            agent.create_session()
+            second_memory = agent.semantic_memory
+
+            self.assertIsNot(first_memory, second_memory)
+            self.assertEqual(first_memory.store.path, memory_root / "topics.json")
+            self.assertEqual(second_memory.store.path, memory_root / "topics.json")
+            self.assertEqual(agent.runtime_context.semantic_memory_root, memory_root)
+
+    def test_world_memory_roots_isolate_worlds_and_characters(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            reimu_a = build_world_memory_root(base, "world/a", "Reimu/博丽")
+            reimu_b = build_world_memory_root(base, "world/b", "Reimu/博丽")
+            marisa_a = build_world_memory_root(base, "world/a", "Marisa")
+
+            self.assertEqual(reimu_a, base / "memory" / "world_world_a" / "Reimu_博丽")
+            self.assertNotEqual(reimu_a, reimu_b)
+            self.assertNotEqual(reimu_a, marisa_a)
 
 
 if __name__ == "__main__":

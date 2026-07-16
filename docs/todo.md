@@ -5,10 +5,10 @@
 
 ## 0. 一句话现状
 
-多角色 `GensokyoWorld` 分阶段实施中。**阶段 1a / 1b / 2.2 / 2.1 已完成、已验证全绿、已提交**。下一步从 **阶段 2.3** 继续。
+多角色 `GensokyoWorld` 分阶段实施中。**阶段 1a / 1b / 2.2 / 2.1 已完成、已提交；阶段 2.3 已完成、已验证全绿、尚未提交**。下一步从 **阶段 3** 继续。
 
 - 基线：上一轮事件总线解耦 `4f2b0a2`；本次交接在其上新增数个 commit（代码 3 个 + 文档 1 个），用 `git log --oneline` 查看最新 HEAD。
-- 当前测试：`448 passed`，ruff / ruff format / pyright 全过。
+- 当前测试：`458 passed, 3 subtests passed`，ruff / ruff format / pyright 全过。
 - 所有新代码都是**纯增量**：单角色模式行为零变化，旧测试全绿。
 
 ---
@@ -73,12 +73,12 @@
 
 按计划 §9 顺序，逐阶段做、逐阶段验证。每阶段的**文件级细节在 `docs/gsk-ai-mulit-character.md` 对应小节**。
 
-- **⏳ 2.3 — WorldPersistence + 按世界隔离的记忆命名空间**（下一步）
-  - `core/schema_versions.py` 加 `WORLD_SESSION_SCHEMA_VERSION = 1`。
-  - 新增 `world/persistence.py`：World 会话存 `sessions/worlds/<sanitized-world-id>/<world-session-id>.json`，复用 `GensokyoAI/utils/path_security.py::sanitize_path_id` + 原子写（参考 `session/persistence.py` 的 `_atomic_write_json` / `.bak` / 备份恢复 / quarantine 写法）。
-  - create/list/resume/delete/export；保存 world metadata、stage locations、current actor、protagonist、按场景 transcript、director counters、World 主循环 initiative 状态。
-  - **记忆命名空间**（落法一）：给 `AgentDependencies` 加记忆根注入（如 `memory_root` / `memory_namespace`）；`AgentComposition` / `SemanticMemoryManager` 用它，World 模式路径为 `memory/world_<world_id>/<character_name>/`，单角色保持现有 `sessions/<character>/memory/<session_id>`。**不要靠字符串拼接偷改 character_name**。注意：当前 `_impl.py::semantic_memory` property 里硬编码了 `self._memory_base_path / self.character_name / "memory" / session_id`，需改成走注入的记忆根。
-- **⏳ 3 — Actor 的 world-turn 桥接**：`Agent.send_world_turn(_stream)`；trigger 文本不入私有 working memory（`record_in_working_memory=False`）；`MessageBuilder.build_continuation()` 保留本轮 world/system contexts。
+- **✅ 2.3 — WorldPersistence + 按世界隔离的记忆命名空间**
+  - 独立 World session schema/format、版本化 `WorldSessionRecord`、create/list/resume/delete/export 与异步包装已实现。
+  - 路径净化、msgspec JSON、原子替换、`.bak`、备份恢复、quarantine、身份/版本校验与 roster diagnostics 已实现。
+  - `AgentDependencies.semantic_memory_root` 注入链已实现；World 使用 `memory/world_<world_id>/<character_name>/`，单角色仍使用原有按 session 路径。
+  - 定向 29 例及全量 `458 passed, 3 subtests passed`，ruff / format / pyright 全绿。
+- **⏳ 3 — Actor 的 world-turn 桥接**（下一步）：`Agent.send_world_turn(_stream)`；trigger 文本不入私有 working memory（`record_in_working_memory=False`）；`MessageBuilder.build_continuation()` 保留本轮 world/system contexts。
 - **⏳ 4 — Director**：`world/director.py`，复用共享 `ModelClient.chat()` + ThinkEngine 的 JSON schema/降级模式。严格校验 switch 目标在场、熔断 `max_auto_turns` / `max_same_actor_turns`、解析失败 → wait_user。
 - **⏳ 5 — GensokyoWorld 主类与状态机**：`world/world.py` / `events.py` / `memory_projector.py` / `initiative.py`。开场（protagonist 是角色→主动开场；是 `__user__`→等用户）、用户回合、场景切换联动 WorldStage + 用户跟随。
 - **⏳ 6 — 私有记忆投影**：`WorldMemoryProjector`，段落结束批量为在场角色各写各视角，失败降级不阻塞。
@@ -112,14 +112,11 @@ uv run pyright <改动的产品文件>        # 类型检查
 - 新增 world 相关代码放 `GensokyoAI/world/`；测试放 `tests/test_world_*.py`。
 - 引用文件用真实存在的角色卡（`characters/zh_cn/` 下，注意没有 PatchouliKnowledge，用 RemiliaScarlet 等）。
 
-## 8. 未提交改动清单（截至交接）
+## 8. 未提交改动清单（截至阶段 2.3 完成）
 
-已改（M）：`core/agent/{__init__,_impl,composition,runtime_context}.py`、`core/config{,_loader,_merge,_schema,_validator}.py`、`tools/{base,executor,registry}.py`、`tools/tool_builtin/{memory_tool,scene}.py`、`tools/tool_context.py`、`config/default.yaml`、`tests/test_agent_composition.py`、`tests/test_tool_context.py`
-新增（??）：`GensokyoAI/world/`、`config/world_example.yaml`、`tests/test_world_config.py`、`tests/test_world_data_layer.py`
+阶段 2.3 已改（M）：`GensokyoAI/core/schema_versions.py`、`GensokyoAI/core/agent/{_impl,composition,runtime_context}.py`、`GensokyoAI/world/{__init__,types}.py`、`tests/test_agent_composition.py`、`docs/{todo,gsk-ai-mulit-character}.md`
+阶段 2.3 新增（??）：`GensokyoAI/world/{persistence,memory_paths}.py`、`tests/test_world_persistence.py`
 
-建议提交拆分（供用户参考，AI 不要自己提交）：
-1. `feat(agent): Actor 身份与共享 ModelClient 注入（阶段 1a）`
-2. `feat(tools): 工具 parallel_safe 与批量串/并行执行（阶段 1b）`
-3. `feat(world): World 数据层 WorldStage/SharedTranscript/类型（阶段 2.2）`
-4. `feat(config): WorldConfig 配置链与校验、示例（阶段 2.1）`
+建议 commit message（供用户参考，AI 不要自己提交）：
+`feat(world): WorldPersistence 与世界级记忆隔离（阶段 2.3）`
 

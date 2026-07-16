@@ -109,6 +109,7 @@ class Agent:
         context = self.runtime_context
         self.event_bus = context.event_bus
         self._memory_base_path = context.memory_base_path
+        self._semantic_memory_root = context.semantic_memory_root
         self._model_client = context.model_client
         self.episodic_memory = context.episodic_memory
         self._semantic_memory: SemanticMemoryManager | None = None
@@ -224,7 +225,7 @@ class Agent:
             if not current_session:
                 raise AgentError("No active session for semantic memory")
 
-            memory_path = (
+            memory_path = self._semantic_memory_root or (
                 self._memory_base_path / self.character_name / "memory" / current_session.session_id
             )
             memory_path.mkdir(parents=True, exist_ok=True)
