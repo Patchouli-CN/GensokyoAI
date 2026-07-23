@@ -56,7 +56,7 @@ class _FakeMessageBuilder:
     def __init__(self, working_memory):
         self._working_memory = working_memory
 
-    def build_continuation(self):
+    def build_continuation(self, system_contexts=None):
         return (
             [{"role": "system", "content": "sys"}]
             + self._working_memory.get_context()

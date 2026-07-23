@@ -267,16 +267,24 @@ class MessageBuilder:
             f"请优先调用 web_search 工具后再回答。触发依据：{reason_text}。"
         )
 
-    def build_continuation(self) -> list[dict[str, str]]:
+    def build_continuation(self, system_contexts: list[str] | None = None) -> list[dict[str, str]]:
         """
         构建工具调用后的继续对话消息
 
         用于模型调用工具后，带着工具结果继续生成回复
 
+        Args:
+            system_contexts: 本轮系统上下文（World 舞台/在场角色/共享剧本等）；
+                提供时在工具调用后继续保留，避免 Actor 调完工具丢失舞台。
+                单角色路径不传，行为与旧版一致。
+
         Returns:
             消息列表
         """
         messages: list[dict[str, str]] = [{"role": "system", "content": self.system_prompt}]
+        if system_contexts:
+            for ctx in system_contexts:
+                messages.append({"role": "system", "content": ctx})
         # 保留工作记忆中的 provider 私有协议字段，例如 DeepSeek thinking mode
         # 所需的 reasoning_content；展示层是否输出由 debug_silent_output 控制。
         messages.extend(self._working_memory.get_context())

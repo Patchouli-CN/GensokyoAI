@@ -98,6 +98,13 @@ class CoreListeners:
             extra["prompt_injection_suspected"] = True
             extra["prompt_injection_report"] = event.data.get("prompt_injection_report")
 
+        # World 回合：共享触发文本属于舞台，不写入 Actor 私有工作记忆，
+        # 避免同一段舞台上下文被复制进角色私历造成串台；
+        # Actor 自己生成的回复仍由 on_message_sent 正常写入。
+        if event.data.get("record_in_working_memory") is False:
+            logger.debug("World 回合触发文本跳过写入私有工作记忆")
+            return
+
         self.agent.working_memory.add_message("user", user_input, **extra)
 
     async def on_message_sent(self, event: Event) -> None:

@@ -193,6 +193,14 @@ memory/world_<world_id>/<character_name>/
 
 ## 3. Agent 的 World-turn 桥接（不污染私有 working memory）
 
+> ✅ **状态：已实现（阶段 3）**。定向 5 例（`tests/test_world_turn_bridge.py`）+ 全量 `463 passed, 3 subtests passed`，ruff / format / pyright 全绿；单角色路径零行为变化。
+>
+> 落地要点：
+> - `Agent.send_world_turn(_stream)(trigger_text, system_contexts, *, record_trigger=False)`：trigger 默认不入私有 working memory（`record_in_working_memory=False` 经 MESSAGE_RECEIVED 透传，`CoreListeners` 跳过写入）；Actor 自己生成的回复照常写入；world 回合的 `discard_initiative_timer` 以 `source="world"` 调用，不重置连续主动计数。
+> - **事件链修复**：`system_contexts` 与 `world_turn` 现经 ACTION_DECIDED → GENERATE_RESPONSE 全程透传（此前在链中被静默丢弃——单角色 `send` 的 system_contexts 同样受影响，已一并修复）。
+> - 工具 continuation 保留本轮 contexts：`build_continuation(system_contexts=None)` + `process_stream(continuation_contexts=...)`；World 回合注入，单角色不注入（行为不变）。
+> - **顺带修复流尾丢失**：`response_future` 完成时排空 `get_chunk_task` 结果与队列残余 chunk；`complete_response` 不再提前清空/置空流式队列（该队列随下次 `prepare_response` 整体替换）。
+
 修改：
 - `GensokyoAI/core/agent/_impl.py`
 - `GensokyoAI/core/agent/action_planner.py`

@@ -300,6 +300,8 @@ class Agent:
         *,
         timeout_log: str,
         cancel_reason: str,
+        world_turn: bool = False,
+        record_in_working_memory: bool = True,
     ) -> UnifiedMessage | None:
         """非流式发送共享实现；`user_input` 为文本或多模态 content parts。"""
         if self.is_shutting_down:
@@ -308,9 +310,18 @@ class Agent:
         async with self._request_semaphore:
             if self.is_shutting_down:
                 return None
-            await self.discard_initiative_timer(reason="user_message_received", source="user")
+            if world_turn:
+                # World 回合的触发来自对话主循环而非用户，不重置连续主动计数
+                await self.discard_initiative_timer(reason="world_turn_received", source="world")
+            else:
+                await self.discard_initiative_timer(reason="user_message_received", source="user")
             response_future = self._action_executor.prepare_response()  # type: ignore
-            self._publish_message_received(user_input, system_contexts)
+            self._publish_message_received(
+                user_input,
+                system_contexts,
+                world_turn=world_turn,
+                record_in_working_memory=record_in_working_memory,
+            )
 
             try:
                 full_response = await asyncio.wait_for(response_future, timeout=60.0)
@@ -349,6 +360,8 @@ class Agent:
         system_contexts: list[str] | None = None,
         *,
         timeout_log: str,
+        world_turn: bool = False,
+        record_in_working_memory: bool = True,
     ) -> AsyncIterator[StreamChunk]:
         """流式发送共享实现；`user_input` 为文本或多模态 content parts。"""
         if self.is_shutting_down:
@@ -357,9 +370,18 @@ class Agent:
         async with self._request_semaphore:
             if self.is_shutting_down:
                 return
-            await self.discard_initiative_timer(reason="user_message_received", source="user")
+            if world_turn:
+                # World 回合的触发来自对话主循环而非用户，不重置连续主动计数
+                await self.discard_initiative_timer(reason="world_turn_received", source="world")
+            else:
+                await self.discard_initiative_timer(reason="user_message_received", source="user")
             response_future = self._action_executor.prepare_response()  # type: ignore
-            self._publish_message_received(user_input, system_contexts)
+            self._publish_message_received(
+                user_input,
+                system_contexts,
+                world_turn=world_turn,
+                record_in_working_memory=record_in_working_memory,
+            )
 
             full_response = ""
             loop = asyncio.get_running_loop()
@@ -399,6 +421,15 @@ class Agent:
                             await get_chunk_task
 
                     if response_future in done:
+                        # response_future 完成时，已完成的 get_chunk_task 与队列里
+                        # 可能还积着最后几个 chunk（生产快于 0.1s 轮询），
+                        # 先全部排空再退出，避免丢失流尾。
+                        if get_chunk_task in done and (tail_chunk := get_chunk_task.result()):
+                            full_response += tail_chunk
+                            yield StreamChunk(content=tail_chunk)
+                        while tail_chunk := self._action_executor.get_chunk_nowait():  # type: ignore
+                            full_response += tail_chunk
+                            yield StreamChunk(content=tail_chunk)
                         break
 
                     if get_chunk_task in done:
@@ -429,10 +460,55 @@ class Agent:
             finally:
                 self._action_executor.complete_response(full_response)  # type: ignore
 
+    # ==================== World 回合入口 ====================
+
+    async def send_world_turn(
+        self,
+        trigger_text: str,
+        system_contexts: list[str] | None = None,
+        *,
+        record_trigger: bool = False,
+    ) -> UnifiedMessage | None:
+        """World 回合（非流式）：由 World 对话主循环驱动一名 Actor 开口。
+
+        `trigger_text` 是舞台触发（共享剧本/导演指令），默认不写入该 Actor 的
+        私有工作记忆——它属于舞台而非角色私历；Actor 自己生成的回复仍会正常
+        写入，保持角色自身延续性。`system_contexts` 承载本轮舞台信息（场景、
+        在场角色、共享剧本、当前演员身份），并在工具 continuation 中保留。
+        """
+        return await self._send_impl(
+            trigger_text,
+            system_contexts,
+            timeout_log="等待 world-turn 响应超时",
+            cancel_reason="send world turn timeout",
+            world_turn=True,
+            record_in_working_memory=record_trigger,
+        )
+
+    async def send_world_turn_stream(
+        self,
+        trigger_text: str,
+        system_contexts: list[str] | None = None,
+        *,
+        record_trigger: bool = False,
+    ) -> AsyncIterator[StreamChunk]:
+        """World 回合（流式）：语义同 `send_world_turn`。"""
+        async for chunk in self._send_stream_impl(
+            trigger_text,
+            system_contexts,
+            timeout_log="world-turn 流式响应超时",
+            world_turn=True,
+            record_in_working_memory=record_trigger,
+        ):
+            yield chunk
+
     def _publish_message_received(
         self,
         user_input: str | list[dict[str, Any]],
         system_contexts: list[str] | None = None,
+        *,
+        world_turn: bool = False,
+        record_in_working_memory: bool = True,
     ) -> None:
         text_input = self._extract_text_from_content(user_input)
         report = detect_prompt_injection(text_input)
@@ -440,6 +516,11 @@ class Agent:
             "content": user_input,
             "system_contexts": system_contexts,
         }
+        if world_turn:
+            data["world_turn"] = True
+            data["actor_id"] = self.actor_id
+        if not record_in_working_memory:
+            data["record_in_working_memory"] = False
         if report.suspected:
             data["prompt_injection_suspected"] = True
             data["prompt_injection_report"] = report.to_dict()
@@ -664,12 +745,18 @@ class Agent:
     async def _on_generate_response(self, event: Event) -> None:
         user_input = event.data.get("user_input", "")
         system_contexts = list(event.data.get("system_contexts", []) or [])
+        world_turn = bool(event.data.get("world_turn"))
         # MessageBuilder 需要文本做检索/搜索提示；实际多模态内容已在工作记忆中
         text_input = self._extract_text_from_content(user_input)
 
         # 对话开始时注入一次当前场景（新会话首轮 / resume 后首轮）；
         # 之后不再每轮注入，模型遗忘时可主动调用 get_current_scene。
         system_contexts = await self._prepend_scene_context(system_contexts)
+
+        # World 回合的每轮上下文（舞台/在场角色/共享剧本/演员身份）必须在
+        # 工具调用后的 continuation 中保留，否则 Actor 调完工具就丢失舞台；
+        # 单角色路径维持原行为，不重复注入。
+        continuation_contexts = system_contexts if world_turn else None
 
         full_response = ""
         try:
@@ -679,7 +766,9 @@ class Agent:
             messages = self.message_builder.build(text_input, system_contexts)
             tools = tool_build_result.tools or None
 
-            async for chunk in self.response_handler.process_stream(messages, tools):
+            async for chunk in self.response_handler.process_stream(
+                messages, tools, continuation_contexts=continuation_contexts
+            ):
                 if self.is_shutting_down:
                     break
                 if chunk.content:

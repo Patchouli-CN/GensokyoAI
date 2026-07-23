@@ -251,15 +251,23 @@ class ActionPlanner:
 
     def _publish_action(self, action: Action, trigger_event: Event | None = None) -> None:
         """发布行动决策事件"""
+        data: dict[str, Any] = {
+            "action": action.to_dict(),
+            "trigger_event_id": trigger_event.id if trigger_event else None,
+            "user_input": trigger_event.data.get("content") if trigger_event else None,
+        }
+        if trigger_event is not None:
+            # 透传本轮系统上下文与 world 标记，保证 GENERATE_RESPONSE 能拿到
+            # World 注入的舞台/在场/共享剧本（此前在事件链中被丢弃）。
+            if system_contexts := trigger_event.data.get("system_contexts"):
+                data["system_contexts"] = system_contexts
+            if trigger_event.data.get("world_turn"):
+                data["world_turn"] = True
         self.event_bus.publish(
             Event(
                 type=SystemEvent.ACTION_DECIDED,
                 source="action_planner",
-                data={
-                    "action": action.to_dict(),
-                    "trigger_event_id": trigger_event.id if trigger_event else None,
-                    "user_input": trigger_event.data.get("content") if trigger_event else None,
-                },
+                data=data,
             )
         )
         logger.info(f"🧠 [ActionPlanner] 决策: {action.type.name} - {action.reason}")

@@ -118,7 +118,11 @@ class ResponseHandler:
     # ==================== 响应处理 ====================
 
     async def process_stream(
-        self, messages: list[dict[str, str]], tools: list[dict] | None
+        self,
+        messages: list[dict[str, str]],
+        tools: list[dict] | None,
+        *,
+        continuation_contexts: list[str] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         self._last_assistant_reasoning = None
         tool_calls_message: UnifiedMessage | None = None
@@ -164,7 +168,7 @@ class ResponseHandler:
                 yield error_chunk
 
         self._safe_record_results(tool_calls_message, tool_results)
-        cont_messages = self._message_builder.build_continuation()
+        cont_messages = self._message_builder.build_continuation(continuation_contexts)
 
         continuation_reasoning = ""
 

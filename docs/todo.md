@@ -5,10 +5,10 @@
 
 ## 0. 一句话现状
 
-多角色 `GensokyoWorld` 分阶段实施中。**阶段 1a / 1b / 2.2 / 2.1 已完成、已提交；阶段 2.3 已完成、已验证全绿、尚未提交**。下一步从 **阶段 3** 继续。
+多角色 `GensokyoWorld` 分阶段实施中。**阶段 1a / 1b / 2.1 / 2.2 / 2.3 已完成、已提交；阶段 3 已完成、已验证全绿、尚未提交**。下一步从 **阶段 4** 继续。
 
 - 基线：上一轮事件总线解耦 `4f2b0a2`；本次交接在其上新增数个 commit（代码 3 个 + 文档 1 个），用 `git log --oneline` 查看最新 HEAD。
-- 当前测试：`458 passed, 3 subtests passed`，ruff / ruff format / pyright 全过。
+- 当前测试：`463 passed, 3 subtests passed`，ruff / ruff format / pyright 全过。
 - 所有新代码都是**纯增量**：单角色模式行为零变化，旧测试全绿。
 
 ---
@@ -78,8 +78,8 @@
   - 路径净化、msgspec JSON、原子替换、`.bak`、备份恢复、quarantine、身份/版本校验与 roster diagnostics 已实现。
   - `AgentDependencies.semantic_memory_root` 注入链已实现；World 使用 `memory/world_<world_id>/<character_name>/`，单角色仍使用原有按 session 路径。
   - 定向 29 例及全量 `458 passed, 3 subtests passed`，ruff / format / pyright 全绿。
-- **⏳ 3 — Actor 的 world-turn 桥接**（下一步）：`Agent.send_world_turn(_stream)`；trigger 文本不入私有 working memory（`record_in_working_memory=False`）；`MessageBuilder.build_continuation()` 保留本轮 world/system contexts。
-- **⏳ 4 — Director**：`world/director.py`，复用共享 `ModelClient.chat()` + ThinkEngine 的 JSON schema/降级模式。严格校验 switch 目标在场、熔断 `max_auto_turns` / `max_same_actor_turns`、解析失败 → wait_user。
+- **✅ 3 — Actor 的 world-turn 桥接**：`Agent.send_world_turn(_stream)`；trigger 文本默认不入私有 working memory（`record_in_working_memory=False`）；事件链全程透传 `system_contexts`/`world_turn`（修复旧的静默丢弃）；`MessageBuilder.build_continuation()` 保留本轮 world/system contexts；顺带修复流式尾部 chunk 丢失。定向 5 例 + 全量 463 passed 全绿，未提交。
+- **⏳ 4 — Director**（下一步）：`world/director.py`，复用共享 `ModelClient.chat()` + ThinkEngine 的 JSON schema/降级模式。严格校验 switch 目标在场、熔断 `max_auto_turns` / `max_same_actor_turns`、解析失败 → wait_user。
 - **⏳ 5 — GensokyoWorld 主类与状态机**：`world/world.py` / `events.py` / `memory_projector.py` / `initiative.py`。开场（protagonist 是角色→主动开场；是 `__user__`→等用户）、用户回合、场景切换联动 WorldStage + 用户跟随。
 - **⏳ 6 — 私有记忆投影**：`WorldMemoryProjector`，段落结束批量为在场角色各写各视角，失败降级不阻塞。
 - **⏳ 7 — DialogueLoop 抽象**（去重关键）：`core/dialogue_loop.py` Protocol；`initiative_timer.py` 提取纯调度器依赖回调；`_impl.py` 单角色适配器 + `manage_initiative_timer: bool=True`（World Actor 设 false）；`world/initiative.py` World 主循环计划/触发。
@@ -112,11 +112,11 @@ uv run pyright <改动的产品文件>        # 类型检查
 - 新增 world 相关代码放 `GensokyoAI/world/`；测试放 `tests/test_world_*.py`。
 - 引用文件用真实存在的角色卡（`characters/zh_cn/` 下，注意没有 PatchouliKnowledge，用 RemiliaScarlet 等）。
 
-## 8. 未提交改动清单（截至阶段 2.3 完成）
+## 8. 未提交改动清单（截至阶段 3 完成）
 
-阶段 2.3 已改（M）：`GensokyoAI/core/schema_versions.py`、`GensokyoAI/core/agent/{_impl,composition,runtime_context}.py`、`GensokyoAI/world/{__init__,types}.py`、`tests/test_agent_composition.py`、`docs/{todo,gsk-ai-multi-character}.md`
-阶段 2.3 新增（??）：`GensokyoAI/world/{persistence,memory_paths}.py`、`tests/test_world_persistence.py`
+阶段 3 已改（M）：`GensokyoAI/core/agent/{_impl,action_executor,action_planner,message_builder,response_handler}.py`、`GensokyoAI/core/event_listeners.py`、`tests/test_deepseek_reasoning_flow.py`、`docs/{todo,gsk-ai-multi-character}.md`
+阶段 3 新增（??）：`tests/test_world_turn_bridge.py`
 
 建议 commit message（供用户参考，AI 不要自己提交）：
-`feat(world): WorldPersistence 与世界级记忆隔离（阶段 2.3）`
+`feat(agent): Actor world-turn 桥接与事件链透传修复（阶段 3）`
 

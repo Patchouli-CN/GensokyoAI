@@ -3,7 +3,7 @@
 # GensokyoAI/core/agent/action_executor.py
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ...utils.logger import logger
 from ..events import Event, EventBus, EventPriority, SystemEvent
@@ -72,15 +72,21 @@ class ActionExecutor:
 
     async def _execute_speak(self, event: Event, user_input: str) -> None:
         """执行 SPEAK - 请求生成响应"""
-        # 发布生成响应事件，由 ResponseHandler 订阅处理
+        # 发布生成响应事件，由 ResponseHandler 订阅处理；
+        # 透传本轮系统上下文与 world 标记（World 舞台/在场/共享剧本）。
+        data: dict[str, Any] = {
+            "user_input": user_input,
+            "request_id": event.id,
+        }
+        if system_contexts := event.data.get("system_contexts"):
+            data["system_contexts"] = system_contexts
+        if event.data.get("world_turn"):
+            data["world_turn"] = True
         self.event_bus.publish(
             Event(
                 type=SystemEvent.GENERATE_RESPONSE,
                 source="action_executor",
-                data={
-                    "user_input": user_input,
-                    "request_id": event.id,
-                },
+                data=data,
             )
         )
 
@@ -167,11 +173,20 @@ class ActionExecutor:
             return await self._stream_queue.get()
         return ""
 
+    def get_chunk_nowait(self) -> str:
+        """非阻塞获取下一个流式块；无队列或队列为空时返回 ""。"""
+        if self._stream_queue:
+            try:
+                return self._stream_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return ""
+        return ""
+
     def complete_response(self, full_response: str = "") -> None:
-        """响应完成。"""
+        """响应完成。只解析 future，不清空流式队列——消费方可能还没排完
+        最后几个 chunk，清空会丢失流尾；队列随下一次 prepare_response 整体替换。"""
         if self._response_future and not self._response_future.done():
             self._response_future.set_result(full_response)
-        self._cleanup_response()
 
     def cancel_response(self, reason: str = "cancelled") -> None:
         """取消当前响应并清理队列，避免半截流继续污染下一轮请求。"""
