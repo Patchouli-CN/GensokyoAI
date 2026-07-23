@@ -1,6 +1,6 @@
 # GensokyoWorld 多角色功能 — 交接文档
 
-> 给接手的 AI：本文件是**唯一入口**。先通读本文，再看 `docs/gsk-ai-mulit-character.md`（完整实施计划，含每阶段文件级细节与状态标注）。
+> 给接手的 AI：本文件是**唯一入口**。先通读本文，再看 `docs/gsk-ai-multi-character.md`（完整实施计划，含每阶段文件级细节与状态标注）。
 > 两份文件都在 `docs/`，随仓库一起提交，clone 即可见。
 
 ## 0. 一句话现状
@@ -18,7 +18,7 @@
 1. **不要 `git commit` / `git push`**。完成后只报告改动文件、验证结果、建议 commit message，由用户亲自提交。
 2. 动手前先 `git status` 确认工作树；工作树干净时 `git pull --ff-only` 检查上游，有更新则先快进并重新核对接线点。无法 ff / 有冲突 / 有用户改动 → 停止并报告，不擅自 merge/reset/stash。
 3. **逐阶段推进**：一次做一个可独立验证的阶段，跑完测试再进下一个。用户在意 token 成本，别一口气堆完多个阶段。
-4. 每阶段完成后更新 `docs/gsk-ai-mulit-character.md` 里对应小节的状态标注。
+4. 每阶段完成后更新 `docs/gsk-ai-multi-character.md` 里对应小节的状态标注。
 
 ---
 
@@ -71,7 +71,7 @@
 
 ## 4. 待做阶段（从这里继续）
 
-按计划 §9 顺序，逐阶段做、逐阶段验证。每阶段的**文件级细节在 `docs/gsk-ai-mulit-character.md` 对应小节**。
+按计划 §9 顺序，逐阶段做、逐阶段验证。每阶段的**文件级细节在 `docs/gsk-ai-multi-character.md` 对应小节**。
 
 - **✅ 2.3 — WorldPersistence + 按世界隔离的记忆命名空间**
   - 独立 World session schema/format、版本化 `WorldSessionRecord`、create/list/resume/delete/export 与异步包装已实现。
@@ -114,7 +114,7 @@ uv run pyright <改动的产品文件>        # 类型检查
 
 ## 8. 未提交改动清单（截至阶段 2.3 完成）
 
-阶段 2.3 已改（M）：`GensokyoAI/core/schema_versions.py`、`GensokyoAI/core/agent/{_impl,composition,runtime_context}.py`、`GensokyoAI/world/{__init__,types}.py`、`tests/test_agent_composition.py`、`docs/{todo,gsk-ai-mulit-character}.md`
+阶段 2.3 已改（M）：`GensokyoAI/core/schema_versions.py`、`GensokyoAI/core/agent/{_impl,composition,runtime_context}.py`、`GensokyoAI/world/{__init__,types}.py`、`tests/test_agent_composition.py`、`docs/{todo,gsk-ai-multi-character}.md`
 阶段 2.3 新增（??）：`GensokyoAI/world/{persistence,memory_paths}.py`、`tests/test_world_persistence.py`
 
 建议 commit message（供用户参考，AI 不要自己提交）：

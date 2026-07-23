@@ -2,7 +2,6 @@
 
 import asyncio
 import contextlib
-import json
 from collections.abc import AsyncIterator
 from contextvars import ContextVar
 from pathlib import Path
@@ -31,9 +30,10 @@ from ..exceptions import AgentError
 from .action_executor import ActionExecutor
 from .action_planner import ActionPlanner
 from .composition import AgentComposition
-from .initiative_timer import InitiativeTimerManager
+from .initiative_coordinator import InitiativeCoordinator
 from .lifecycle import LifecycleManager
 from .message_builder import MessageBuilder
+from .prompts import build_roleplay_system_prompt
 from .response_handler import ResponseHandler
 from .runtime_context import AgentDependencies, AgentLazyComponents
 from .save_coordinator import SaveCoordinator
@@ -137,8 +137,7 @@ class Agent:
         self._save_coordinator = self._lazy_components.save_coordinator
         self._response_handler = self._lazy_components.response_handler
         self._background_manager: BackgroundManager | None = None
-        self._initiative_timer: InitiativeTimerManager | None = None
-        self._last_initiative_timer_payload: dict | None = None
+        self._initiative_coordinator = InitiativeCoordinator(self)
 
     def _init_event_listeners(self) -> None:
         self.core_listeners = CoreListeners(self, self.event_bus)
@@ -180,41 +179,9 @@ class Agent:
     def _build_system_prompt(self) -> str:
         if not self.config.character:
             raise AgentError("No Character be roleplayed.")
-        prompt = self.config.character.system_prompt
-        # 追加框架级角色扮演约束，确保严格以角色视角回应
-        character_name = self.config.character.name
-        prompt += f"""
-
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【角色扮演框架规则 — 绝对优先，必须严格遵守】
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-1. 【你就是{character_name}】
-   你是{character_name}本人，不是旁白、不是观察者、不是AI助手。
-   你只能以自己的第一人称视角感受和行动。
-
-2. 【禁止第三人称描述自己】
-   错误：「{character_name}微笑着说」 或 「*{character_name}从树丛中探出头来*」
-   正确：「*微笑* 你好！」 或 「从树丛里钻出来——哦，是你啊！」
-   你说话的时候，主语永远是你自己（我/你），不是{character_name}（她/他）。
-
-3. 【用户输入中的 * 星号动作】
-   用户消息中如果带有 * 星号（如「*微笑* 你好」），那是用户（另一个角色）的动作描写。
-   你应该直接回应，不要复述/模仿用户的动作。
-   错误：「*也从树丛中探出头来* 哦~这不是我吗？」
-   正确：「哟！吓我一跳——哦，是你啊DA☆ZE！你怎么跑魔法森林来了？」
-
-4. 【禁止重复用户内容】
-   不要复述、不要概括、不要翻译用户已经说过的话。
-   用户说完，你直接回应即可。
-
-5. 【禁止跳脱角色】
-   不要以「作为AI」「根据设定」「从角色角度来看」等旁观者语言。
-   不要解释你为什么这么说，直接说。
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-"""
-        return prompt
+        return build_roleplay_system_prompt(
+            self.config.character.name, self.config.character.system_prompt
+        )
 
     # ==================== 懒加载属性 ====================
 
@@ -306,6 +273,35 @@ class Agent:
         self, user_input: str, system_contexts: list[str] | None = None
     ) -> UnifiedMessage | None:
         """发送消息（非流式）- 完全事件驱动。"""
+        return await self._send_impl(
+            user_input,
+            system_contexts,
+            timeout_log="等待响应超时",
+            cancel_reason="send timeout",
+        )
+
+    async def send_multimodal(
+        self,
+        content_parts: list[dict[str, Any]],
+        system_contexts: list[str] | None = None,
+    ) -> UnifiedMessage | None:
+        """发送多模态消息（非流式）。"""
+        return await self._send_impl(
+            content_parts,
+            system_contexts,
+            timeout_log="多模态响应超时",
+            cancel_reason="send multimodal timeout",
+        )
+
+    async def _send_impl(
+        self,
+        user_input: str | list[dict[str, Any]],
+        system_contexts: list[str] | None = None,
+        *,
+        timeout_log: str,
+        cancel_reason: str,
+    ) -> UnifiedMessage | None:
+        """非流式发送共享实现；`user_input` 为文本或多模态 content parts。"""
         if self.is_shutting_down:
             return None
 
@@ -321,35 +317,8 @@ class Agent:
                 if full_response:
                     return UnifiedMessage(role="assistant", content=full_response)
             except TimeoutError:
-                logger.warning("等待响应超时")
-                self._action_executor.cancel_response("send timeout")  # type: ignore
-                return UnifiedMessage(role="assistant", content="「唔…我有点走神了…」")
-
-            return None
-
-    async def send_multimodal(
-        self,
-        content_parts: list[dict[str, Any]],
-        system_contexts: list[str] | None = None,
-    ) -> UnifiedMessage | None:
-        """发送多模态消息（非流式）。"""
-        if self.is_shutting_down:
-            return None
-
-        async with self._request_semaphore:
-            if self.is_shutting_down:
-                return None
-            await self.discard_initiative_timer(reason="user_message_received", source="user")
-            response_future = self._action_executor.prepare_response()  # type: ignore
-            self._publish_message_received(content_parts, system_contexts)
-
-            try:
-                full_response = await asyncio.wait_for(response_future, timeout=60.0)
-                if full_response:
-                    return UnifiedMessage(role="assistant", content=full_response)
-            except TimeoutError:
-                logger.warning("多模态响应超时")
-                self._action_executor.cancel_response("send multimodal timeout")  # type: ignore
+                logger.warning(timeout_log)
+                self._action_executor.cancel_response(cancel_reason)  # type: ignore
                 return UnifiedMessage(role="assistant", content="「唔…我有点走神了…」")
 
             return None
@@ -358,6 +327,30 @@ class Agent:
         self, user_input: str, system_contexts: list[str] | None = None
     ) -> AsyncIterator[StreamChunk]:
         """发送消息（流式）- 完全事件驱动。"""
+        async for chunk in self._send_stream_impl(
+            user_input, system_contexts, timeout_log="流式响应超时"
+        ):
+            yield chunk
+
+    async def send_multimodal_stream(
+        self,
+        content_parts: list[dict[str, Any]],
+        system_contexts: list[str] | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        """发送多模态消息（流式）。"""
+        async for chunk in self._send_stream_impl(
+            content_parts, system_contexts, timeout_log="多模态流式响应超时"
+        ):
+            yield chunk
+
+    async def _send_stream_impl(
+        self,
+        user_input: str | list[dict[str, Any]],
+        system_contexts: list[str] | None = None,
+        *,
+        timeout_log: str,
+    ) -> AsyncIterator[StreamChunk]:
+        """流式发送共享实现；`user_input` 为文本或多模态 content parts。"""
         if self.is_shutting_down:
             return
 
@@ -425,91 +418,7 @@ class Agent:
                 self._action_executor.cancel_response("stream cancelled")  # type: ignore
                 raise
             except TimeoutError as error:
-                logger.warning(f"流式响应超时: {error}")
-                self._action_executor.cancel_response(str(error))  # type: ignore
-                yield StreamChunk(
-                    type="error",
-                    content="\n[响应超时]\n",
-                    error=str(error),
-                    error_code="agent.stream.timeout",
-                )
-            finally:
-                self._action_executor.complete_response(full_response)  # type: ignore
-
-    async def send_multimodal_stream(
-        self,
-        content_parts: list[dict[str, Any]],
-        system_contexts: list[str] | None = None,
-    ) -> AsyncIterator[StreamChunk]:
-        """发送多模态消息（流式）。"""
-        if self.is_shutting_down:
-            return
-
-        async with self._request_semaphore:
-            if self.is_shutting_down:
-                return
-            await self.discard_initiative_timer(reason="user_message_received", source="user")
-            response_future = self._action_executor.prepare_response()  # type: ignore
-            self._publish_message_received(content_parts, system_contexts)
-
-            full_response = ""
-            loop = asyncio.get_running_loop()
-            started_at = loop.time()
-            last_chunk_at = started_at
-            saw_chunk = False
-            try:
-                while True:
-                    timeout = self._next_stream_wait_timeout(
-                        started_at=started_at,
-                        last_chunk_at=last_chunk_at,
-                        saw_chunk=saw_chunk,
-                    )
-                    if timeout <= 0:
-                        raise TimeoutError("stream response timeout")
-
-                    # 同时等待 chunk 和 response_future，避免 response_future 完成后
-                    # 还要硬等 get_chunk 的 0.1s 超时
-                    get_chunk_task = asyncio.create_task(
-                        self._action_executor.get_chunk()  # type: ignore
-                    )
-                    try:
-                        done, pending = await asyncio.wait(
-                            [get_chunk_task, response_future],
-                            return_when=asyncio.FIRST_COMPLETED,
-                            timeout=min(0.1, timeout),
-                        )
-                    except Exception:
-                        get_chunk_task.cancel()
-                        with contextlib.suppress(asyncio.CancelledError):
-                            await get_chunk_task
-                        raise
-
-                    if get_chunk_task in pending:
-                        get_chunk_task.cancel()
-                        with contextlib.suppress(asyncio.CancelledError):
-                            await get_chunk_task
-
-                    if response_future in done:
-                        break
-
-                    if get_chunk_task in done:
-                        chunk = get_chunk_task.result()
-                        if chunk:
-                            saw_chunk = True
-                            last_chunk_at = loop.time()
-                            full_response += chunk
-                            yield StreamChunk(content=chunk)
-                        continue
-
-                    # 超时：两个都没完成
-                    if self._stream_timed_out(started_at, last_chunk_at, saw_chunk):
-                        raise TimeoutError("stream response timeout")
-                    continue
-            except asyncio.CancelledError, GeneratorExit:
-                self._action_executor.cancel_response("stream cancelled")  # type: ignore
-                raise
-            except TimeoutError as error:
-                logger.warning(f"多模态流式响应超时: {error}")
+                logger.warning(f"{timeout_log}: {error}")
                 self._action_executor.cancel_response(str(error))  # type: ignore
                 yield StreamChunk(
                     type="error",
@@ -739,15 +648,6 @@ class Agent:
             )
         )
 
-    async def _schedule_initiative_timer_bg(self, full_response: str) -> None:
-        """后台调度主动定时器，不阻塞主流程。"""
-        try:
-            self._last_initiative_timer_payload = await self.schedule_initiative_timer(
-                full_response
-            )
-        except Exception as e:
-            logger.error(f"后台调度主动定时器失败: {e}")
-
     async def _prepend_scene_context(self, system_contexts: list[str]) -> list[str]:
         """对话开始时把当前场景描述放到系统上下文最前面（每会话仅一次）。"""
         if not self.scene_manager.enabled:
@@ -808,227 +708,30 @@ class Agent:
                     )
                 )
                 # 后台调度主动定时器，不阻塞 complete_response 和用户输入
-                asyncio.create_task(self._schedule_initiative_timer_bg(full_response))
+                asyncio.create_task(self._initiative_coordinator.schedule_bg(full_response))
 
             # 🔑 无论如何都要把控制权还给用户
             if self._action_executor:
                 self._action_executor.complete_response(full_response)
 
-    def _ensure_initiative_timer(self) -> InitiativeTimerManager:
-        if self._initiative_timer is None:
-            if self._think_engine is None:
-                raise AgentError("ThinkEngine not initialized")
-            self._initiative_timer = InitiativeTimerManager(
-                config=self.config.initiative_timer,
-                think_engine=self._think_engine,
-                event_bus=self.event_bus,
-                character_name=self.character_name,
-                working_memory=self.working_memory,
-                debug_silent_output=self.config.debug_silent_output,
-                trigger_handler=self._handle_initiative_timer_trigger,
-            )
-        return self._initiative_timer
+    # ==================== 主动定时器（委托 InitiativeCoordinator） ====================
 
     async def schedule_initiative_timer(self, assistant_response: str) -> dict | None:
-        if not self.config.initiative_timer.enabled:
-            return None
-        return await self._ensure_initiative_timer().schedule_after_response(assistant_response)
-
-    async def _handle_initiative_timer_trigger(
-        self, payload: dict[str, Any]
-    ) -> dict[str, Any] | None:
-        """定时器到点后：委托 ThinkEngine 说话前思考，再生成真正主动消息。"""
-        pending_summary = str(payload.get("pending_summary") or "").strip()
-        timer_id = str(payload.get("timer_id") or "").strip()
-        logger.debug(f"[Agent] 主动定时器 {timer_id} 触发，待表达摘要: {pending_summary[:60]}...")
-        if not pending_summary:
-            logger.debug("[Agent] 主动定时器触发时摘要为空，跳过生成")
-            return None
-
-        await self._ensure_background_manager()
-        tool_build_result = await self._build_tools()
-        self.message_builder.update_tool_build_result(tool_build_result)
-
-        # 委托 ThinkEngine 进行说话前思考
-        recent_messages = self.working_memory.get_recent(8)
-        recent_context = "\n".join(
-            f"{item.get('role', 'unknown')}: {item.get('content', '')}"
-            for item in recent_messages
-            if isinstance(item.get("content"), str)
-        )
-        if self._think_engine is None:
-            raise AgentError("ThinkEngine not initialized")
-        thought = await self._think_engine.pre_speak_thought(
-            pending_summary=pending_summary,
-            recent_context=recent_context,
-            max_tokens=self.config.think_engine.think_max_tokens,
-            temperature=self.config.think_engine.think_temperature,
-        )
-
-        system_contexts = [
-            "【主动定时器触发 · 无新用户输入】\n"
-            "用户没有发送任何新消息。这是你自己在之前的回复中决定要说的话，现在到了该开口的时刻。\n"
-            "你的任务是：衔接你刚才的最后一句话，自然地把话题延续下去，而不是回应一个新的问题。\n"
-            "不要重复你刚才已经说过的内容；不要反问用户“为什么又问一遍”或表现出被重复打扰；"
-            "不要解释定时器、摘要或内部思考；直接以你的角色口吻自然开口。\n"
-            f"待表达意图摘要：{pending_summary}\n"
-            f"说话前内部思考：{thought or '无'}"
-        ]
-        system_contexts = await self._prepend_scene_context(system_contexts)
-        messages = self.message_builder.build("", system_contexts)
-        # 工作记忆末尾是助手自己的上一条回复，必须补一条 user 消息让模型继续生成下一句
-        messages.append(
-            {
-                "role": "user",
-                "content": "（没有新用户输入，这是你自己决定要说的话，请按照上面的摘要和内部思考自然地主动开口。）",
-            }
-        )
-        max_tokens = self.config.think_engine.initiative_max_tokens
-        initiative_options: dict[str, Any] = {
-            "temperature": self.config.think_engine.initiative_temperature,
-        }
-        if max_tokens > 0:
-            initiative_options["num_predict"] = max_tokens
-            initiative_options["max_tokens"] = max_tokens
-        use_stream = self.config.model.stream
-
-        logger.trace(
-            f"[Agent] 主动消息生成请求 messages:\n"
-            f"{json.dumps(messages, ensure_ascii=False, indent=2, default=str)}"
-        )
-
-        message = ""
-        try:
-            if use_stream:
-                chunks: list[str] = []
-                async for chunk in self._model_client.chat_stream(
-                    messages=messages,
-                    options=initiative_options,
-                ):
-                    if self.is_shutting_down:
-                        break
-                    chunk_text = chunk.content if hasattr(chunk, "content") else ""
-                    if chunk_text:
-                        chunks.append(chunk_text)
-                        logger.trace(f"[Agent] 主动消息流式 chunk: {chunk_text!r}")
-                        self.event_bus.publish(
-                            Event(
-                                type=SystemEvent.THINK_ENGINE_INITIATIVE_CHUNK,
-                                source="initiative_timer",
-                                data={"content": chunk_text, "done": False},
-                            )
-                        )
-                message = "".join(chunks).strip()
-                logger.debug(f"[Agent] 主动消息流式生成完成，长度: {len(message)}")
-                # 发送流式结束标记
-                self.event_bus.publish(
-                    Event(
-                        type=SystemEvent.THINK_ENGINE_INITIATIVE_CHUNK,
-                        source="initiative_timer",
-                        data={"content": "", "done": True},
-                    )
-                )
-            else:
-                response = await self._model_client.chat(
-                    messages=messages,
-                    options=initiative_options,
-                )
-                content = response.message.content
-                message = content.strip() if isinstance(content, str) else ""
-                logger.debug(f"[Agent] 主动消息非流式生成完成，长度: {len(message)}")
-        except Exception as error:
-            logger.error(f"主动定时器主动消息生成失败: {error}")
-            message = ""
-
-        if not message:
-            return {
-                "sent": False,
-                "timer_id": timer_id,
-                "pending_summary": pending_summary,
-                "thought": thought,
-            }
-
-        # 发布完整消息事件（供持久化/记忆记录等下游消费）
-        self.event_bus.publish(
-            Event(
-                type=SystemEvent.THINK_ENGINE_INITIATIVE,
-                source="initiative_timer",
-                data={
-                    "message": message,
-                    "timer_id": timer_id,
-                    "pending_summary": pending_summary,
-                    "thought": thought,
-                },
-            )
-        )
-        self.event_bus.publish(
-            Event(
-                type=SystemEvent.MESSAGE_SENT,
-                source="initiative_timer",
-                data={
-                    "content": message,
-                    "initiative": True,
-                    "timer_id": timer_id,
-                    "pending_summary": pending_summary,
-                },
-            )
-        )
-        logger.info(
-            f"[Agent] 主动消息已发送，timer_id={timer_id}, 长度={len(message)}, "
-            f"内容: {message[:80]}..."
-        )
-
-        # 主动发言成功：递增计数，并在未达上限时继续调度下一轮主动定时器
-        self._ensure_initiative_timer().increment_consecutive_initiative_count()
-        if (
-            self._initiative_timer is not None
-            and not self._initiative_timer._has_reached_initiative_limit()
-        ):
-            logger.debug("[Agent] 未达连续主动上限，继续调度下一轮主动定时器")
-            self._last_initiative_timer_payload = await self.schedule_initiative_timer(message)
-
-        return {
-            "sent": True,
-            "timer_id": timer_id,
-            "pending_summary": pending_summary,
-            "message": message,
-            "thought": thought,
-        }
+        return await self._initiative_coordinator.schedule(assistant_response)
 
     async def discard_initiative_timer(
         self, *, reason: str = "discarded", source: str = "system"
     ) -> dict | None:
-        if self._initiative_timer is None:
-            return None
-        self._last_initiative_timer_payload = None
-        if source == "user":
-            self._initiative_timer.reset_consecutive_initiative_count()
-        return await self._initiative_timer.discard(reason=reason, source=source)
+        return await self._initiative_coordinator.discard(reason=reason, source=source)
 
     def current_initiative_timer(self) -> dict | None:
-        if self._initiative_timer is None:
-            return None
-        return self._initiative_timer.current_payload()
+        return self._initiative_coordinator.current()
 
     def initiative_hesitation_status(self) -> dict:
-        return {
-            "enabled": self.config.initiative_timer.hesitation_enabled,
-            "max_rounds": self.config.initiative_timer.hesitation_max_rounds,
-            "delay_seconds": self.config.initiative_timer.hesitation_delay_seconds,
-        }
+        return self._initiative_coordinator.hesitation_status()
 
     def set_initiative_hesitation_enabled(self, enabled: bool, *, persist: bool = True) -> dict:
-        self.config.initiative_timer.hesitation_enabled = bool(enabled)
-        config_path: str | None = None
-        if persist:
-            path = ConfigLoader.set_initiative_hesitation_enabled(
-                getattr(self, "config_file", None),
-                bool(enabled),
-            )
-            config_path = str(path)
-        payload = self.initiative_hesitation_status()
-        payload["config_path"] = config_path
-        return payload
+        return self._initiative_coordinator.set_hesitation_enabled(enabled, persist=persist)
 
     async def update_initiative_timer(
         self,
@@ -1038,24 +741,20 @@ class Agent:
         due_at: str | None = None,
         pending_summary: str | None = None,
     ) -> dict:
-        payload = await self._ensure_initiative_timer().update(
+        return await self._initiative_coordinator.update(
             timer_id=timer_id,
             delay_seconds=delay_seconds,
             due_at=due_at,
             pending_summary=pending_summary,
         )
-        self._last_initiative_timer_payload = payload
-        return payload
 
     async def cancel_initiative_timer(
         self, *, timer_id: str | None = None, reason: str = "cancelled"
     ) -> dict:
-        self._last_initiative_timer_payload = None
-        return await self._ensure_initiative_timer().cancel(timer_id=timer_id, reason=reason)
+        return await self._initiative_coordinator.cancel(timer_id=timer_id, reason=reason)
 
     async def trigger_initiative_timer(self, *, timer_id: str | None = None) -> dict:
-        self._last_initiative_timer_payload = None
-        return await self._ensure_initiative_timer().trigger(timer_id=timer_id)
+        return await self._initiative_coordinator.trigger(timer_id=timer_id)
 
     async def _on_shutdown(self) -> None:
         if self._generate_response_subscription_id is not None:
@@ -1069,8 +768,7 @@ class Agent:
         if self._think_engine:
             await self._think_engine.stop()
 
-        if self._initiative_timer:
-            await self._initiative_timer.shutdown()
+        await self._initiative_coordinator.shutdown()
 
         if self._background_manager:
             await self._background_manager.stop(wait=True)

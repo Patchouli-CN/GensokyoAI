@@ -1,0 +1,277 @@
+"""主动定时器编排：Agent 侧的调度、触发与主动消息生成管线。
+
+`InitiativeTimerManager` 负责定时器状态与调度；本协调器负责 Agent 侧的
+编排——到点后构建消息、调用模型、发布事件。与 `CoreListeners` 同型：
+持有 Agent 引用并访问其服务，使 `_impl.py` 不必承载整段管线。
+"""
+
+from __future__ import annotations
+
+import json
+from typing import TYPE_CHECKING, Any
+
+from ...utils.logger import logger
+from ..config import ConfigLoader
+from ..events import Event, SystemEvent
+from ..exceptions import AgentError
+from .initiative_timer import InitiativeTimerManager
+
+if TYPE_CHECKING:
+    from ._impl import Agent
+
+
+class InitiativeCoordinator:
+    """Agent 主动定时器编排协调器。"""
+
+    def __init__(self, agent: Agent) -> None:
+        self._agent = agent
+        self._manager: InitiativeTimerManager | None = None
+        self._last_payload: dict | None = None
+
+    async def schedule_bg(self, full_response: str) -> None:
+        """后台调度主动定时器，不阻塞主流程。"""
+        try:
+            self._last_payload = await self.schedule(full_response)
+        except Exception as e:
+            logger.error(f"后台调度主动定时器失败: {e}")
+
+    def _ensure_manager(self) -> InitiativeTimerManager:
+        if self._manager is None:
+            agent = self._agent
+            if agent._think_engine is None:
+                raise AgentError("ThinkEngine not initialized")
+            self._manager = InitiativeTimerManager(
+                config=agent.config.initiative_timer,
+                think_engine=agent._think_engine,
+                event_bus=agent.event_bus,
+                character_name=agent.character_name,
+                working_memory=agent.working_memory,
+                debug_silent_output=agent.config.debug_silent_output,
+                trigger_handler=self._handle_trigger,
+            )
+        return self._manager
+
+    async def schedule(self, assistant_response: str) -> dict | None:
+        if not self._agent.config.initiative_timer.enabled:
+            return None
+        return await self._ensure_manager().schedule_after_response(assistant_response)
+
+    async def _handle_trigger(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        """定时器到点后：委托 ThinkEngine 说话前思考，再生成真正主动消息。"""
+        agent = self._agent
+        pending_summary = str(payload.get("pending_summary") or "").strip()
+        timer_id = str(payload.get("timer_id") or "").strip()
+        logger.debug(f"[Agent] 主动定时器 {timer_id} 触发，待表达摘要: {pending_summary[:60]}...")
+        if not pending_summary:
+            logger.debug("[Agent] 主动定时器触发时摘要为空，跳过生成")
+            return None
+
+        await agent._ensure_background_manager()
+        tool_build_result = await agent._build_tools()
+        agent.message_builder.update_tool_build_result(tool_build_result)
+
+        # 委托 ThinkEngine 进行说话前思考
+        recent_messages = agent.working_memory.get_recent(8)
+        recent_context = "\n".join(
+            f"{item.get('role', 'unknown')}: {item.get('content', '')}"
+            for item in recent_messages
+            if isinstance(item.get("content"), str)
+        )
+        if agent._think_engine is None:
+            raise AgentError("ThinkEngine not initialized")
+        thought = await agent._think_engine.pre_speak_thought(
+            pending_summary=pending_summary,
+            recent_context=recent_context,
+            max_tokens=agent.config.think_engine.think_max_tokens,
+            temperature=agent.config.think_engine.think_temperature,
+        )
+
+        system_contexts = [
+            "【主动定时器触发 · 无新用户输入】\n"
+            "用户没有发送任何新消息。这是你自己在之前的回复中决定要说的话，现在到了该开口的时刻。\n"
+            "你的任务是：衔接你刚才的最后一句话，自然地把话题延续下去，而不是回应一个新的问题。\n"
+            "不要重复你刚才已经说过的内容；不要反问用户“为什么又问一遍”或表现出被重复打扰；"
+            "不要解释定时器、摘要或内部思考；直接以你的角色口吻自然开口。\n"
+            f"待表达意图摘要：{pending_summary}\n"
+            f"说话前内部思考：{thought or '无'}"
+        ]
+        system_contexts = await agent._prepend_scene_context(system_contexts)
+        messages = agent.message_builder.build("", system_contexts)
+        # 工作记忆末尾是助手自己的上一条回复，必须补一条 user 消息让模型继续生成下一句
+        messages.append(
+            {
+                "role": "user",
+                "content": "（没有新用户输入，这是你自己决定要说的话，请按照上面的摘要和内部思考自然地主动开口。）",
+            }
+        )
+        max_tokens = agent.config.think_engine.initiative_max_tokens
+        initiative_options: dict[str, Any] = {
+            "temperature": agent.config.think_engine.initiative_temperature,
+        }
+        if max_tokens > 0:
+            initiative_options["num_predict"] = max_tokens
+            initiative_options["max_tokens"] = max_tokens
+        use_stream = agent.config.model.stream
+
+        logger.trace(
+            f"[Agent] 主动消息生成请求 messages:\n"
+            f"{json.dumps(messages, ensure_ascii=False, indent=2, default=str)}"
+        )
+
+        message = ""
+        try:
+            if use_stream:
+                chunks: list[str] = []
+                async for chunk in agent._model_client.chat_stream(
+                    messages=messages,
+                    options=initiative_options,
+                ):
+                    if agent.is_shutting_down:
+                        break
+                    chunk_text = chunk.content if hasattr(chunk, "content") else ""
+                    if chunk_text:
+                        chunks.append(chunk_text)
+                        logger.trace(f"[Agent] 主动消息流式 chunk: {chunk_text!r}")
+                        agent.event_bus.publish(
+                            Event(
+                                type=SystemEvent.THINK_ENGINE_INITIATIVE_CHUNK,
+                                source="initiative_timer",
+                                data={"content": chunk_text, "done": False},
+                            )
+                        )
+                message = "".join(chunks).strip()
+                logger.debug(f"[Agent] 主动消息流式生成完成，长度: {len(message)}")
+                # 发送流式结束标记
+                agent.event_bus.publish(
+                    Event(
+                        type=SystemEvent.THINK_ENGINE_INITIATIVE_CHUNK,
+                        source="initiative_timer",
+                        data={"content": "", "done": True},
+                    )
+                )
+            else:
+                response = await agent._model_client.chat(
+                    messages=messages,
+                    options=initiative_options,
+                )
+                content = response.message.content
+                message = content.strip() if isinstance(content, str) else ""
+                logger.debug(f"[Agent] 主动消息非流式生成完成，长度: {len(message)}")
+        except Exception as error:
+            logger.error(f"主动定时器主动消息生成失败: {error}")
+            message = ""
+
+        if not message:
+            return {
+                "sent": False,
+                "timer_id": timer_id,
+                "pending_summary": pending_summary,
+                "thought": thought,
+            }
+
+        # 发布完整消息事件（供持久化/记忆记录等下游消费）
+        agent.event_bus.publish(
+            Event(
+                type=SystemEvent.THINK_ENGINE_INITIATIVE,
+                source="initiative_timer",
+                data={
+                    "message": message,
+                    "timer_id": timer_id,
+                    "pending_summary": pending_summary,
+                    "thought": thought,
+                },
+            )
+        )
+        agent.event_bus.publish(
+            Event(
+                type=SystemEvent.MESSAGE_SENT,
+                source="initiative_timer",
+                data={
+                    "content": message,
+                    "initiative": True,
+                    "timer_id": timer_id,
+                    "pending_summary": pending_summary,
+                },
+            )
+        )
+        logger.info(
+            f"[Agent] 主动消息已发送，timer_id={timer_id}, 长度={len(message)}, "
+            f"内容: {message[:80]}..."
+        )
+
+        # 主动发言成功：递增计数，并在未达上限时继续调度下一轮主动定时器
+        self._ensure_manager().increment_consecutive_initiative_count()
+        if self._manager is not None and not self._manager._has_reached_initiative_limit():
+            logger.debug("[Agent] 未达连续主动上限，继续调度下一轮主动定时器")
+            self._last_payload = await self.schedule(message)
+
+        return {
+            "sent": True,
+            "timer_id": timer_id,
+            "pending_summary": pending_summary,
+            "message": message,
+            "thought": thought,
+        }
+
+    async def discard(self, *, reason: str = "discarded", source: str = "system") -> dict | None:
+        if self._manager is None:
+            return None
+        self._last_payload = None
+        if source == "user":
+            self._manager.reset_consecutive_initiative_count()
+        return await self._manager.discard(reason=reason, source=source)
+
+    def current(self) -> dict | None:
+        if self._manager is None:
+            return None
+        return self._manager.current_payload()
+
+    def hesitation_status(self) -> dict:
+        config = self._agent.config.initiative_timer
+        return {
+            "enabled": config.hesitation_enabled,
+            "max_rounds": config.hesitation_max_rounds,
+            "delay_seconds": config.hesitation_delay_seconds,
+        }
+
+    def set_hesitation_enabled(self, enabled: bool, *, persist: bool = True) -> dict:
+        self._agent.config.initiative_timer.hesitation_enabled = bool(enabled)
+        config_path: str | None = None
+        if persist:
+            path = ConfigLoader.set_initiative_hesitation_enabled(
+                getattr(self._agent, "config_file", None),
+                bool(enabled),
+            )
+            config_path = str(path)
+        payload = self.hesitation_status()
+        payload["config_path"] = config_path
+        return payload
+
+    async def update(
+        self,
+        *,
+        timer_id: str | None = None,
+        delay_seconds: int | float | None = None,
+        due_at: str | None = None,
+        pending_summary: str | None = None,
+    ) -> dict:
+        payload = await self._ensure_manager().update(
+            timer_id=timer_id,
+            delay_seconds=delay_seconds,
+            due_at=due_at,
+            pending_summary=pending_summary,
+        )
+        self._last_payload = payload
+        return payload
+
+    async def cancel(self, *, timer_id: str | None = None, reason: str = "cancelled") -> dict:
+        self._last_payload = None
+        return await self._ensure_manager().cancel(timer_id=timer_id, reason=reason)
+
+    async def trigger(self, *, timer_id: str | None = None) -> dict:
+        self._last_payload = None
+        return await self._ensure_manager().trigger(timer_id=timer_id)
+
+    async def shutdown(self) -> None:
+        if self._manager:
+            await self._manager.shutdown()
